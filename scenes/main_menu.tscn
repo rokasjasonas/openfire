@@ -1,0 +1,247 @@
+[gd_scene load_steps=2 format=3 uid="uid://cmainmenu0001"]
+
+[ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_menu")
+
+[node name="BG" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.09, 0.1, 0.13, 1)
+
+[node name="SetupPanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="SetupPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="SetupPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="SetupPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "OPENFIRE"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "Cross-platform co-op & deathmatch FPS"
+horizontal_alignment = 1
+
+[node name="NameRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Name"
+
+[node name="NameEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/NameRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+text = "Player"
+
+[node name="ModeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/ModeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Mode"
+
+[node name="ModeOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/ModeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="MapRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MapRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Map"
+
+[node name="MapOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/MapRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="MissionRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MissionRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Mission"
+
+[node name="MissionOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/MissionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="FragRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/FragRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Frag limit"
+
+[node name="FragSpin" type="SpinBox" parent="SetupPanel/Center/Box/VBox/FragRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+min_value = 5.0
+max_value = 100.0
+step = 5.0
+value = 25.0
+
+[node name="BotsRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/BotsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Bots"
+
+[node name="BotsSpin" type="SpinBox" parent="SetupPanel/Center/Box/VBox/BotsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+max_value = 16.0
+value = 6.0
+
+[node name="SkillRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/SkillRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Bot skill"
+
+[node name="SkillOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/SkillRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="IpRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/IpRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Join IP"
+
+[node name="IpEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/IpRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+placeholder_text = "127.0.0.1"
+
+[node name="Buttons" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HostButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Host"
+
+[node name="JoinButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Join"
+
+[node name="SoloButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Solo vs Bots"
+
+[node name="QuitButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Quit"
+
+[node name="StatusLabel" type="Label" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+text = ""
+
+[node name="LobbyPanel" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="LobbyPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="LobbyPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="LobbyPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+custom_minimum_size = Vector2(360, 0)
+
+[node name="Title" type="Label" parent="LobbyPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "LOBBY"
+horizontal_alignment = 1
+
+[node name="LobbySummary" type="Label" parent="LobbyPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+text = ""
+
+[node name="PlayersTitle" type="Label" parent="LobbyPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "Players:"
+
+[node name="LobbyPlayers" type="VBoxContainer" parent="LobbyPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="LobbyButtons" type="HBoxContainer" parent="LobbyPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="StartButton" type="Button" parent="LobbyPanel/Center/Box/VBox/LobbyButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Start Match"
+
+[node name="BackButton" type="Button" parent="LobbyPanel/Center/Box/VBox/LobbyButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back"

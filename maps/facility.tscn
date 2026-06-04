@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cfacility0001"]
+
+[ext_resource type="Script" path="res://scripts/world/facility.gd" id="1_fac"]
+
+[node name="Facility" type="Node3D"]
+script = ExtResource("1_fac")

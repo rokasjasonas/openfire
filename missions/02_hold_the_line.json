@@ -1,0 +1,11 @@
+{
+	"id": "hold_the_line",
+	"name": "Hold the Line",
+	"description": "Defend the insertion point against escalating waves until evac arrives.",
+	"map": "res://maps/facility.tscn",
+	"enemy_skill": 1.0,
+	"objectives": [
+		{ "type": "defend", "description": "Defend the LZ", "zone": "defend", "duration": 90, "spawn_interval": 4.0, "wave_size": 6 },
+		{ "type": "reach_zone", "description": "Fall back to extraction", "zone": "extraction" }
+	]
+}

@@ -1,0 +1,26 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+/.import/
+
+# Local tooling (portable engine binary + raw asset downloads)
+.tools/
+.assets_src/
+
+# Exported builds
+/build/
+/dist/
+*.exe
+*.dmg
+*.x86_64
+*.app/
+*.pck
+*.zip
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*~
+*.swp
+.vscode/
+.idea/

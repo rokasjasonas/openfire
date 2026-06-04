@@ -1,0 +1,15 @@
+{
+	"id": "two_point_assault",
+	"name": "Two-Point Assault",
+	"description": "Push through the compound, securing each objective room before extracting.",
+	"map": "res://maps/facility.tscn",
+	"enemy_skill": 1.1,
+	"objectives": [
+		{ "type": "eliminate_all", "description": "Breach and clear Room Alpha", "enemy_count": 6, "wave_size": 3 },
+		{ "type": "reach_zone", "description": "Secure objective Alpha", "zone": "alpha" },
+		{ "type": "eliminate_all", "description": "Clear Room Bravo", "enemy_count": 8, "wave_size": 4 },
+		{ "type": "reach_zone", "description": "Secure objective Bravo", "zone": "bravo" },
+		{ "type": "survive_time", "description": "Hold for extraction", "duration": 45, "spawn_interval": 5.0, "wave_size": 5 },
+		{ "type": "reach_zone", "description": "Reach the extraction point", "zone": "extraction" }
+	]
+}

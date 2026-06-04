@@ -1,0 +1,11 @@
+{
+	"id": "clear_the_facility",
+	"name": "Clear the Facility",
+	"description": "Sweep the compound of all hostiles, then reach the extraction point.",
+	"map": "res://maps/facility.tscn",
+	"enemy_skill": 0.9,
+	"objectives": [
+		{ "type": "eliminate_all", "description": "Eliminate all hostiles", "enemy_count": 12, "wave_size": 4 },
+		{ "type": "reach_zone", "description": "Reach the extraction point", "zone": "extraction" }
+	]
+}

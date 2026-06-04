@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3 uid="uid://cworld000001"]
+
+[ext_resource type="Script" path="res://scripts/world/world.gd" id="1_world"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="2_hud"]
+
+[node name="World" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="MapHolder" type="Node3D" parent="."]
+
+[node name="Combatants" type="Node3D" parent="."]
+
+[node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="."]
+spawn_path = NodePath("../Combatants")
+_spawnable_scenes = PackedStringArray("res://scenes/player.tscn", "res://scenes/bot.tscn")
+
+[node name="HUD" parent="." instance=ExtResource("2_hud")]

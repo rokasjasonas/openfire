@@ -124,6 +124,33 @@ func _ready() -> void:
 				headshot_ok = r.collider.multiplier >= 2.0 and r.collider.combatant() == bot
 	print("SMOKE: headshot_hitbox_ok=", headshot_ok)
 
+	# Crouch: _apply_crouch shrinks the capsule and lowers the head.
+	var crouch_ok := false
+	if me:
+		me._apply_crouch(1.0)
+		var crouched_h: float = (me.col_shape.shape as CapsuleShape3D).height
+		var crouched_head: float = me.head.position.y
+		me._apply_crouch(0.0)
+		var stand_h: float = (me.col_shape.shape as CapsuleShape3D).height
+		crouch_ok = crouched_h < stand_h - 0.5 and crouched_head < me.STAND_HEAD - 0.3
+	print("SMOKE: crouch_ok=", crouch_ok)
+
+	# Hitbox edge coverage: a shot near the body's side (x=0.38, beyond the old
+	# narrow torso) now resolves to a hitbox instead of missing.
+	var coverage_ok := false
+	if me:
+		me.rotation = Vector3.ZERO
+		me._apply_crouch(0.0)
+		await get_tree().physics_frame
+		var tpos: Vector3 = me.get_node("Hitboxes/Torso/Shape").global_position
+		var aim := tpos + Vector3(0.38, 0, 0)
+		var q := PhysicsRayQueryParameters3D.create(aim + Vector3(0, 0, 2.5), aim)
+		q.collision_mask = 1 | 16
+		q.collide_with_areas = true
+		var r: Dictionary = me.get_world_3d().direct_space_state.intersect_ray(q)
+		coverage_ok = r and r.collider is Hitbox
+	print("SMOKE: hitbox_edge_coverage_ok=", coverage_ok)
+
 	# Non-flat map: highlands builds, bakes a navmesh, has multi-height spawns.
 	var hl: Node = load("res://maps/highlands.tscn").instantiate()
 	get_tree().root.add_child(hl)
@@ -139,7 +166,7 @@ func _ready() -> void:
 	hl.queue_free()
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

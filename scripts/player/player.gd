@@ -12,6 +12,13 @@ const ACCEL_AIR := 3.0
 const MOUSE_SENS := 0.0024
 const MAX_HEALTH := 100.0
 
+# Crouch
+const STAND_HEIGHT := 1.8
+const CROUCH_HEIGHT := 1.0
+const STAND_HEAD := 1.6
+const CROUCH_HEAD := 1.05
+const CROUCH_SPEED_FACTOR := 8.0   # how fast we transition
+
 # combatant_id == peer id for players (always positive). Used for scoring.
 var combatant_id: int = 1
 var team: int = -1
@@ -20,10 +27,12 @@ var display_name: String = "Player"
 # Replicated state (see SceneReplicationConfig in player.tscn).
 var sync_health: float = MAX_HEALTH
 var sync_weapon_index: int = 0
+var sync_crouch: float = 0.0   # 0 = standing, 1 = fully crouched
 var dead: bool = false
 
 var _yaw: float = 0.0
 var _pitch: float = 0.0
+var _crouch: float = 0.0
 var _spawn_point: Transform3D
 var _respawn_timer: float = 0.0
 
@@ -32,6 +41,8 @@ var _respawn_timer: float = 0.0
 @onready var body_model: Node3D = $BodyModel
 @onready var weapons: Node = $Head/Camera3D/WeaponManager
 @onready var name_label: Label3D = $NameLabel
+@onready var col_shape: CollisionShape3D = $CollisionShape3D
+@onready var hitboxes: Node3D = $Hitboxes
 @onready var hud: CanvasLayer = $HUD if has_node("HUD") else null
 
 signal health_changed(current: float, maximum: float)
@@ -42,6 +53,8 @@ signal died(attacker_id: int)
 
 func _ready() -> void:
 	_spawn_point = global_transform
+	# Own copy of the capsule so crouch resizing is per-player, not shared.
+	col_shape.shape = col_shape.shape.duplicate()
 	add_to_group("combatant")
 	add_to_group("player")
 	name_label.text = display_name
@@ -66,6 +79,28 @@ func _emit_hud() -> void:
 	health_changed.emit(sync_health, MAX_HEALTH)
 	weapons.emit_state()
 
+## Apply a crouch factor (0..1): shrink/recenter the capsule, lower the camera,
+## drop the hitboxes and squash the body model. Runs on every peer so remote
+## players are hit at their crouched height.
+func _apply_crouch(f: float) -> void:
+	var height := lerpf(STAND_HEIGHT, CROUCH_HEIGHT, f)
+	if col_shape.shape is CapsuleShape3D:
+		(col_shape.shape as CapsuleShape3D).height = height
+	col_shape.position.y = height * 0.5
+	head.position.y = lerpf(STAND_HEAD, CROUCH_HEAD, f)
+	hitboxes.position.y = lerpf(0.0, CROUCH_HEAD - STAND_HEAD, f)
+	body_model.scale.y = lerpf(1.0, 0.7, f)
+
+## True if there is room to stand back up (nothing solid overhead).
+func _has_headroom() -> bool:
+	var space := get_world_3d().direct_space_state
+	var from := global_position + Vector3.UP * (CROUCH_HEIGHT - 0.1)
+	var to := global_position + Vector3.UP * (STAND_HEIGHT + 0.1)
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = 1  # world only
+	q.exclude = [get_rid()]
+	return space.intersect_ray(q).is_empty()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority() or dead:
 		return
@@ -77,29 +112,38 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not is_multiplayer_authority():
-		# Remote copy: keep weapon model matched to replicated index.
+		# Remote copy: keep weapon model + crouch pose matched to replicated state.
 		weapons.ensure_index(sync_weapon_index)
+		_apply_crouch(sync_crouch)
 		return
 
 	if dead:
 		_respawn_timer -= delta
 		return
 
+	# Crouch (hold). Can't stand back up if something is overhead.
+	var want_crouch := Input.is_action_pressed("crouch")
+	if not want_crouch and _crouch > 0.05 and not _has_headroom():
+		want_crouch = true
+	_crouch = move_toward(_crouch, 1.0 if want_crouch else 0.0, CROUCH_SPEED_FACTOR * delta)
+	sync_crouch = _crouch
+	_apply_crouch(_crouch)
+
 	# Gravity
 	if not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
 
-	if Input.is_action_just_pressed("jump") and is_on_floor():
+	if Input.is_action_just_pressed("jump") and is_on_floor() and _crouch < 0.5:
 		velocity.y = JUMP_VELOCITY
 
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 
 	var speed := WALK_SPEED
-	if Input.is_action_pressed("sprint"):
-		speed = SPRINT_SPEED
-	elif Input.is_action_pressed("crouch"):
+	if _crouch > 0.3:
 		speed = CROUCH_SPEED
+	elif Input.is_action_pressed("sprint"):
+		speed = SPRINT_SPEED
 
 	var accel := ACCEL_GROUND if is_on_floor() else ACCEL_AIR
 	var target := dir * speed

@@ -140,6 +140,8 @@ func receive_damage(amount: float, attacker_id: int) -> void:
 	sync_health = max(0.0, sync_health - amount)
 	if is_multiplayer_authority():
 		health_changed.emit(sync_health, MAX_HEALTH)
+		if sync_health > 0.0:
+			Audio.play_3d("res://assets/audio/hurt.ogg", global_position, -1.0, 0.05)
 	if sync_health <= 0.0:
 		_die(attacker_id)
 
@@ -150,6 +152,7 @@ func _die(attacker_id: int) -> void:
 	died.emit(attacker_id)
 	# Report to host for scoring.
 	_report_death.rpc_id(1, attacker_id, combatant_id)
+	Audio.play_3d("res://assets/audio/death.ogg", global_position, 0.0, 0.05)
 	body_model.visible = false
 	weapons.set_hidden(true)
 	name_label.visible = false

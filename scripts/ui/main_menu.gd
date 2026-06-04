@@ -61,6 +61,10 @@ func _ready() -> void:
 	start_button.pressed.connect(func(): Net.start_match())
 	%BackButton.pressed.connect(_on_back)
 
+	# Click sound on every button.
+	for b in find_children("*", "Button", true):
+		b.pressed.connect(func(): Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0))
+
 	_on_mode_changed(0)
 	_show_setup()
 

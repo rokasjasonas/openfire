@@ -117,6 +117,7 @@ func reload() -> void:
 		return
 	_reloading = true
 	_reload_left = float(w["reload_time"])
+	Audio.play_3d("res://assets/audio/reload.ogg", player.global_position, -3.0, 0.04)
 
 func _process(delta: float) -> void:
 	if _cooldown > 0.0:
@@ -291,6 +292,7 @@ func _apply_spread(fwd: Vector3, spread: float) -> Vector3:
 func _play_fire_fx(hit_point: Vector3) -> void:
 	flash.visible = true
 	_make_tracer(muzzle.global_position, hit_point)
+	Audio.play_3d(String(_current().get("sfx", "")), muzzle.global_position, -2.0, 0.08)
 
 @rpc("any_peer", "call_local", "unreliable")
 func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
@@ -299,6 +301,7 @@ func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
 	fx.global_position = pos
 	if normal.length() > 0.01:
 		fx.look_at(pos + normal, Vector3.UP)
+	Audio.play_3d("res://assets/audio/impact.ogg", pos, -8.0, 0.12)
 
 func _make_tracer(from: Vector3, to: Vector3) -> void:
 	var mesh := MeshInstance3D.new()

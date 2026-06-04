@@ -82,8 +82,17 @@ func _ready() -> void:
 		await get_tree().process_frame
 		flash_ok = hud.damage_flash.color.a > 0.0
 
-	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok)
+	# Verify audio assets load and playback paths don't error.
+	var audio_ok := Audio._get_stream("res://assets/audio/fire_rifle.ogg") != null \
+		and Audio._get_stream("res://assets/audio/ui_click.ogg") != null \
+		and Audio._get_stream("res://assets/audio/death.ogg") != null
+	Audio.play_ui("res://assets/audio/ui_click.ogg")
+	if me:
+		Audio.play_3d("res://assets/audio/fire_rifle.ogg", me.global_position, 0.0, 0.1)
+	await get_tree().process_frame
+
+	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

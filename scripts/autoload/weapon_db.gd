@@ -6,6 +6,7 @@ extends Node
 const WEAPONS: Array[Dictionary] = [
 	{
 		"id": "rifle",
+		"sfx": "res://assets/audio/fire_rifle.ogg",
 		"name": "Assault Rifle",
 		"model": "res://assets/models/weapons/blaster-a.glb",
 		"slot": 0,
@@ -23,6 +24,7 @@ const WEAPONS: Array[Dictionary] = [
 	},
 	{
 		"id": "smg",
+		"sfx": "res://assets/audio/fire_smg.ogg",
 		"name": "SMG",
 		"model": "res://assets/models/weapons/blaster-e.glb",
 		"slot": 0,
@@ -40,6 +42,7 @@ const WEAPONS: Array[Dictionary] = [
 	},
 	{
 		"id": "shotgun",
+		"sfx": "res://assets/audio/fire_shotgun.ogg",
 		"name": "Shotgun",
 		"model": "res://assets/models/weapons/blaster-h.glb",
 		"slot": 1,
@@ -57,6 +60,7 @@ const WEAPONS: Array[Dictionary] = [
 	},
 	{
 		"id": "sniper",
+		"sfx": "res://assets/audio/fire_sniper.ogg",
 		"name": "Sniper",
 		"model": "res://assets/models/weapons/blaster-r.glb",
 		"slot": 1,
@@ -74,6 +78,7 @@ const WEAPONS: Array[Dictionary] = [
 	},
 	{
 		"id": "pistol",
+		"sfx": "res://assets/audio/fire_pistol.ogg",
 		"name": "Pistol",
 		"model": "res://assets/models/weapons/blaster-c.glb",
 		"slot": 2,

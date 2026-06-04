@@ -7,6 +7,10 @@
 .tools/
 .assets_src/
 
+# Raw Kenney audio packs (300+ files) — only the curated subset in assets/audio/
+# is used and committed. Re-download from kenney.nl if you want the full packs.
+assets/kenney/audio/
+
 # Exported builds
 /build/
 /dist/

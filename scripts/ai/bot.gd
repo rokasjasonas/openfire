@@ -204,6 +204,7 @@ func _shoot_at(target: Node3D) -> void:
 
 @rpc("any_peer", "call_local", "unreliable")
 func _fire_fx(hit_point: Vector3) -> void:
+	Audio.play_3d("res://assets/audio/fire_bot.ogg", muzzle.global_position, -3.0, 0.1)
 	var from := muzzle.global_position
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
@@ -256,6 +257,8 @@ func _set_dead_visual(is_dead: bool) -> void:
 	body_model.visible = not is_dead
 	name_label.visible = not is_dead
 	$CollisionShape3D.disabled = is_dead
+	if is_dead:
+		Audio.play_3d("res://assets/audio/death.ogg", global_position, -2.0, 0.06)
 
 func _do_respawn() -> void:
 	sync_health = MAX_HEALTH

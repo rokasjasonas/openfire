@@ -17,6 +17,7 @@ Game="*res://scripts/autoload/game.gd"
 Net="*res://scripts/autoload/net.gd"
 Missions="*res://scripts/autoload/missions.gd"
 WeaponDB="*res://scripts/autoload/weapon_db.gd"
+Audio="*res://scripts/autoload/audio.gd"
 
 [display]
 

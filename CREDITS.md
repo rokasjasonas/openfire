@@ -15,6 +15,12 @@ No attribution is required for CC0, but credit is given gratefully.
 | [Blaster Kit](https://kenney.nl/assets/blaster-kit) | Weapon & crate models | `assets/kenney/blaster-kit/`, `assets/models/weapons/` |
 | [Blocky Characters](https://kenney.nl/assets/blocky-characters) | Player & bot models | `assets/kenney/blocky-characters/`, `assets/models/characters/` |
 | [Prototype Textures](https://kenney.nl/assets/prototype-textures) | Level/greybox textures | `assets/kenney/prototype-textures/` |
+| [Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds) | Weapon fire, reload, hurt, death | `assets/audio/` |
+| [Impact Sounds](https://kenney.nl/assets/impact-sounds) | Bullet impacts | `assets/audio/` |
+| [Interface Sounds](https://kenney.nl/assets/interface-sounds) | UI clicks | `assets/audio/` |
+
+A curated subset of the audio packs is committed under `assets/audio/` (the full
+300+ file packs are not committed; re-download from kenney.nl if you want them).
 
 The `assets/models/` folders contain the GLB files (with their `Textures/`) copied from the
 Kenney packs into clean, space-free paths for engine import. The original packs are kept

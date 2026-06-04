@@ -28,6 +28,7 @@ func _ready() -> void:
 	Game.score_changed.connect(_refresh_scoreboard)
 	%ResumeButton.pressed.connect(_resume)
 	%LeaveButton.pressed.connect(_leave)
+	%VersionLabel.text = "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
 	set_process(true)
 
 func _process(_delta: float) -> void:

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash tools/rebuild.sh",
+            "timeout": 300,
+            "statusMessage": "Rebuilding OpenFire + bumping version…"
+          }
+        ]
+      }
+    ]
+  }
+}

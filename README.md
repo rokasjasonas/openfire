@@ -139,6 +139,14 @@ Headless tests (no display needed):
 .tools/godot --headless res://tests/net_client.tscn
 ```
 
+## Versioning & auto-rebuild
+
+The game version lives in `project.godot` (`config/version`) and is shown in the
+corner of the main menu and the in-match HUD. `tools/rebuild.sh` bumps the patch
+version and re-exports all three platform builds; a **Stop hook** in
+`.claude/settings.json` runs it automatically after each Claude Code turn. Run it
+by hand anytime with `bash tools/rebuild.sh`.
+
 ## License & credits
 
 Code is MIT (see [LICENSE](LICENSE)). Art is CC0 from Kenney — see [CREDITS.md](CREDITS.md).

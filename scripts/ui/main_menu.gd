@@ -40,6 +40,7 @@ func _ready() -> void:
 	Net.match_started.connect(_on_match_started)
 
 	name_edit.text = Game.player_name
+	%VersionLabel.text = "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
 	mode_option.clear()
 	mode_option.add_item("Deathmatch")
 	mode_option.add_item("Co-op")

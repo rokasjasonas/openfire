@@ -25,6 +25,12 @@ var _base_fov: float = 75.0
 var _model: Node3D = null
 var _recoil: float = 0.0
 
+# Viewmodel motion (bob/sway) state.
+var _vm_time: float = 0.0
+var _last_yaw: float = 0.0
+var _last_pitch: float = 0.0
+var _sway: Vector3 = Vector3.ZERO
+
 @onready var holder: Node3D = $Holder
 @onready var muzzle: Marker3D = $Holder/Muzzle
 @onready var flash: OmniLight3D = $Holder/Muzzle/Flash
@@ -76,9 +82,11 @@ func _equip(index: int) -> void:
 	if packed:
 		_model = packed.instantiate()
 		holder.add_child(_model)
-		# Position the viewmodel bottom-right of the view.
+		# Position the viewmodel bottom-right of the view. The Kenney blasters are
+		# modelled along +Z (barrel forward), so rotate 180° on Y to point the
+		# muzzle away from the camera (which looks down -Z).
 		_model.position = Vector3(0.18, -0.18, -0.45)
-		_model.rotation_degrees = Vector3(0, 90, 0)
+		_model.rotation_degrees = Vector3(0, 180, 0)
 		_model.scale = Vector3.ONE * 1.0
 	if is_local:
 		emit_state()
@@ -122,6 +130,8 @@ func _process(delta: float) -> void:
 		_recoil = max(0.0, _recoil - delta * 6.0)
 	if flash.visible:
 		flash.visible = false
+
+	_update_viewmodel(delta)
 
 	if _reloading:
 		_reload_left -= delta
@@ -198,6 +208,46 @@ func _fire() -> void:
 	if player.has_node("Head"):
 		player.get_node("Head").rotation.x += deg_to_rad(0.6)
 	emit_state()
+
+## Animate the viewmodel holder: walk bob + look sway + recoil kickback.
+func _update_viewmodel(delta: float) -> void:
+	if holder == null or player == null:
+		return
+	_vm_time += delta
+
+	# Walk bob — oscillate while moving on the ground.
+	var horiz := Vector2(player.velocity.x, player.velocity.z).length()
+	var move_amt := clampf(horiz / 9.0, 0.0, 1.0)
+	var grounded: bool = player.is_on_floor() if player.has_method("is_on_floor") else true
+	var bob := Vector3.ZERO
+	if grounded and move_amt > 0.05:
+		var f := 11.0
+		bob.x = sin(_vm_time * f) * 0.012 * move_amt
+		bob.y = -absf(sin(_vm_time * f)) * 0.012 * move_amt
+	# Reduce bob/sway while aiming down sights.
+	var settle := 0.35 if _aiming else 1.0
+
+	# Look sway — the gun lags behind fast camera turns, then eases back.
+	var yaw := player.rotation.y
+	var pitch: float = player.head.rotation.x if player.has_node("Head") else 0.0
+	var dyaw := wrapf(yaw - _last_yaw, -PI, PI)
+	var dpitch := pitch - _last_pitch
+	_last_yaw = yaw
+	_last_pitch = pitch
+	var sway_target := Vector3(
+		clampf(dyaw * 1.6, -0.05, 0.05),
+		clampf(-dpitch * 1.6, -0.05, 0.05),
+		0.0)
+	_sway = _sway.lerp(sway_target, clampf(10.0 * delta, 0.0, 1.0))
+
+	# Recoil pulls the gun back toward the camera (+Z) and up slightly.
+	var kick := Vector3(0, _recoil * 0.012, _recoil * 0.05)
+
+	var target := (bob + _sway) * settle + kick
+	holder.position = holder.position.lerp(target, clampf(14.0 * delta, 0.0, 1.0))
+	# Subtle roll/pitch from sway for a livelier feel.
+	var target_rot := Vector3(-_sway.y * 4.0, _sway.x * 4.0, _sway.x * 6.0) * settle
+	holder.rotation = holder.rotation.lerp(target_rot, clampf(12.0 * delta, 0.0, 1.0))
 
 ## Spawn a floating "-N" damage number at the hit point (shooter's screen only).
 func _show_damage_number(pos: Vector3, amount: float) -> void:

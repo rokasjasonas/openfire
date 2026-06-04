@@ -4,6 +4,7 @@ extends Node
 ## world loads so everyone agrees on mode / map / mission / limits.
 
 signal score_changed
+signal kill_logged(killer_id: int, victim_id: int)
 signal match_over(result: Dictionary)
 
 enum Mode { DEATHMATCH, COOP }
@@ -52,6 +53,7 @@ func add_kill(killer_id: int, victim_id: int) -> void:
 	elif scores.has(killer_id) and killer_id == victim_id:
 		# Suicide / environment: subtract a frag.
 		scores[killer_id]["kills"] = max(0, scores[killer_id]["kills"] - 1)
+	kill_logged.emit(killer_id, victim_id)
 	score_changed.emit()
 	_check_deathmatch_end()
 

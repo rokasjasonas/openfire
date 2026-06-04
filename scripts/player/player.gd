@@ -28,6 +28,8 @@ var display_name: String = "Player"
 var sync_health: float = MAX_HEALTH
 var sync_weapon_index: int = 0
 var sync_crouch: float = 0.0   # 0 = standing, 1 = fully crouched
+var sync_pos: Vector3 = Vector3.ZERO   # replicated; remotes interpolate toward it
+var sync_yaw: float = 0.0
 var dead: bool = false
 
 var _yaw: float = 0.0
@@ -49,16 +51,25 @@ signal health_changed(current: float, maximum: float)
 signal ammo_changed(mag: int, reserve: int)
 signal weapon_changed(weapon_name: String)
 signal dealt_damage(amount: float)
+signal grenades_changed(count: int)
+signal damaged_from(angle: float)
 signal died(attacker_id: int)
+
+const MAX_GRENADES := 2
+const GRENADE_SCENE := preload("res://scenes/grenade.tscn")
+var grenades: int = MAX_GRENADES
 
 func _ready() -> void:
 	_spawn_point = global_transform
+	sync_pos = global_position
+	sync_yaw = rotation.y
 	# Own copy of the capsule so crouch resizing is per-player, not shared.
 	col_shape.shape = col_shape.shape.duplicate()
 	add_to_group("combatant")
 	add_to_group("player")
 	name_label.text = display_name
 	name_label.visible = not is_multiplayer_authority()
+	camera.fov = Settings.fov
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
 	# local player can actually fire). Runs before set_local/_emit_hud below.
@@ -77,6 +88,7 @@ func _ready() -> void:
 
 func _emit_hud() -> void:
 	health_changed.emit(sync_health, MAX_HEALTH)
+	grenades_changed.emit(grenades)
 	weapons.emit_state()
 
 ## Apply a crouch factor (0..1): shrink/recenter the capsule, lower the camera,
@@ -90,6 +102,24 @@ func _apply_crouch(f: float) -> void:
 	head.position.y = lerpf(STAND_HEAD, CROUCH_HEAD, f)
 	hitboxes.position.y = lerpf(0.0, CROUCH_HEAD - STAND_HEAD, f)
 	body_model.scale.y = lerpf(1.0, 0.7, f)
+
+var _step_timer: float = 0.0
+
+## Emit positional footsteps (heard by everyone) while moving on the ground.
+func _update_footsteps(delta: float) -> void:
+	var hspeed := Vector2(velocity.x, velocity.z).length()
+	if is_on_floor() and hspeed > 1.5:
+		_step_timer -= delta
+		if _step_timer <= 0.0:
+			_step_timer = clampf(0.5 * (WALK_SPEED / maxf(hspeed, 0.1)), 0.27, 0.6)
+			_footstep.rpc()
+	else:
+		_step_timer = 0.0
+
+@rpc("any_peer", "call_local", "unreliable")
+func _footstep() -> void:
+	var vol := -13.0 if _crouch > 0.5 else -8.0
+	Audio.play_3d("res://assets/audio/footstep_%d.ogg" % (randi() % 4 + 1), global_position, vol, 0.12)
 
 ## True if there is room to stand back up (nothing solid overhead).
 func _has_headroom() -> bool:
@@ -105,16 +135,24 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority() or dead:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_yaw -= event.relative.x * MOUSE_SENS
-		_pitch = clamp(_pitch - event.relative.y * MOUSE_SENS, deg_to_rad(-89), deg_to_rad(89))
+		var sens := MOUSE_SENS * Settings.mouse_sensitivity
+		_yaw -= event.relative.x * sens
+		_pitch = clamp(_pitch - event.relative.y * sens, deg_to_rad(-89), deg_to_rad(89))
 		rotation.y = _yaw
 		head.rotation.x = _pitch
 
 func _physics_process(delta: float) -> void:
 	if not is_multiplayer_authority():
-		# Remote copy: keep weapon model + crouch pose matched to replicated state.
+		# Remote copy: keep weapon model + crouch pose matched, and smoothly
+		# interpolate toward the replicated transform instead of snapping.
 		weapons.ensure_index(sync_weapon_index)
 		_apply_crouch(sync_crouch)
+		var t := clampf(15.0 * delta, 0.0, 1.0)
+		if global_position.distance_to(sync_pos) > 5.0:
+			global_position = sync_pos  # snap on teleport / respawn
+		else:
+			global_position = global_position.lerp(sync_pos, t)
+		rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 		return
 
 	if dead:
@@ -151,6 +189,7 @@ func _physics_process(delta: float) -> void:
 	velocity.z = lerp(velocity.z, target.z, accel * delta)
 
 	move_and_slide()
+	_update_footsteps(delta)
 
 	# Weapon actions
 	weapons.set_trigger(Input.is_action_pressed("fire"))
@@ -160,6 +199,8 @@ func _physics_process(delta: float) -> void:
 		weapons.set_aiming(true)
 	if Input.is_action_just_released("aim"):
 		weapons.set_aiming(false)
+	if Input.is_action_just_pressed("grenade") and grenades > 0:
+		_throw_grenade()
 	if Input.is_action_just_pressed("weapon_1"):
 		weapons.switch_to(0)
 	if Input.is_action_just_pressed("weapon_2"):
@@ -167,9 +208,29 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("weapon_3"):
 		weapons.switch_to(2)
 	sync_weapon_index = weapons.current_index
+	sync_pos = global_position
+	sync_yaw = rotation.y
 
 func set_loadout(ids: Array) -> void:
 	weapons.set_loadout(ids)
+
+func _throw_grenade() -> void:
+	grenades -= 1
+	grenades_changed.emit(grenades)
+	var fwd := -camera.global_transform.basis.z
+	var pos := camera.global_position + fwd * 0.6
+	var vel := fwd * 16.0 + Vector3.UP * 4.0 + Vector3(velocity.x, 0, velocity.z) * 0.5
+	_spawn_grenade.rpc(pos, vel)
+
+@rpc("any_peer", "call_local", "reliable")
+func _spawn_grenade(pos: Vector3, vel: Vector3) -> void:
+	var g := GRENADE_SCENE.instantiate()
+	g.thrower_id = combatant_id
+	g.thrower_team = team
+	g.authoritative = is_multiplayer_authority()
+	get_tree().current_scene.add_child(g)
+	g.global_position = pos
+	g.linear_velocity = vel
 
 # ---------------------------------------------------------------- damage / death
 
@@ -186,8 +247,23 @@ func receive_damage(amount: float, attacker_id: int) -> void:
 		health_changed.emit(sync_health, MAX_HEALTH)
 		if sync_health > 0.0:
 			Audio.play_3d("res://assets/audio/hurt.ogg", global_position, -1.0, 0.05)
+			_emit_damage_direction(attacker_id)
 	if sync_health <= 0.0:
 		_die(attacker_id)
+
+func _emit_damage_direction(attacker_id: int) -> void:
+	var a := _combatant_by_id(attacker_id)
+	if a == null or a == self:
+		return
+	var dir: Vector3 = a.global_position - global_position
+	var local := global_transform.basis.inverse() * dir
+	damaged_from.emit(atan2(local.x, -local.z))
+
+func _combatant_by_id(id: int) -> Node3D:
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if c.get("combatant_id") == id:
+			return c
+	return null
 
 func _die(attacker_id: int) -> void:
 	if dead:
@@ -235,9 +311,13 @@ func respawn(xform: Transform3D) -> void:
 		velocity = Vector3.ZERO
 		_yaw = rotation.y
 		_pitch = 0.0
+		sync_pos = global_position
+		sync_yaw = rotation.y
 		head.rotation.x = 0.0
 		set_process(false)
+		grenades = MAX_GRENADES
 		health_changed.emit(sync_health, MAX_HEALTH)
+		grenades_changed.emit(grenades)
 		weapons.refill()
 
 func get_team() -> int:

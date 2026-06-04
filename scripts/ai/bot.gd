@@ -18,6 +18,8 @@ var team: int = 1
 var display_name: String = "Bot"
 
 var sync_health: float = MAX_HEALTH
+var sync_pos: Vector3 = Vector3.ZERO
+var sync_yaw: float = 0.0
 var dead: bool = false
 
 var _state: int = State.PATROL
@@ -40,12 +42,24 @@ func _ready() -> void:
 	add_to_group("combatant")
 	add_to_group("bot")
 	_spawn_pos = global_position
+	sync_pos = global_position
+	sync_yaw = rotation.y
 	name_label.text = display_name
 	nav.path_desired_distance = 1.0
 	nav.target_desired_distance = 1.5
 	nav.avoidance_enabled = false
-	# Only the server thinks. Clients just display synced state.
+	# Only the server thinks. Clients just display + interpolate synced state.
 	set_physics_process(is_multiplayer_authority())
+	set_process(not is_multiplayer_authority())
+
+func _process(delta: float) -> void:
+	# Remote copy: smoothly interpolate toward the replicated transform.
+	var t := clampf(15.0 * delta, 0.0, 1.0)
+	if global_position.distance_to(sync_pos) > 5.0:
+		global_position = sync_pos
+	else:
+		global_position = global_position.lerp(sync_pos, t)
+	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 
 func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String) -> void:
 	combatant_id = id
@@ -85,6 +99,25 @@ func _physics_process(delta: float) -> void:
 			_do_attack(delta)
 
 	move_and_slide()
+	_update_footsteps(delta)
+	sync_pos = global_position
+	sync_yaw = rotation.y
+
+var _step_timer: float = 0.0
+
+func _update_footsteps(delta: float) -> void:
+	var hspeed := Vector2(velocity.x, velocity.z).length()
+	if is_on_floor() and hspeed > 1.5:
+		_step_timer -= delta
+		if _step_timer <= 0.0:
+			_step_timer = clampf(0.5 * (5.0 / maxf(hspeed, 0.1)), 0.3, 0.6)
+			_step_fx.rpc()
+	else:
+		_step_timer = 0.0
+
+@rpc("any_peer", "call_local", "unreliable")
+func _step_fx() -> void:
+	Audio.play_3d("res://assets/audio/footstep_%d.ogg" % (randi() % 4 + 1), global_position, -9.0, 0.12)
 
 # ---------------------------------------------------------------- perception
 
@@ -274,6 +307,7 @@ func _set_dead_visual(is_dead: bool) -> void:
 func _do_respawn() -> void:
 	sync_health = MAX_HEALTH
 	global_position = _spawn_pos
+	sync_pos = _spawn_pos
 	_set_dead_visual.rpc(false)
 
 func get_team() -> int:

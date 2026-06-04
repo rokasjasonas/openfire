@@ -151,6 +151,23 @@ func _ready() -> void:
 		coverage_ok = r and r.collider is Hitbox
 	print("SMOKE: hitbox_edge_coverage_ok=", coverage_ok)
 
+	# Grenades: throwing decrements ammo and spawns a grenade in the world.
+	var grenade_ok := false
+	if me:
+		var before_g: int = me.grenades
+		me._throw_grenade()
+		await get_tree().process_frame
+		var found := false
+		for n in get_tree().current_scene.get_children():
+			if n is RigidBody3D:
+				found = true
+		grenade_ok = me.grenades == before_g - 1 and found
+	print("SMOKE: grenade_ok=", grenade_ok)
+
+	# Settings autoload present + applied.
+	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
+	print("SMOKE: settings_ok=", settings_ok)
+
 	# Non-flat map: highlands builds, bakes a navmesh, has multi-height spawns.
 	var hl: Node = load("res://maps/highlands.tscn").instantiate()
 	get_tree().root.add_child(hl)
@@ -166,7 +183,7 @@ func _ready() -> void:
 	hl.queue_free()
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

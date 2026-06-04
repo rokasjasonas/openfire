@@ -15,6 +15,9 @@ extends CanvasLayer
 @onready var pause_panel: Panel = %PausePanel
 @onready var crosshair: Control = $Crosshair
 @onready var damage_flash: ColorRect = %DamageFlash
+@onready var grenade_label: Label = %GrenadeLabel
+@onready var damage_direction: Control = $DamageDirection
+@onready var kill_feed: VBoxContainer = %KillFeed
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -45,8 +48,35 @@ func _try_bind() -> void:
 			p.ammo_changed.connect(_on_ammo)
 			p.weapon_changed.connect(_on_weapon)
 			p.dealt_damage.connect(_on_dealt_damage)
+			p.grenades_changed.connect(_on_grenades)
+			p.damaged_from.connect(_on_damaged_from)
 			_on_health(p.sync_health, p.MAX_HEALTH)
+			_on_grenades(p.grenades)
 			break
+
+func _on_damaged_from(angle: float) -> void:
+	if damage_direction and damage_direction.has_method("show_from"):
+		damage_direction.show_from(angle)
+
+## Add a "killer ▸ victim" line that fades out after a few seconds.
+func add_kill_feed(killer: String, victim: String, suicide: bool) -> void:
+	var l := Label.new()
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	if suicide:
+		l.text = "%s ☠" % victim
+	else:
+		l.text = "%s  ▸  %s" % [killer, victim]
+	l.add_theme_color_override("font_color", Color(1, 0.85, 0.6))
+	kill_feed.add_child(l)
+	while kill_feed.get_child_count() > 5:
+		kill_feed.get_child(0).free()
+	var tw := l.create_tween()
+	tw.tween_interval(4.0)
+	tw.tween_property(l, "modulate:a", 0.0, 1.0)
+	tw.tween_callback(l.queue_free)
+
+func _on_grenades(count: int) -> void:
+	grenade_label.text = "Grenades: %d" % count
 
 func _on_dealt_damage(_amount: float) -> void:
 	if crosshair and crosshair.has_method("hit"):

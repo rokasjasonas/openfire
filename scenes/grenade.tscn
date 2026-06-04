@@ -1,0 +1,22 @@
+[gd_scene load_steps=5 format=3 uid="uid://cgrenade00001"]
+
+[ext_resource type="Script" path="res://scripts/combat/grenade.gd" id="1_gren"]
+[ext_resource type="PackedScene" path="res://assets/models/weapons/grenade-a.glb" id="2_model"]
+
+[sub_resource type="SphereShape3D" id="Sphere_1"]
+radius = 0.12
+
+[sub_resource type="PhysicsMaterial" id="Mat_1"]
+friction = 0.6
+bounce = 0.4
+
+[node name="Grenade" type="RigidBody3D"]
+collision_layer = 0
+collision_mask = 1
+physics_material_override = SubResource("Mat_1")
+script = ExtResource("1_gren")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Sphere_1")
+
+[node name="Model" parent="." instance=ExtResource("2_model")]

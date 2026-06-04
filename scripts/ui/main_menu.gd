@@ -30,6 +30,7 @@ const SKILLS := [
 @onready var lobby_players: VBoxContainer = %LobbyPlayers
 @onready var lobby_summary: Label = %LobbySummary
 @onready var start_button: Button = %StartButton
+@onready var options_panel: Control = %OptionsPanel
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -67,8 +68,47 @@ func _ready() -> void:
 	for b in find_children("*", "Button", true):
 		b.pressed.connect(func(): Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0))
 
+	_setup_options()
 	_on_mode_changed(0)
 	_show_setup()
+
+func _setup_options() -> void:
+	%SensSlider.value = Settings.mouse_sensitivity
+	%VolSlider.value = Settings.master_volume
+	%FovSlider.value = Settings.fov
+	_update_option_labels()
+	%SensSlider.value_changed.connect(_on_sens_changed)
+	%VolSlider.value_changed.connect(_on_vol_changed)
+	%FovSlider.value_changed.connect(_on_fov_changed)
+	%OptionsButton.pressed.connect(_show_options)
+	%OptionsBackButton.pressed.connect(_show_setup)
+
+func _on_sens_changed(v: float) -> void:
+	Settings.mouse_sensitivity = v
+	_apply_and_save()
+
+func _on_vol_changed(v: float) -> void:
+	Settings.master_volume = v
+	_apply_and_save()
+
+func _on_fov_changed(v: float) -> void:
+	Settings.fov = v
+	_apply_and_save()
+
+func _apply_and_save() -> void:
+	_update_option_labels()
+	Settings.apply()
+	Settings.save()
+
+func _update_option_labels() -> void:
+	%SensValue.text = "%.2f" % Settings.mouse_sensitivity
+	%VolValue.text = "%d%%" % int(round(Settings.master_volume * 100))
+	%FovValue.text = "%d" % int(Settings.fov)
+
+func _show_options() -> void:
+	setup_panel.visible = false
+	lobby_panel.visible = false
+	options_panel.visible = true
 
 func _on_mode_changed(_idx: int) -> void:
 	var coop := mode_option.selected == 1
@@ -152,9 +192,11 @@ func _on_match_started() -> void:
 func _show_setup() -> void:
 	setup_panel.visible = true
 	lobby_panel.visible = false
+	options_panel.visible = false
 
 func _show_lobby() -> void:
 	setup_panel.visible = false
+	options_panel.visible = false
 	lobby_panel.visible = true
 	start_button.visible = Net.is_host()
 	_refresh_lobby()

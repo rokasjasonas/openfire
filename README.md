@@ -17,6 +17,9 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   reloads, spread and hitscan damage.
 - **Body-part damage** — head / torso / legs hitboxes with damage multipliers
   (headshots ≈ 2.5×, legs 0.75×), for both players and bots.
+- **Grenades, footsteps, kill feed, directional damage indicator**, and an
+  **options menu** (mouse sensitivity, master volume, FOV — saved to disk).
+- **Smoothed netplay** — remote players and bots interpolate between updates.
 - **Two game modes:**
   - **Deathmatch** — free-for-all vs other players and respawning bots, frag-limited.
   - **Co-op** — team up against AI through scripted missions with objectives.
@@ -63,6 +66,7 @@ during setup (gitignored); otherwise grab it from <https://godotengine.org/downl
 | Sprint / Crouch | `Shift` / `Ctrl` |
 | Fire / Aim | `LMB` / `RMB` |
 | Reload | `R` |
+| Throw grenade | `G` |
 | Weapons 1/2/3 | `1` `2` `3` |
 | Scoreboard | `Tab` (hold) |
 | Pause menu | `Esc` |

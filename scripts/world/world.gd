@@ -27,6 +27,7 @@ func _ready() -> void:
 	if Net.is_host():
 		Game.reset_scores()
 		Game.score_changed.connect(_host_broadcast_scores)
+		Game.kill_logged.connect(_host_on_kill)
 		Game.match_over.connect(_host_on_match_over)
 		_expected_peers = Net.players.keys()
 		_ready_peers[1] = true
@@ -218,6 +219,17 @@ func _recv_scores(data: Dictionary) -> void:
 	if not Net.is_host():
 		Game.scores = data
 		Game.score_changed.emit()
+
+func _host_on_kill(killer_id: int, victim_id: int) -> void:
+	var killer: String = Game.scores.get(killer_id, {}).get("name", "?")
+	var victim: String = Game.scores.get(victim_id, {}).get("name", "?")
+	var suicide := killer_id == victim_id
+	_kill_feed.rpc(killer, victim, suicide)
+
+@rpc("authority", "call_local", "reliable")
+func _kill_feed(killer: String, victim: String, suicide: bool) -> void:
+	if hud and hud.has_method("add_kill_feed"):
+		hud.add_kill_feed(killer, victim, suicide)
 
 # ---------------------------------------------------------------- match end
 

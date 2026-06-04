@@ -195,6 +195,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Solo vs Bots"
 
+[node name="OptionsButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Options"
+
 [node name="QuitButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -257,6 +262,107 @@ layout_mode = 2
 text = "Start Match"
 
 [node name="BackButton" type="Button" parent="LobbyPanel/Center/Box/VBox/LobbyButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back"
+
+[node name="OptionsPanel" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="OptionsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="OptionsPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="OptionsPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+custom_minimum_size = Vector2(420, 0)
+
+[node name="Title" type="Label" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "OPTIONS"
+horizontal_alignment = 1
+
+[node name="SensRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/SensRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "Mouse sensitivity"
+
+[node name="SensSlider" type="HSlider" parent="OptionsPanel/Center/Box/VBox/SensRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+min_value = 0.2
+max_value = 3.0
+step = 0.05
+value = 1.0
+
+[node name="SensValue" type="Label" parent="OptionsPanel/Center/Box/VBox/SensRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(50, 0)
+text = "1.0"
+
+[node name="VolRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/VolRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "Master volume"
+
+[node name="VolSlider" type="HSlider" parent="OptionsPanel/Center/Box/VBox/VolRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+min_value = 0.0
+max_value = 1.0
+step = 0.05
+value = 0.8
+
+[node name="VolValue" type="Label" parent="OptionsPanel/Center/Box/VBox/VolRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(50, 0)
+text = "80%"
+
+[node name="FovRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/FovRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "Field of view"
+
+[node name="FovSlider" type="HSlider" parent="OptionsPanel/Center/Box/VBox/FovRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+min_value = 60.0
+max_value = 110.0
+step = 1.0
+value = 75.0
+
+[node name="FovValue" type="Label" parent="OptionsPanel/Center/Box/VBox/FovRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(50, 0)
+text = "75"
+
+[node name="OptionsBackButton" type="Button" parent="OptionsPanel/Center/Box/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Back"

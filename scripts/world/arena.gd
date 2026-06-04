@@ -36,6 +36,6 @@ func build_level() -> void:
 		Vector3(-18, 0, -18), Vector3(18, 0, -18), Vector3(-18, 0, 18), Vector3(18, 0, 18),
 		Vector3(0, 0, -19), Vector3(0, 0, 19), Vector3(-19, 0, 0), Vector3(19, 0, 0),
 	]
+	# Alternate player / enemy spawns around the ring so they sit at distinct points.
 	for i in ring.size():
-		add_spawn(ring[i], i % 2 == 1)
 		add_spawn(ring[i], i % 2 == 0)

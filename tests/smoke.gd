@@ -82,6 +82,23 @@ func _ready() -> void:
 		await get_tree().process_frame
 		flash_ok = hud.damage_flash.color.a > 0.0
 
+	# Verify spawn selection keeps new spawns clear of existing combatants
+	# (overlapping spawns are what launched players into the air).
+	var spawn_clear := true
+	if world:
+		for k in 12:
+			var tr: Transform3D = world.get_spawn_transform(k % 2 == 0)
+			var nearest := INF
+			for c in get_tree().get_nodes_in_group("combatant"):
+				if c.get("dead"):
+					continue
+				var dx: float = tr.origin.x - c.global_position.x
+				var dz: float = tr.origin.z - c.global_position.z
+				nearest = minf(nearest, Vector2(dx, dz).length())
+			if nearest < 1.0:
+				spawn_clear = false
+	print("SMOKE: spawn_clearance_ok=", spawn_clear)
+
 	# Verify audio assets load and playback paths don't error.
 	var audio_ok := Audio._get_stream("res://assets/audio/fire_rifle.ogg") != null \
 		and Audio._get_stream("res://assets/audio/ui_click.ogg") != null \
@@ -92,7 +109,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear)
 	get_tree().quit()
 
 func _count_label3d() -> int:

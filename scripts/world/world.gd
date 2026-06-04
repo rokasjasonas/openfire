@@ -163,9 +163,25 @@ func get_spawn_transform(prefer_enemy: bool) -> Transform3D:
 		markers = get_tree().get_nodes_in_group("spawn_player")
 	if markers.is_empty():
 		return Transform3D(Basis.IDENTITY, Vector3(0, 1, 0))
-	var m: Node3D = markers[randi() % markers.size()]
-	var t := m.global_transform
-	t.origin += Vector3.UP * 0.2
+	# Pick the marker farthest from any living combatant so two bodies never
+	# spawn on top of each other (overlapping capsules get violently ejected
+	# upward by depenetration). Random order breaks ties / adds variety.
+	markers.shuffle()
+	var combatants := get_tree().get_nodes_in_group("combatant")
+	var best: Node3D = markers[0]
+	var best_clearance := -1.0
+	for m in markers:
+		var nearest := INF
+		for c in combatants:
+			if not is_instance_valid(c) or c.get("dead"):
+				continue
+			nearest = minf(nearest, m.global_position.distance_to(c.global_position))
+		if nearest > best_clearance:
+			best_clearance = nearest
+			best = m
+	var t := best.global_transform
+	# Small horizontal jitter + slight lift so simultaneous spawns never coincide.
+	t.origin += Vector3(randf_range(-0.7, 0.7), 0.3, randf_range(-0.7, 0.7))
 	t.basis = Basis.IDENTITY
 	return t
 

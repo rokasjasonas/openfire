@@ -47,6 +47,10 @@ func _ready() -> void:
 		if p.is_multiplayer_authority():
 			me = p
 			break
+	# Keep the stationary test player off the bots' target list so it survives the
+	# combat-feedback checks (otherwise the now-tougher enemies pick it off).
+	if me:
+		me.remove_from_group("combatant")
 	var sig := [false]  # Array (reference) so the lambda can write back.
 	var damage_number_ok := false
 	if me:
@@ -168,6 +172,26 @@ func _ready() -> void:
 	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
 	print("SMOKE: settings_ok=", settings_ok)
 
+	# Enemy variety: spawning a "heavy" yields a tougher bot than the default.
+	var variety_ok := false
+	if world and me:
+		var hid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(4, 0, 0), "heavy")
+		await get_tree().process_frame
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == hid:
+				variety_ok = b.etype == "heavy" and b.max_health > 150.0
+	print("SMOKE: enemy_variety_ok=", variety_ok)
+
+	# Pickups: present in the map; heal + weapon-grant effects work.
+	var pickups := get_tree().get_nodes_in_group("pickup")
+	var pickup_ok := false
+	if me and not pickups.is_empty():
+		me.sync_health = 50.0
+		me.heal(30)
+		me.weapons.give_weapon("sniper")
+		pickup_ok = is_equal_approx(me.sync_health, 80.0) and me.weapons.loadout.has("sniper")
+	print("SMOKE: pickups=", pickups.size(), " pickup_ok=", pickup_ok)
+
 	# Non-flat map: highlands builds, bakes a navmesh, has multi-height spawns.
 	var hl: Node = load("res://maps/highlands.tscn").instantiate()
 	get_tree().root.add_child(hl)
@@ -183,7 +207,7 @@ func _ready() -> void:
 	hl.queue_free()
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

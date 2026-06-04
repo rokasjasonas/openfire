@@ -6,18 +6,47 @@ extends CharacterBody3D
 
 enum State { PATROL, CHASE, ATTACK, DEAD }
 
-const MAX_HEALTH := 100.0
 const HIT_MASK := 1 | 16  # world | hitbox
 const LOS_MASK := 1   # only world geometry blocks line of sight
+
+## Enemy archetypes. Add a type by appending an entry here, then reference its key
+## when spawning (world.spawn_enemy) or in a mission's enemy_types list.
+const PROFILES := {
+	"soldier": {"name": "Soldier", "health": 100.0, "speed": 5.5, "cooldown": 0.9, "damage": 11.0,
+		"sight": 60.0, "attack": 26.0, "spread_far": 7.0, "spread_near": 1.5,
+		"model": "res://assets/models/characters/character-m.glb", "color": Color(1, 0.5, 0.45), "scale": 1.0},
+	"rusher": {"name": "Rusher", "health": 55.0, "speed": 8.5, "cooldown": 0.5, "damage": 7.0,
+		"sight": 55.0, "attack": 16.0, "spread_far": 9.0, "spread_near": 3.0,
+		"model": "res://assets/models/characters/character-c.glb", "color": Color(1, 0.8, 0.3), "scale": 0.9},
+	"sniper": {"name": "Sniper", "health": 70.0, "speed": 4.0, "cooldown": 2.1, "damage": 55.0,
+		"sight": 130.0, "attack": 85.0, "spread_far": 1.4, "spread_near": 0.3,
+		"model": "res://assets/models/characters/character-h.glb", "color": Color(0.5, 0.8, 1.0), "scale": 1.0},
+	"heavy": {"name": "Heavy", "health": 210.0, "speed": 3.6, "cooldown": 0.7, "damage": 14.0,
+		"sight": 55.0, "attack": 22.0, "spread_far": 6.0, "spread_near": 2.0,
+		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.3, 0.3), "scale": 1.18},
+}
+# Spawn weighting (soldiers common, others rarer).
+const SPAWN_WEIGHTS := {"soldier": 5, "rusher": 3, "sniper": 2, "heavy": 1}
 
 @export var skill: float = 1.0          # set by world; scales accuracy/cadence/damage
 @export var respawns: bool = false      # deathmatch bots respawn; coop enemies don't
 
+var etype: String = "soldier"
 var combatant_id: int = -1
 var team: int = 1
 var display_name: String = "Bot"
 
-var sync_health: float = MAX_HEALTH
+# Stats resolved from the profile.
+var max_health: float = 100.0
+var move_speed: float = 5.5
+var fire_cooldown: float = 0.9
+var shoot_damage: float = 11.0
+var sight_range: float = 60.0
+var attack_range: float = 26.0
+var spread_far: float = 7.0
+var spread_near: float = 1.5
+
+var sync_health: float = 100.0
 var sync_pos: Vector3 = Vector3.ZERO
 var sync_yaw: float = 0.0
 var dead: bool = false
@@ -44,13 +73,35 @@ func _ready() -> void:
 	_spawn_pos = global_position
 	sync_pos = global_position
 	sync_yaw = rotation.y
-	name_label.text = display_name
+	_apply_profile()
 	nav.path_desired_distance = 1.0
 	nav.target_desired_distance = 1.5
 	nav.avoidance_enabled = false
 	# Only the server thinks. Clients just display + interpolate synced state.
 	set_physics_process(is_multiplayer_authority())
 	set_process(not is_multiplayer_authority())
+
+func _apply_profile() -> void:
+	var p: Dictionary = PROFILES.get(etype, PROFILES["soldier"])
+	max_health = p["health"]
+	move_speed = p["speed"]
+	fire_cooldown = p["cooldown"]
+	shoot_damage = p["damage"]
+	sight_range = p["sight"]
+	attack_range = p["attack"]
+	spread_far = p["spread_far"]
+	spread_near = p["spread_near"]
+	if is_multiplayer_authority():
+		sync_health = max_health
+	name_label.text = "%s %d" % [p["name"], absi(combatant_id) % 1000]
+	name_label.modulate = p["color"]
+	body_model.scale = Vector3.ONE * float(p["scale"])
+	# Swap the body model to the archetype's character.
+	for c in body_model.get_children():
+		c.queue_free()
+	if ResourceLoader.exists(p["model"]):
+		var packed: PackedScene = load(p["model"])
+		body_model.add_child(packed.instantiate())
 
 func _process(delta: float) -> void:
 	# Remote copy: smoothly interpolate toward the replicated transform.
@@ -61,14 +112,15 @@ func _process(delta: float) -> void:
 		global_position = global_position.lerp(sync_pos, t)
 	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 
-func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String) -> void:
+func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String, type_id: String = "soldier") -> void:
 	combatant_id = id
 	team = t
 	skill = sk
 	respawns = respawn_on_death
 	display_name = label
+	etype = type_id if PROFILES.has(type_id) else "soldier"
 	if is_node_ready():
-		name_label.text = label
+		_apply_profile()
 
 func _physics_process(delta: float) -> void:
 	if dead:
@@ -132,13 +184,13 @@ func _acquire_target() -> void:
 		if c.get("team") == team:
 			continue
 		var d := global_position.distance_to(c.global_position)
-		if d < best_d and d < 60.0 and _can_see(c):
+		if d < best_d and d < sight_range and _can_see(c):
 			best_d = d
 			best = c
 	_target = best
 	if _target == null:
 		_state = State.PATROL
-	elif best_d <= 28.0:
+	elif best_d <= attack_range:
 		_state = State.ATTACK
 	else:
 		_state = State.CHASE
@@ -173,17 +225,18 @@ func _do_chase() -> void:
 	if _target == null:
 		_state = State.PATROL
 		return
-	_move_toward(_target.global_position, 5.5 * clampf(skill, 0.7, 1.4))
+	_move_toward(_target.global_position, move_speed)
 
 func _do_attack(delta: float) -> void:
 	if _target == null:
 		_state = State.PATROL
 		return
-	# Strafe slowly toward / hold; face the target and shoot.
+	# Hold preferred range, face the target and shoot. Snipers/heavies keep their
+	# distance; rushers close in (low attack_range).
 	var to_target := _target.global_position - global_position
 	to_target.y = 0
-	if to_target.length() > 18.0:
-		_move_toward(_target.global_position, 4.0)
+	if to_target.length() > attack_range * 0.7:
+		_move_toward(_target.global_position, move_speed * 0.8)
 	else:
 		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
 		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
@@ -213,24 +266,25 @@ func _face(world_pos: Vector3) -> void:
 		rotation.z = 0
 
 func _shoot_at(target: Node3D) -> void:
-	# Cadence and accuracy scale with skill.
-	_shoot_cd = clampf(0.9 / skill, 0.35, 1.4)
+	# Cadence and accuracy come from the archetype, scaled by skill.
+	_shoot_cd = clampf(fire_cooldown / skill, 0.3, 3.0)
 	var origin := muzzle.global_position
+	var reach := maxf(attack_range + 10.0, 90.0)
 	var aim := (target.global_position + Vector3.UP * 1.1) - origin
-	var spread := deg_to_rad(lerpf(7.0, 1.5, clampf(skill - 0.5, 0.0, 1.0)))
+	var spread := deg_to_rad(lerpf(spread_far, spread_near, clampf(skill - 0.5, 0.0, 1.0)))
 	var dir := aim.normalized()
 	# random cone
 	var n := Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5).normalized()
 	dir = dir.rotated(n, randf() * spread).normalized()
 	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * 80.0)
+	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * reach)
 	q.collision_mask = HIT_MASK
 	q.collide_with_areas = true
 	var exclude: Array = [get_rid()]
 	exclude.append_array(hitbox_rids())
 	q.exclude = exclude
 	var res := space.intersect_ray(q)
-	var endpoint := origin + dir * 80.0
+	var endpoint := origin + dir * reach
 	if res:
 		endpoint = res.position
 		var col = res.collider
@@ -243,7 +297,7 @@ func _shoot_at(target: Node3D) -> void:
 		elif col and col.is_in_group("combatant"):
 			victim = col
 		if victim and victim.has_method("hit") and victim.get("team") != team:
-			victim.hit(11.0 * clampf(skill, 0.6, 1.6) * mult, combatant_id)
+			victim.hit(shoot_damage * clampf(skill, 0.6, 1.6) * mult, combatant_id)
 	_fire_fx.rpc(endpoint)
 
 @rpc("any_peer", "call_local", "unreliable")
@@ -305,7 +359,7 @@ func _set_dead_visual(is_dead: bool) -> void:
 		Audio.play_3d("res://assets/audio/death.ogg", global_position, -2.0, 0.06)
 
 func _do_respawn() -> void:
-	sync_health = MAX_HEALTH
+	sync_health = max_health
 	global_position = _spawn_pos
 	sync_pos = _spawn_pos
 	_set_dead_visual.rpc(false)

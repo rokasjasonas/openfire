@@ -64,6 +64,19 @@ func refill() -> void:
 		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
 	emit_state()
 
+## Pickup: grant a weapon (replace the current slot if new), with full ammo.
+func give_weapon(id: String) -> void:
+	if not WeaponDB.has_weapon(id):
+		return
+	var w: Dictionary = WeaponDB.get_weapon(id)
+	if not loadout.has(id):
+		loadout[current_index] = id
+		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
+		_equip(current_index)
+	else:
+		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
+	emit_state()
+
 func _current() -> Dictionary:
 	if loadout.is_empty():
 		return WeaponDB.WEAPONS[0]

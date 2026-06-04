@@ -45,3 +45,11 @@ func build_level() -> void:
 	add_spawn(Vector3(-20, 3.1, -20), true)   # corner platform
 	add_spawn(Vector3(20, 3.1, 20), false)    # corner platform
 	add_spawn(Vector3(0, 6.1, 0), true)       # ziggurat summit
+
+	# Pickups (rewarding the high ground)
+	add_pickup("weapon", Vector3(0, 6.2, 0), 0, "sniper")   # ziggurat summit
+	add_pickup("health", Vector3(-20, 3.1, -20), 40)        # corner platform
+	add_pickup("grenade", Vector3(20, 3.1, 20))             # corner platform
+	add_pickup("health", Vector3(-24, 0, 6), 40)
+	add_pickup("ammo", Vector3(24, 0, -6))
+	add_pickup("grenade", Vector3(-6, 0, 22))

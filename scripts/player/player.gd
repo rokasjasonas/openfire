@@ -214,6 +214,19 @@ func _physics_process(delta: float) -> void:
 func set_loadout(ids: Array) -> void:
 	weapons.set_loadout(ids)
 
+## Pickup effects (run on the claiming player's authority).
+func heal(value: int) -> void:
+	if not is_multiplayer_authority():
+		return
+	sync_health = minf(MAX_HEALTH, sync_health + value)
+	health_changed.emit(sync_health, MAX_HEALTH)
+
+func add_grenades(n: int) -> void:
+	if not is_multiplayer_authority():
+		return
+	grenades = mini(MAX_GRENADES, grenades + n)
+	grenades_changed.emit(grenades)
+
 func _throw_grenade() -> void:
 	grenades -= 1
 	grenades_changed.emit(grenades)

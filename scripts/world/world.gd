@@ -93,13 +93,15 @@ func _spawn_player(peer_id: int) -> void:
 		"pos": xform.origin,
 	})
 
-func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF) -> int:
+func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "") -> int:
 	_bot_counter += 1
 	var id := -1000 - _bot_counter
 	var team: int = Game.TEAM_ENEMIES if Game.is_coop() else id  # FFA: unique team
 	var pos := at
 	if pos == Vector3.INF:
 		pos = get_spawn_transform(true).origin
+	if etype == "":
+		etype = _random_enemy_type()
 	Game.register_combatant(id, "Bot %d" % _bot_counter, true, team)
 	spawner.spawn({
 		"type": "bot",
@@ -109,8 +111,23 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF) -> int
 		"skill": skill,
 		"respawns": respawns,
 		"pos": pos,
+		"etype": etype,
 	})
 	return id
+
+const BOT_SCRIPT := preload("res://scripts/ai/bot.gd")
+
+func _random_enemy_type() -> String:
+	var weights: Dictionary = BOT_SCRIPT.SPAWN_WEIGHTS
+	var total := 0
+	for k in weights:
+		total += int(weights[k])
+	var r := randi() % maxi(total, 1)
+	for k in weights:
+		r -= int(weights[k])
+		if r < 0:
+			return k
+	return "soldier"
 
 ## Runs on every peer (via MultiplayerSpawner) to construct the node from data.
 func _spawn_combatant(data: Dictionary) -> Node:
@@ -128,7 +145,7 @@ func _spawn_combatant(data: Dictionary) -> Node:
 		b.name = "B%d" % absi(int(data["id"]))
 		b.position = data["pos"]
 		# Authority stays with the host (default), which drives the AI.
-		b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]))
+		b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")))
 		if Net.is_host():
 			b.died.connect(_on_bot_died)
 		return b

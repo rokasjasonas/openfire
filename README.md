@@ -25,6 +25,10 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   - **Co-op** — team up against AI through scripted missions with objectives.
 - **Bots** — `NavigationAgent3D` pathfinding, line-of-sight perception, patrol → chase →
   attack behaviour, difficulty scaling (Easy / Normal / Hard).
+- **Enemy archetypes** — soldier, rusher (fast/weak), sniper (long-range/high-damage),
+  and heavy (tanky), each with its own model, stats and behaviour; spawns are a mix.
+- **Pickups** — health, grenades, ammo and weapon drops scattered on the maps, with
+  respawn timers (glowing, floating, networked).
 - **LAN / direct-IP multiplayer** — host a server, others join by IP. "Solo vs Bots"
   is the same code path hosting locally. Up to 8 players.
 - **Configurable missions** — defined as plain **JSON** files in [`missions/`](missions/).

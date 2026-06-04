@@ -39,3 +39,13 @@ func build_level() -> void:
 	# Alternate player / enemy spawns around the ring so they sit at distinct points.
 	for i in ring.size():
 		add_spawn(ring[i], i % 2 == 0)
+
+	# Pickups
+	add_pickup("weapon", Vector3(0, 2.1, 0), 0, "sniper")   # central platform top
+	add_pickup("health", Vector3(0, 0, 16), 40)
+	add_pickup("health", Vector3(0, 0, -16), 40)
+	add_pickup("grenade", Vector3(-16, 0, 16))
+	add_pickup("grenade", Vector3(16, 0, -16))
+	add_pickup("ammo", Vector3(-16, 0, 0))
+	add_pickup("ammo", Vector3(16, 0, 0))
+	add_pickup("weapon", Vector3(-12, 0, -12), 0, "shotgun")

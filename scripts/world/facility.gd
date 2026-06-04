@@ -39,6 +39,13 @@ func build_level() -> void:
 			Vector3(10, 0, 20), Vector3(18, 0, -10)]:
 		add_spawn(e, true)
 
+	# Pickups along the route
+	add_pickup("health", Vector3(-26, 0, 16), 40)
+	add_pickup("ammo", Vector3(0, 0, 10))
+	add_pickup("grenade", Vector3(24, 0, -12))
+	add_pickup("weapon", Vector3(26, 0, 2), 0, "sniper")
+	add_pickup("health", Vector3(30, 0, 16), 40)
+
 	# Objective zones
 	add_zone("alpha", Vector3(0, 0.05, 12), Vector3(6, 4, 6))
 	add_zone("bravo", Vector3(26, 0.05, 0), Vector3(6, 4, 6))

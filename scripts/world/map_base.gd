@@ -6,8 +6,11 @@ class_name MapBase
 
 const TEX_DIR := "res://assets/kenney/prototype-textures/PNG/"
 
+const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
+
 var region: NavigationRegion3D
 var _tex_cache: Dictionary = {}
+var _pickup_count: int = 0
 
 func _ready() -> void:
 	add_to_group("map")
@@ -149,6 +152,17 @@ func add_spawn(pos: Vector3, enemy: bool = false) -> void:
 	m.position = pos
 	m.add_to_group("spawn_enemy" if enemy else "spawn_player")
 	add_child(m)
+
+## Place a pickup. Deterministic names keep RPC paths identical across peers.
+func add_pickup(kind: String, pos: Vector3, amount: int = 25, weapon_id: String = "shotgun") -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.name = "Pickup_%d_%s" % [_pickup_count, kind]
+	_pickup_count += 1
+	p.kind = kind
+	p.amount = amount
+	p.weapon_id = weapon_id
+	p.position = pos
+	add_child(p)
 
 func add_zone(zone_id: String, pos: Vector3, size: Vector3) -> void:
 	var area := Area3D.new()

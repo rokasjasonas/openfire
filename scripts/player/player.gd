@@ -46,6 +46,9 @@ func _ready() -> void:
 	name_label.text = display_name
 	name_label.visible = not is_multiplayer_authority()
 	weapons.setup(self, camera)
+	# Equip weapons on every peer (so remote players also show a gun and the
+	# local player can actually fire). Runs before set_local/_emit_hud below.
+	weapons.set_loadout(WeaponDB.default_loadout())
 	# Only the owning peer drives input and owns the camera.
 	if is_multiplayer_authority():
 		camera.current = true

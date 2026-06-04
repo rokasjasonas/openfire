@@ -39,5 +39,24 @@ func _ready() -> void:
 		if b.global_position.length() > 0.01:
 			moved = true
 	print("SMOKE: bots_positioned=", moved)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1)
+
+	# Verify the local player can actually fire (loadout equipped + ammo consumed).
+	var fired_ok := false
+	var me: Node = null
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.is_multiplayer_authority():
+			me = p
+			break
+	if me:
+		var wm = me.weapons
+		var wid = wm.loadout[wm.current_index] if not wm.loadout.is_empty() else ""
+		var before: int = wm.ammo.get(wid, {}).get("mag", -1)
+		wm.set_trigger(true)
+		await get_tree().create_timer(0.6).timeout
+		wm.set_trigger(false)
+		var after: int = wm.ammo.get(wid, {}).get("mag", -1)
+		print("SMOKE: weapon=", wid, " loadout=", wm.loadout, " ammo before/after=", before, "/", after)
+		fired_ok = before > 0 and after < before
+	print("SMOKE: fire_works=", fired_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok)
 	get_tree().quit()

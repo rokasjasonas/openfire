@@ -47,16 +47,35 @@ func _ready() -> void:
 		if p.is_multiplayer_authority():
 			me = p
 			break
+	var sig := [false]  # Array (reference) so the lambda can write back.
+	var damage_number_ok := false
 	if me:
+		me.dealt_damage.connect(func(_amt): sig[0] = true)
 		var wm = me.weapons
 		var wid = wm.loadout[wm.current_index] if not wm.loadout.is_empty() else ""
 		var before: int = wm.ammo.get(wid, {}).get("mag", -1)
+		# Firing runs in _process; pump a few frames + a short window so it ticks.
 		wm.set_trigger(true)
 		await get_tree().create_timer(0.6).timeout
 		wm.set_trigger(false)
 		var after: int = wm.ammo.get(wid, {}).get("mag", -1)
-		print("SMOKE: weapon=", wid, " loadout=", wm.loadout, " ammo before/after=", before, "/", after)
 		fired_ok = before > 0 and after < before
-	print("SMOKE: fire_works=", fired_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok)
+		print("SMOKE: weapon=", wid, " ammo before/after=", before, "/", after)
+
+		# Directly exercise the damage-feedback path (floating number + signal +
+		# crosshair hitmarker), independent of headless AI/aim timing.
+		var labels_before := _count_label3d()
+		wm._show_damage_number(me.global_position + Vector3.UP, 24.0)
+		me.dealt_damage.emit(24.0)
+		await get_tree().process_frame
+		damage_number_ok = _count_label3d() > labels_before
+	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok)
 	get_tree().quit()
+
+func _count_label3d() -> int:
+	var n := 0
+	for node in get_tree().current_scene.get_children():
+		if node is Label3D:
+			n += 1
+	return n

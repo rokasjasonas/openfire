@@ -37,6 +37,7 @@ var _respawn_timer: float = 0.0
 signal health_changed(current: float, maximum: float)
 signal ammo_changed(mag: int, reserve: int)
 signal weapon_changed(weapon_name: String)
+signal dealt_damage(amount: float)
 signal died(attacker_id: int)
 
 func _ready() -> void:

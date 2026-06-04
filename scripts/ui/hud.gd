@@ -13,6 +13,7 @@ extends CanvasLayer
 @onready var result_panel: Panel = %ResultPanel
 @onready var result_label: Label = %ResultLabel
 @onready var pause_panel: Panel = %PausePanel
+@onready var crosshair: Control = $Crosshair
 
 var _player: Node = null
 
@@ -39,8 +40,13 @@ func _try_bind() -> void:
 			p.health_changed.connect(_on_health)
 			p.ammo_changed.connect(_on_ammo)
 			p.weapon_changed.connect(_on_weapon)
+			p.dealt_damage.connect(_on_dealt_damage)
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			break
+
+func _on_dealt_damage(_amount: float) -> void:
+	if crosshair and crosshair.has_method("hit"):
+		crosshair.hit()
 
 func _on_health(cur: float, maxhp: float) -> void:
 	health_bar.max_value = maxhp

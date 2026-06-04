@@ -164,6 +164,9 @@ func _fire() -> void:
 	var spread := deg_to_rad(float(w["aim_spread_deg"]) if _aiming else float(w["spread_deg"]))
 	var space := player.get_world_3d().direct_space_state
 	var furthest := origin + fwd * float(w["range"])
+	var dmg_dealt := 0.0
+	var last_hit := Vector3.ZERO
+	var hit_combatant := false
 
 	for i in int(w["pellets"]):
 		var dir := _apply_spread(fwd, spread)
@@ -178,16 +181,52 @@ func _fire() -> void:
 			var col = res.collider
 			if col and col.is_in_group("combatant") and col.has_method("hit") and col != player:
 				col.hit(float(w["damage"]), player.combatant_id)
+				dmg_dealt += float(w["damage"])
+				last_hit = res.position
+				hit_combatant = true
 			else:
 				_spawn_impact.rpc(res.position, res.normal)
 		furthest = endpoint
 	# Visual feedback for everyone.
 	_play_fire_fx.rpc(furthest)
+	# Damage feedback for the shooter only.
+	if hit_combatant and is_local:
+		_show_damage_number(last_hit, dmg_dealt)
+		player.dealt_damage.emit(dmg_dealt)
 	# Local recoil kick.
 	_recoil = 1.0
 	if player.has_node("Head"):
 		player.get_node("Head").rotation.x += deg_to_rad(0.6)
 	emit_state()
+
+## Spawn a floating "-N" damage number at the hit point (shooter's screen only).
+func _show_damage_number(pos: Vector3, amount: float) -> void:
+	var lbl := Label3D.new()
+	lbl.text = str(int(round(amount)))
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0011
+	lbl.outline_size = 10
+	lbl.outline_modulate = Color(0, 0, 0, 0.8)
+	# Colour and size scale with the hit size.
+	if amount >= 50.0:
+		lbl.modulate = Color(1.0, 0.3, 0.2)
+		lbl.font_size = 96
+	elif amount >= 25.0:
+		lbl.modulate = Color(1.0, 0.7, 0.2)
+		lbl.font_size = 80
+	else:
+		lbl.modulate = Color(1.0, 1.0, 1.0)
+		lbl.font_size = 64
+	get_tree().current_scene.add_child(lbl)
+	var start := pos + Vector3(randf_range(-0.2, 0.2), 0.4, randf_range(-0.2, 0.2))
+	lbl.global_position = start
+	var tw := lbl.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(lbl, "global_position", start + Vector3(0, 1.0, 0), 0.7).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.7).set_delay(0.25)
+	tw.chain().tween_callback(lbl.queue_free)
 
 func _apply_spread(fwd: Vector3, spread: float) -> Vector3:
 	if spread <= 0.0:

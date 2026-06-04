@@ -69,8 +69,21 @@ func _ready() -> void:
 		me.dealt_damage.emit(24.0)
 		await get_tree().process_frame
 		damage_number_ok = _count_label3d() > labels_before
-	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok)
+
+	# Verify the red damage-flash overlay fires when the local player is hit.
+	var flash_ok := false
+	var hud: Node = null
+	for w in get_tree().get_nodes_in_group("world"):
+		if w.has_node("HUD"):
+			hud = w.get_node("HUD")
+	if me and hud and not me.dead:
+		await get_tree().process_frame  # ensure HUD has bound to the player
+		me.receive_damage(20.0, 0)      # take a non-lethal hit
+		await get_tree().process_frame
+		flash_ok = hud.damage_flash.color.a > 0.0
+
+	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

@@ -14,8 +14,11 @@ extends CanvasLayer
 @onready var result_label: Label = %ResultLabel
 @onready var pause_panel: Panel = %PausePanel
 @onready var crosshair: Control = $Crosshair
+@onready var damage_flash: ColorRect = %DamageFlash
 
 var _player: Node = null
+var _last_health: float = -1.0
+var _flash_tween: Tween = null
 
 func _ready() -> void:
 	scoreboard.visible = false
@@ -52,6 +55,19 @@ func _on_health(cur: float, maxhp: float) -> void:
 	health_bar.max_value = maxhp
 	health_bar.value = cur
 	health_label.text = "%d" % int(cur)
+	# Flash red when health drops (i.e. the player took damage).
+	if _last_health >= 0.0 and cur < _last_health:
+		_flash_damage(_last_health - cur, cur / maxhp)
+	_last_health = cur
+
+func _flash_damage(amount: float, health_frac: float) -> void:
+	# Stronger flash for bigger hits and when low on health.
+	var intensity := clampf(0.25 + amount / 100.0 * 0.5 + (1.0 - health_frac) * 0.25, 0.2, 0.75)
+	if _flash_tween and _flash_tween.is_valid():
+		_flash_tween.kill()
+	damage_flash.color.a = intensity
+	_flash_tween = create_tween()
+	_flash_tween.tween_property(damage_flash, "color:a", 0.0, 0.5).set_ease(Tween.EASE_OUT)
 
 func _on_ammo(mag: int, reserve: int) -> void:
 	ammo_label.text = "%d / %d" % [mag, reserve]

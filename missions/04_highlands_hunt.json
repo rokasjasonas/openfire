@@ -1,0 +1,12 @@
+{
+	"id": "highlands_hunt",
+	"name": "Highlands Hunt",
+	"description": "Clear the terraced highlands of hostiles holding the high ground.",
+	"map": "res://maps/highlands.tscn",
+	"enemy_skill": 1.0,
+	"objectives": [
+		{ "type": "eliminate_all", "description": "Eliminate hostiles on the lower ground", "enemy_count": 8, "wave_size": 4 },
+		{ "type": "eliminate_all", "description": "Storm the ziggurat", "enemy_count": 8, "wave_size": 4 },
+		{ "type": "survive_time", "description": "Hold the summit", "duration": 40, "spawn_interval": 5.0, "wave_size": 5 }
+	]
+}

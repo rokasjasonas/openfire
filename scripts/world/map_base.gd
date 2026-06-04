@@ -102,6 +102,25 @@ func add_ramp(size: Vector3, pos: Vector3, angle_deg: float, color: String = "Pu
 	mi.rotation_degrees = Vector3(angle_deg, 0, 0)
 	# Re-orient the child collider with the mesh (it inherits the transform).
 
+## Add a walkable ramp slab bridging two world points (bottom -> top). The slab's
+## top surface lets players and bots travel between two heights; keep the slope
+## under ~45° so the navmesh treats it as walkable.
+func add_slope(bottom: Vector3, top: Vector3, width: float = 4.0, color: String = "Purple", idx: int = 13) -> void:
+	var delta := top - bottom
+	var horiz := Vector2(delta.x, delta.z).length()
+	var run := sqrt(horiz * horiz + delta.y * delta.y)
+	if run < 0.01:
+		return
+	var mi := add_box(Vector3(width, 0.5, run), Vector3.ZERO, color, idx)
+	var fwd := delta.normalized()
+	var right := Vector3.UP.cross(fwd)
+	if right.length() < 0.001:
+		right = Vector3.RIGHT
+	right = right.normalized()
+	var up := fwd.cross(right).normalized()
+	var t := Transform3D(Basis(right, up, fwd), (bottom + top) * 0.5)
+	mi.transform = t
+
 ## Decorative crate prop (small collider, not added to navmesh).
 func add_crate(glb: String, pos: Vector3, scale: float = 1.0) -> void:
 	if not ResourceLoader.exists(glb):

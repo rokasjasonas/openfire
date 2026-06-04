@@ -1,12 +1,22 @@
-[gd_scene load_steps=7 format=3 uid="uid://cplayer0001"]
+[gd_scene load_steps=11 format=3 uid="uid://cplayer0001"]
 
 [ext_resource type="Script" path="res://scripts/player/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/player/weapon_manager.gd" id="2_weapon"]
 [ext_resource type="PackedScene" path="res://assets/models/characters/character-a.glb" id="3_body"]
+[ext_resource type="Script" path="res://scripts/combat/hitbox.gd" id="4_hitbox"]
 
 [sub_resource type="CapsuleShape3D" id="Capsule_1"]
 radius = 0.4
 height = 1.8
+
+[sub_resource type="SphereShape3D" id="HB_Head"]
+radius = 0.26
+
+[sub_resource type="BoxShape3D" id="HB_Torso"]
+size = Vector3(0.62, 0.75, 0.42)
+
+[sub_resource type="BoxShape3D" id="HB_Legs"]
+size = Vector3(0.52, 0.95, 0.36)
 
 [sub_resource type="SceneReplicationConfig" id="Rep_1"]
 properties/0/path = NodePath(".:position")
@@ -73,3 +83,38 @@ text = "Player"
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
 root_path = NodePath("..")
 replication_config = SubResource("Rep_1")
+
+[node name="Hitboxes" type="Node3D" parent="."]
+
+[node name="Head" type="Area3D" parent="Hitboxes"]
+collision_layer = 16
+collision_mask = 0
+script = ExtResource("4_hitbox")
+part = "head"
+multiplier = 2.5
+
+[node name="Shape" type="CollisionShape3D" parent="Hitboxes/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+shape = SubResource("HB_Head")
+
+[node name="Torso" type="Area3D" parent="Hitboxes"]
+collision_layer = 16
+collision_mask = 0
+script = ExtResource("4_hitbox")
+part = "torso"
+multiplier = 1.0
+
+[node name="Shape" type="CollisionShape3D" parent="Hitboxes/Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
+shape = SubResource("HB_Torso")
+
+[node name="Legs" type="Area3D" parent="Hitboxes"]
+collision_layer = 16
+collision_mask = 0
+script = ExtResource("4_hitbox")
+part = "legs"
+multiplier = 0.75
+
+[node name="Shape" type="CollisionShape3D" parent="Hitboxes/Legs"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.47, 0)
+shape = SubResource("HB_Legs")

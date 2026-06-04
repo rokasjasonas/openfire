@@ -5,6 +5,7 @@ extends Control
 const MAPS := [
 	{ "name": "Arena", "path": "res://maps/arena.tscn" },
 	{ "name": "Facility", "path": "res://maps/facility.tscn" },
+	{ "name": "Highlands", "path": "res://maps/highlands.tscn" },
 ]
 const SKILLS := [
 	{ "name": "Easy", "value": 0.6 },

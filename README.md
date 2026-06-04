@@ -15,6 +15,8 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
 - **First-person shooter** — fluid movement (walk/sprint/crouch/jump), mouse look,
   5 data-driven weapons (rifle, SMG, shotgun, sniper, pistol) with ADS zoom, recoil,
   reloads, spread and hitscan damage.
+- **Body-part damage** — head / torso / legs hitboxes with damage multipliers
+  (headshots ≈ 2.5×, legs 0.75×), for both players and bots.
 - **Two game modes:**
   - **Deathmatch** — free-for-all vs other players and respawning bots, frag-limited.
   - **Co-op** — team up against AI through scripted missions with objectives.
@@ -24,8 +26,9 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   is the same code path hosting locally. Up to 8 players.
 - **Configurable missions** — defined as plain **JSON** files in [`missions/`](missions/).
   Add a mission by dropping in a new file. See [docs/missions.md](docs/missions.md).
-- **Two maps** — a symmetrical arena and a multi-room facility, built procedurally with
-  runtime-baked navigation meshes and CC0 prototype textures.
+- **Three maps** — a symmetrical arena, a multi-room facility, and Highlands (a
+  vertical stepped-ziggurat map with ramps and raised platforms), all built
+  procedurally with runtime-baked navigation meshes and CC0 prototype textures.
 
 ---
 

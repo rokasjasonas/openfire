@@ -4,8 +4,8 @@ extends Node3D
 ## Firing/hit detection runs on the local shooter; muzzle/tracer FX are broadcast.
 
 const IMPACT_SCENE := preload("res://scenes/fx/impact.tscn")
-# Ray mask: world(1) | players(2) | bots(4)
-const HIT_MASK := 1 | 2 | 4
+# Ray mask: world(1) | hitbox(16). Body-part hitbox areas carry damage multipliers.
+const HIT_MASK := 1 | 16
 
 var player: CharacterBody3D
 var camera: Camera3D
@@ -178,23 +178,34 @@ func _fire() -> void:
 	var dmg_dealt := 0.0
 	var last_hit := Vector3.ZERO
 	var hit_combatant := false
+	var was_headshot := false
+	var base_dmg := float(w["damage"])
+	# Exclude our own body so the ray never hits the shooter's own hitboxes.
+	var exclude: Array = [player.get_rid()]
+	exclude.append_array(player.hitbox_rids())
 
 	for i in int(w["pellets"]):
 		var dir := _apply_spread(fwd, spread)
 		var to := origin + dir * float(w["range"])
 		var q := PhysicsRayQueryParameters3D.create(origin, to)
 		q.collision_mask = HIT_MASK
-		q.exclude = [player.get_rid()]
+		q.collide_with_areas = true
+		q.exclude = exclude
 		var res := space.intersect_ray(q)
 		var endpoint := to
 		if res:
 			endpoint = res.position
-			var col = res.collider
-			if col and col.is_in_group("combatant") and col.has_method("hit") and col != player:
-				col.hit(float(w["damage"]), player.combatant_id)
-				dmg_dealt += float(w["damage"])
+			var hit := _resolve_hit(res.collider)
+			var victim = hit[0]
+			var mult: float = hit[1]
+			if victim and victim != player and victim.has_method("hit"):
+				var dealt := base_dmg * mult
+				victim.hit(dealt, player.combatant_id)
+				dmg_dealt += dealt
 				last_hit = res.position
 				hit_combatant = true
+				if mult >= 2.0:
+					was_headshot = true
 			else:
 				_spawn_impact.rpc(res.position, res.normal)
 		furthest = endpoint
@@ -202,7 +213,7 @@ func _fire() -> void:
 	_play_fire_fx.rpc(furthest)
 	# Damage feedback for the shooter only.
 	if hit_combatant and is_local:
-		_show_damage_number(last_hit, dmg_dealt)
+		_show_damage_number(last_hit, dmg_dealt, was_headshot)
 		player.dealt_damage.emit(dmg_dealt)
 	# Local recoil kick.
 	_recoil = 1.0
@@ -250,18 +261,31 @@ func _update_viewmodel(delta: float) -> void:
 	var target_rot := Vector3(-_sway.y * 4.0, _sway.x * 4.0, _sway.x * 6.0) * settle
 	holder.rotation = holder.rotation.lerp(target_rot, clampf(12.0 * delta, 0.0, 1.0))
 
-## Spawn a floating "-N" damage number at the hit point (shooter's screen only).
-func _show_damage_number(pos: Vector3, amount: float) -> void:
+## Resolve a raycast collider to [combatant, damage_multiplier].
+func _resolve_hit(col) -> Array:
+	if col == null:
+		return [null, 1.0]
+	if col is Hitbox:
+		return [col.combatant(), col.multiplier]
+	if col.is_in_group("combatant"):
+		return [col, 1.0]  # fallback: flat damage
+	return [null, 1.0]
+
+## Spawn a floating damage number at the hit point (shooter's screen only).
+func _show_damage_number(pos: Vector3, amount: float, headshot: bool = false) -> void:
 	var lbl := Label3D.new()
-	lbl.text = str(int(round(amount)))
+	lbl.text = ("%d!" % int(round(amount))) if headshot else str(int(round(amount)))
 	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	lbl.no_depth_test = true
 	lbl.fixed_size = true
 	lbl.pixel_size = 0.0011
 	lbl.outline_size = 10
 	lbl.outline_modulate = Color(0, 0, 0, 0.8)
-	# Colour and size scale with the hit size.
-	if amount >= 50.0:
+	# Headshots are always red and large; otherwise colour/size scale with damage.
+	if headshot:
+		lbl.modulate = Color(1.0, 0.2, 0.15)
+		lbl.font_size = 104
+	elif amount >= 50.0:
 		lbl.modulate = Color(1.0, 0.3, 0.2)
 		lbl.font_size = 96
 	elif amount >= 25.0:

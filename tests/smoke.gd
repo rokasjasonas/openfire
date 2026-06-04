@@ -108,8 +108,38 @@ func _ready() -> void:
 		Audio.play_3d("res://assets/audio/fire_rifle.ogg", me.global_position, 0.0, 0.1)
 	await get_tree().process_frame
 
-	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear)
+	# Body-part hitboxes: a ray into a bot's head hitbox resolves to mult >= 2.
+	var headshot_ok := false
+	var bots_list := get_tree().get_nodes_in_group("bot")
+	if me and not bots_list.is_empty():
+		var bot: Node = bots_list[0]
+		var head := bot.get_node_or_null("Hitboxes/Head/Shape")
+		if head:
+			var hpos: Vector3 = head.global_position
+			var q := PhysicsRayQueryParameters3D.create(hpos + Vector3(0, 0, 2.0), hpos)
+			q.collision_mask = 1 | 16
+			q.collide_with_areas = true
+			var r: Dictionary = me.get_world_3d().direct_space_state.intersect_ray(q)
+			if r and r.collider is Hitbox:
+				headshot_ok = r.collider.multiplier >= 2.0 and r.collider.combatant() == bot
+	print("SMOKE: headshot_hitbox_ok=", headshot_ok)
+
+	# Non-flat map: highlands builds, bakes a navmesh, has multi-height spawns.
+	var hl: Node = load("res://maps/highlands.tscn").instantiate()
+	get_tree().root.add_child(hl)
+	await get_tree().process_frame
+	var region = hl.get_node_or_null("NavRegion")
+	var polys: int = region.navigation_mesh.get_polygon_count() if region and region.navigation_mesh else 0
+	var heights := {}
+	for m in hl.get_children():
+		if m is Marker3D and (m.is_in_group("spawn_player") or m.is_in_group("spawn_enemy")):
+			heights[roundi(m.position.y)] = true
+	var highlands_ok := polys > 0 and heights.size() >= 2
+	print("SMOKE: highlands polys=", polys, " spawn_heights=", heights.size(), " ok=", highlands_ok)
+	hl.queue_free()
+
+	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

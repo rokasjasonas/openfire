@@ -198,3 +198,12 @@ func respawn(xform: Transform3D) -> void:
 
 func get_team() -> int:
 	return team
+
+## RIDs of this combatant's own hitbox areas, so a shooter can exclude itself.
+func hitbox_rids() -> Array:
+	var rids: Array = []
+	if has_node("Hitboxes"):
+		for a in $Hitboxes.get_children():
+			if a is Area3D:
+				rids.append(a.get_rid())
+	return rids

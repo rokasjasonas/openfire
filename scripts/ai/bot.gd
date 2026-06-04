@@ -7,7 +7,7 @@ extends CharacterBody3D
 enum State { PATROL, CHASE, ATTACK, DEAD }
 
 const MAX_HEALTH := 100.0
-const HIT_MASK := 1 | 2 | 4
+const HIT_MASK := 1 | 16  # world | hitbox
 const LOS_MASK := 1   # only world geometry blocks line of sight
 
 @export var skill: float = 1.0          # set by world; scales accuracy/cadence/damage
@@ -192,14 +192,25 @@ func _shoot_at(target: Node3D) -> void:
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * 80.0)
 	q.collision_mask = HIT_MASK
-	q.exclude = [get_rid()]
+	q.collide_with_areas = true
+	var exclude: Array = [get_rid()]
+	exclude.append_array(hitbox_rids())
+	q.exclude = exclude
 	var res := space.intersect_ray(q)
 	var endpoint := origin + dir * 80.0
 	if res:
 		endpoint = res.position
 		var col = res.collider
-		if col and col.is_in_group("combatant") and col.has_method("hit") and col.get("team") != team:
-			col.hit(11.0 * clampf(skill, 0.6, 1.6), combatant_id)
+		# Resolve body-part hitbox -> combatant + damage multiplier.
+		var victim: Node = null
+		var mult := 1.0
+		if col is Hitbox:
+			victim = col.combatant()
+			mult = col.multiplier
+		elif col and col.is_in_group("combatant"):
+			victim = col
+		if victim and victim.has_method("hit") and victim.get("team") != team:
+			victim.hit(11.0 * clampf(skill, 0.6, 1.6) * mult, combatant_id)
 	_fire_fx.rpc(endpoint)
 
 @rpc("any_peer", "call_local", "unreliable")
@@ -267,3 +278,12 @@ func _do_respawn() -> void:
 
 func get_team() -> int:
 	return team
+
+## RIDs of this bot's own hitbox areas, so its own shots can exclude itself.
+func hitbox_rids() -> Array:
+	var rids: Array = []
+	if has_node("Hitboxes"):
+		for a in $Hitboxes.get_children():
+			if a is Area3D:
+				rids.append(a.get_rid())
+	return rids

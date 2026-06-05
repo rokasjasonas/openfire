@@ -19,7 +19,7 @@ var driver_id: int = 0
 var driver_team: int = -999
 var health: float = MAX_HEALTH
 var destroyed: bool = false
-var seat_offset := Vector3(0, 0.4, 0)
+var seat_offset := Vector3(0, 0.6, 0)
 
 var sync_pos: Vector3
 var sync_yaw: float = 0.0
@@ -118,7 +118,7 @@ func request_fire(aim_point: Vector3 = Vector3.INF) -> void:
 	if _fire_cd > 0.0 or destroyed or not is_multiplayer_authority():
 		return
 	_fire_cd = 1.0 / FIRE_RATE
-	var origin := global_position + forward() * 2.5
+	var origin := global_position + forward() * 3.5
 	# Aim toward where the driver is looking (under the crosshair); else straight ahead.
 	var dir := forward() if aim_point == Vector3.INF else (aim_point - origin).normalized()
 	var space := get_world_3d().direct_space_state
@@ -249,6 +249,7 @@ func _box(parent: Node3D, size: Vector3, pos: Vector3, color: Color) -> MeshInst
 
 func _build_visual() -> void:
 	_body = Node3D.new()
+	_body.scale = Vector3.ONE * 1.5  # bigger gunship
 	add_child(_body)
 	var col := Color(0.2, 0.28, 0.22)
 	var dark := Color(0.12, 0.13, 0.14)

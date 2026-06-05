@@ -351,18 +351,20 @@ func _fly_vehicle(delta: float) -> void:
 	rotation.y = atan2(-fwd.x, -fwd.z)
 	sync_pos = global_position
 	sync_yaw = rotation.y
-	# Orbitable chase camera (same as cars), a little higher/further for the heli.
+	# Over-the-shoulder aim camera: the mouse nudges the aim direction; after idle
+	# it eases back to straight ahead. The heli sits off to the side so the
+	# crosshair points at open space, not at the heli body.
 	_cam_idle += delta
 	if _cam_idle > 0.7:
-		var back := clampf(3.0 * delta, 0.0, 1.0)
-		_cam_yaw = lerp_angle(_cam_yaw, 0.0, back)
-		_cam_pitch = lerpf(_cam_pitch, 0.0, back)
-	var orbit := (-fwd).rotated(Vector3.UP, _cam_yaw)
-	var right := orbit.cross(Vector3.UP).normalized()
-	orbit = orbit.rotated(right, _cam_pitch)
-	var cam_pos: Vector3 = driving.global_position + orbit * 9.0 + Vector3.UP * 4.0
+		var ease := clampf(3.0 * delta, 0.0, 1.0)
+		_cam_yaw = lerp_angle(_cam_yaw, 0.0, ease)
+		_cam_pitch = lerpf(_cam_pitch, 0.0, ease)
+	var aim_dir := fwd.rotated(Vector3.UP, _cam_yaw)
+	var right_h := aim_dir.cross(Vector3.UP).normalized()
+	aim_dir = aim_dir.rotated(right_h, _cam_pitch)
+	var cam_pos: Vector3 = driving.global_position - aim_dir * 11.0 + Vector3.UP * 4.0 + right_h * 3.5
 	camera.global_position = camera.global_position.lerp(cam_pos, clampf(8.0 * delta, 0.0, 1.0))
-	camera.look_at(driving.global_position + Vector3.UP * 0.5, Vector3.UP)
+	camera.look_at(driving.global_position + aim_dir * 22.0, Vector3.UP)
 
 func _leave_vehicle_if_driving() -> void:
 	if driving and is_instance_valid(driving):

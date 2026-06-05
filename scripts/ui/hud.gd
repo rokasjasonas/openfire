@@ -55,7 +55,7 @@ func _update_health_display() -> void:
 		var car = _player.driving
 		health_bar.max_value = car.MAX_HEALTH
 		health_bar.value = car.health
-		health_label.text = "🚗 %d" % int(car.health)
+		health_label.text = "🚗 %d    ♥ %d" % [int(car.health), int(_player.sync_health)]
 	elif health_label.text.begins_with("🚗"):
 		# Just left the car — restore the player readout.
 		health_bar.max_value = _player.MAX_HEALTH
@@ -63,8 +63,11 @@ func _update_health_display() -> void:
 		health_label.text = "%d" % int(_player.sync_health)
 
 func _update_vehicle_prompt() -> void:
-	if _player.driving != null:
-		vehicle_prompt.text = "[E] Exit vehicle    [Space] Handbrake"
+	if _player.driving != null and is_instance_valid(_player.driving):
+		if _player.driving.has_method("is_overturned") and _player.driving.is_overturned():
+			vehicle_prompt.text = "[R] Flip car    [E] Exit"
+		else:
+			vehicle_prompt.text = "[E] Exit    [Space] Handbrake    [R] Flip"
 	elif _player.near_vehicle:
 		vehicle_prompt.text = "[E] Enter vehicle"
 	else:

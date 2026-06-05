@@ -75,6 +75,9 @@ var grenades: int = MAX_GRENADES
 const ENTER_RANGE := 3.5
 var driving: Node = null       # the vehicle we're in, or null
 var near_vehicle: bool = false
+var _cam_yaw: float = 0.0      # drive-camera orbit (relative to car)
+var _cam_pitch: float = 0.0
+var _cam_idle: float = 0.0
 
 func _ready() -> void:
 	_spawn_point = global_transform
@@ -155,10 +158,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := MOUSE_SENS * Settings.mouse_sensitivity
-		_yaw -= event.relative.x * sens
-		_pitch = clamp(_pitch - event.relative.y * sens, deg_to_rad(-89), deg_to_rad(89))
-		rotation.y = _yaw
-		head.rotation.x = _pitch
+		if driving != null:
+			# Orbit the chase camera around the car.
+			_cam_yaw -= event.relative.x * sens
+			_cam_pitch = clamp(_cam_pitch - event.relative.y * sens, deg_to_rad(-55), deg_to_rad(35))
+			_cam_idle = 0.0
+		else:
+			_yaw -= event.relative.x * sens
+			_pitch = clamp(_pitch - event.relative.y * sens, deg_to_rad(-89), deg_to_rad(89))
+			rotation.y = _yaw
+			head.rotation.x = _pitch
 
 func _physics_process(delta: float) -> void:
 	if not is_multiplayer_authority():
@@ -285,6 +294,9 @@ func _enter_vehicle(v: Node) -> void:
 		return
 	driving = v
 	near_vehicle = false
+	_cam_yaw = 0.0
+	_cam_pitch = 0.0
+	_cam_idle = 0.0
 	v.enter(combatant_id, team)
 	$CollisionShape3D.disabled = true
 	weapons.set_hidden(true)
@@ -328,6 +340,8 @@ func _drive_vehicle(delta: float) -> void:
 	var steer := Input.get_axis("move_right", "move_left")       # A left = +1
 	var handbrake := 5.0 if Input.is_action_pressed("jump") else 0.0
 	driving.set_drive(throttle, steer, handbrake)
+	if Input.is_action_just_pressed("reload"):
+		driving.request_flip()
 	# Body rides the seat (so others see the driver in the car), facing forward.
 	global_position = driving.seat_position()
 	velocity = Vector3.ZERO
@@ -335,10 +349,18 @@ func _drive_vehicle(delta: float) -> void:
 	rotation.y = atan2(fwd.x, fwd.z)
 	sync_pos = global_position
 	sync_yaw = rotation.y
-	# Third-person chase camera behind + above the car.
-	var cam_pos: Vector3 = driving.global_position - fwd * 7.0 + Vector3.UP * 3.2
-	var t := clampf(10.0 * delta, 0.0, 1.0)
-	camera.global_position = camera.global_position.lerp(cam_pos, t)
+
+	# Orbitable chase camera: mouse moves it; after idle it eases back to default.
+	_cam_idle += delta
+	if _cam_idle > 0.7:
+		var back := clampf(3.0 * delta, 0.0, 1.0)
+		_cam_yaw = lerp_angle(_cam_yaw, 0.0, back)
+		_cam_pitch = lerpf(_cam_pitch, 0.0, back)
+	var orbit := (-fwd).rotated(Vector3.UP, _cam_yaw)
+	var right := orbit.cross(Vector3.UP).normalized()
+	orbit = orbit.rotated(right, _cam_pitch)
+	var cam_pos: Vector3 = driving.global_position + orbit * 7.0 + Vector3.UP * 3.2
+	camera.global_position = camera.global_position.lerp(cam_pos, clampf(10.0 * delta, 0.0, 1.0))
 	camera.look_at(driving.global_position + Vector3.UP * 1.2, Vector3.UP)
 	if Input.is_action_just_pressed("interact"):
 		_exit_vehicle()

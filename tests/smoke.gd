@@ -295,15 +295,46 @@ func _ready() -> void:
 
 	# Car model variants: outpost places vehicles with cycling model_index.
 	var variant_ok := false
+	var handling_ok := false
 	var hm2: Node = load("res://maps/outpost.tscn").instantiate()
 	get_tree().root.add_child(hm2)
 	await get_tree().process_frame
 	var idxs := {}
+	var engines := {}
 	for v in get_tree().get_nodes_in_group("vehicle"):
 		idxs[v.model_index] = true
+		engines[v.max_engine] = true
 	variant_ok = idxs.size() >= 3
-	print("SMOKE: car_variants=", idxs.size(), " variant_ok=", variant_ok)
+	handling_ok = engines.size() >= 3  # per-type engine power differs
+	print("SMOKE: car_variants=", idxs.size(), " variant_ok=", variant_ok, " handling_variety=", engines.size())
 	hm2.queue_free()
+
+	# Flip: an overturned car rights itself when flipped.
+	var flip_ok := false
+	var fr := Node3D.new()
+	get_tree().root.add_child(fr)
+	var ffl := StaticBody3D.new()
+	ffl.collision_layer = 1
+	var fcs2 := CollisionShape3D.new()
+	var fbs2 := BoxShape3D.new()
+	fbs2.size = Vector3(40, 2, 40)
+	fcs2.shape = fbs2
+	ffl.add_child(fcs2)
+	fr.add_child(ffl)
+	ffl.global_position = Vector3(600, -1, 600)
+	var fv: Node = load("res://scenes/vehicle.tscn").instantiate()
+	fr.add_child(fv)
+	fv.global_transform = Transform3D(Basis(Vector3(1, 0, 0), PI), Vector3(600, 2, 600))  # upside down
+	for i in 30:
+		await get_tree().physics_frame
+	var before_up: float = fv.global_transform.basis.y.dot(Vector3.UP)
+	fv.flip()
+	for i in 70:
+		await get_tree().physics_frame
+	var after_up: float = fv.global_transform.basis.y.dot(Vector3.UP)
+	flip_ok = before_up < 0.0 and after_up > 0.6
+	print("SMOKE: flip up before/after=", snappedf(before_up, 0.01), "/", snappedf(after_up, 0.01), " flip_ok=", flip_ok)
+	fr.queue_free()
 
 	# Team helpers + friendly fire rule.
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
@@ -332,7 +363,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

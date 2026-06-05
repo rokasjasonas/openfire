@@ -3,14 +3,14 @@ extends VehicleBody3D
 ## physics and replicates the transform; other peers freeze the body and lerp
 ## toward the synced pose. Placed by maps; bots don't drive.
 
-const MAX_ENGINE := 1800.0
-const MAX_REVERSE := 800.0
+const MAX_ENGINE := 1400.0
+const MAX_REVERSE := 650.0
 const MAX_STEER := 0.5
 const STEER_SPEED := 3.0
 
 var driver_id: int = 0           # 0 = empty
 var driver_team: int = -999
-var seat_offset := Vector3(0, 2.4, 0)
+var seat_offset := Vector3(0, 1.85, 0)
 
 var sync_pos: Vector3
 var sync_quat: Quaternion = Quaternion.IDENTITY

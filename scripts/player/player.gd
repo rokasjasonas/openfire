@@ -313,8 +313,8 @@ func _leave_vehicle_if_driving() -> void:
 
 func _drive_vehicle(delta: float) -> void:
 	var throttle := Input.get_axis("move_back", "move_forward")  # W forward = +1
-	# Car drives +Z, so steering is mirrored vs convention: A must give -steering.
-	var steer := Input.get_axis("move_left", "move_right")       # A = -1 (turn left)
+	# Chase cam looks along +Z (drive dir); from that view A steers left, D right.
+	var steer := Input.get_axis("move_right", "move_left")       # A left = +1
 	var handbrake := 5.0 if Input.is_action_pressed("jump") else 0.0
 	driving.set_drive(throttle, steer, handbrake)
 	# Body rides the seat (so others see the driver in the car), facing forward.
@@ -325,10 +325,10 @@ func _drive_vehicle(delta: float) -> void:
 	sync_pos = global_position
 	sync_yaw = rotation.y
 	# Third-person chase camera behind + above the car.
-	var cam_pos: Vector3 = driving.global_position - fwd * 9.0 + Vector3.UP * 4.5
+	var cam_pos: Vector3 = driving.global_position - fwd * 7.0 + Vector3.UP * 3.2
 	var t := clampf(10.0 * delta, 0.0, 1.0)
 	camera.global_position = camera.global_position.lerp(cam_pos, t)
-	camera.look_at(driving.global_position + Vector3.UP * 1.5, Vector3.UP)
+	camera.look_at(driving.global_position + Vector3.UP * 1.2, Vector3.UP)
 	if Input.is_action_just_pressed("interact"):
 		_exit_vehicle()
 

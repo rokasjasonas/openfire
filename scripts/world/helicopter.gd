@@ -12,7 +12,7 @@ const YAW_RATE := 1.7
 const FIRE_RATE := 9.0
 const FIRE_DAMAGE := 16.0
 const FIRE_RANGE := 220.0
-const GUN_PITCH := -0.25    # nose gun angled slightly down (radians)
+const MAX_ALTITUDE := 70.0  # ceiling above spawn height
 const HIT_MASK := 1 | 16
 
 var driver_id: int = 0
@@ -57,7 +57,8 @@ func seat_position() -> Vector3:
 	return global_transform * seat_offset
 
 func forward() -> Vector3:
-	return -global_transform.basis.z.normalized()
+	# Model nose is +Z; fly nose-first.
+	return global_transform.basis.z.normalized()
 
 func speed() -> float:
 	return velocity.length()
@@ -84,11 +85,16 @@ func _physics_process(delta: float) -> void:
 			_fire_cd -= delta
 		rotation.y += _yaw_in * YAW_RATE * delta
 		velocity.y = move_toward(velocity.y, _vert * LIFT, 22.0 * delta)
-		var fwd := -global_transform.basis.z
+		var fwd := global_transform.basis.z  # nose-first
 		var target := fwd * (_throttle * MAX_FWD)
 		velocity.x = lerpf(velocity.x, target.x, FWD_ACCEL * delta * 4.0)
 		velocity.z = lerpf(velocity.z, target.z, FWD_ACCEL * delta * 4.0)
 		move_and_slide()
+		# Altitude ceiling.
+		var ceil_y := _spawn_pos.y + MAX_ALTITUDE
+		if global_position.y > ceil_y:
+			global_position.y = ceil_y
+			velocity.y = minf(velocity.y, 0.0)
 		# Visual lean for feel.
 		if _body:
 			_body.rotation.x = lerpf(_body.rotation.x, -_throttle * 0.25, 6.0 * delta)
@@ -108,12 +114,13 @@ func _process(delta: float) -> void:
 
 # ---------------------------------------------------------------- gun
 
-func request_fire() -> void:
+func request_fire(aim_point: Vector3 = Vector3.INF) -> void:
 	if _fire_cd > 0.0 or destroyed or not is_multiplayer_authority():
 		return
 	_fire_cd = 1.0 / FIRE_RATE
-	var origin := global_position + forward() * 2.5 + Vector3.DOWN * 0.4
-	var dir := forward().rotated(global_transform.basis.x, GUN_PITCH)
+	var origin := global_position + forward() * 2.5
+	# Aim toward where the driver is looking (under the crosshair); else straight ahead.
+	var dir := forward() if aim_point == Vector3.INF else (aim_point - origin).normalized()
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * FIRE_RANGE)
 	q.collision_mask = HIT_MASK

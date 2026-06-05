@@ -338,7 +338,9 @@ func _fly_vehicle(delta: float) -> void:
 		- (1.0 if Input.is_action_pressed("crouch") else 0.0)
 	driving.set_fly(throttle, yaw, vertical)
 	if Input.is_action_pressed("fire"):
-		driving.request_fire()
+		# Aim the gun where the camera (crosshair) points.
+		var aim := camera.global_position - camera.global_transform.basis.z * 300.0
+		driving.request_fire(aim)
 	if Input.is_action_just_pressed("interact"):
 		_exit_vehicle()
 		return

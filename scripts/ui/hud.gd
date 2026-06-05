@@ -96,7 +96,7 @@ func _update_status_label() -> void:
 			death_label.text = "DOWNED — wait for a teammate"
 		death_label.visible = true
 	elif _player.dead:
-		death_label.text = "You died — respawning…"
+		death_label.text = "You are out — spectating" if Game.is_battle_royale() else "You died — respawning…"
 		death_label.visible = true
 	else:
 		death_label.visible = false
@@ -291,6 +291,13 @@ func show_result(result: Dictionary) -> void:
 				var wid: int = int(result.get("winner", 0))
 				var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
 				txt = "%s wins!" % wname
+		"last_standing":
+			var wid: int = int(result.get("winner", 0))
+			if wid == 0:
+				txt = "Nobody survived the storm…"
+			else:
+				var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
+				txt = "%s wins the Battle Royale!" % wname
 		"time":
 			txt = "Time!"
 	result_label.text = txt + "\n\nReturning to menu…"

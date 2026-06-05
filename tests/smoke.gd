@@ -467,8 +467,60 @@ func _ready() -> void:
 		tgt.queue_free()
 		vip.queue_free()
 
+	# Battle Royale: storm-wall geometry, storm damage to anyone caught outside,
+	# is_battle_royale/mode_name, and last-standing never ending with a full lobby.
+	var br_ok := false
+	if world:
+		var StormScript = load("res://scripts/world/storm.gd")
+		var storm = StormScript.new()
+		world.add_child(storm)
+		storm.set_center(Vector3.ZERO)
+		storm.set_radius(50.0)
+		var geom_ok: bool = storm.is_outside(Vector3(80, 0, 0)) and not storm.is_outside(Vector3(10, 0, 0))
+		var storm_dmg_ok := false
+		var sbots := get_tree().get_nodes_in_group("bot")
+		if not sbots.is_empty():
+			var sb = sbots[0]
+			sb.global_position = Vector3(300, 0.5, 0)  # well outside the 50 m ring
+			await get_tree().physics_frame
+			var hp0: float = sb.sync_health
+			world._storm = storm
+			world._apply_storm_damage(15.0)
+			await get_tree().process_frame
+			storm_dmg_ok = sb.sync_health < hp0
+		var prev_mode = Game.config["mode"]
+		var prev_active: bool = Game.match_active
+		Game.config["mode"] = Game.Mode.BATTLE_ROYALE
+		var name_ok: bool = Game.is_battle_royale() and Game.mode_name() == "Battle Royale"
+		Game.match_active = true
+		world.check_last_standing()  # several bots alive -> must NOT end the match
+		var no_false_end: bool = Game.match_active
+		Game.match_active = prev_active
+		Game.config["mode"] = prev_mode
+		world._storm = null
+		storm.queue_free()
+		br_ok = geom_ok and storm_dmg_ok and name_ok and no_false_end
+		print("SMOKE: battle_royale_ok=", br_ok, " geom=", geom_ok, " storm_dmg=", storm_dmg_ok, " name=", name_ok, " no_false_end=", no_false_end)
+
+	# Massive Wasteland map bakes a navmesh, spreads spawns and places vehicles.
+	var wasteland_ok := false
+	var wt0 := Time.get_ticks_msec()
+	var wm: Node = load("res://maps/wasteland.tscn").instantiate()
+	get_tree().root.add_child(wm)
+	await get_tree().process_frame
+	var wreg = wm.get_node_or_null("NavRegion")
+	var wpolys: int = wreg.navigation_mesh.get_polygon_count() if wreg and wreg.navigation_mesh else 0
+	var wspawns := 0
+	for m in wm.get_children():
+		if m is Marker3D and (m.is_in_group("spawn_player") or m.is_in_group("spawn_enemy")):
+			wspawns += 1
+	var wveh: int = get_tree().get_nodes_in_group("vehicle").size()
+	wasteland_ok = wpolys > 0 and wspawns >= 12 and wveh >= 6
+	print("SMOKE: wasteland_ok=", wasteland_ok, " bake_ms=", Time.get_ticks_msec() - wt0, " polys=", wpolys, " spawns=", wspawns, " vehicles=", wveh)
+	wm.queue_free()
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

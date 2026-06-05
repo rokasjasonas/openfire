@@ -546,8 +546,16 @@ func _die(attacker_id: int) -> void:
 	$CollisionShape3D.disabled = true
 	if is_multiplayer_authority():
 		velocity = Vector3.ZERO
-		_respawn_timer = 3.0
-		set_process(true)
+		if Game.is_battle_royale():
+			# No respawns: you're eliminated for good and become a spectator.
+			fully_dead = true
+			downed_changed.emit(false, 0, 0, true)
+			var world := get_tree().get_first_node_in_group("world")
+			if world and world.has_method("check_last_standing"):
+				world.check_last_standing()
+		else:
+			_respawn_timer = 3.0
+			set_process(true)
 
 @rpc("any_peer", "call_local", "reliable")
 func _report_death(attacker_id: int, victim_id: int) -> void:
@@ -556,6 +564,8 @@ func _report_death(attacker_id: int, victim_id: int) -> void:
 		var world := get_tree().get_first_node_in_group("world")
 		if world and world.has_method("check_coop_wipe"):
 			world.check_coop_wipe()
+		if world and world.has_method("check_last_standing"):
+			world.check_last_standing()
 
 func _process(_delta: float) -> void:
 	if dead and is_multiplayer_authority() and _respawn_timer <= 0.0:

@@ -20,11 +20,14 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
 - **Grenades, footsteps, kill feed, directional damage indicator**, and an
   **options menu** (mouse sensitivity, master volume, FOV — saved to disk).
 - **Smoothed netplay** — remote players and bots interpolate between updates.
-- **Three game modes:**
+- **Five game modes:**
   - **Deathmatch** — free-for-all vs other players and respawning bots, frag-limited.
   - **Team Deathmatch** — BLUE vs RED (players + bots), friendly fire off, team scoring.
   - **Domination** — capture and hold control points to tick up your team's score;
     first to the limit wins (Arena, Ruins, Compound).
+  - **Battle Royale** — free-for-all, **no respawns**, with a **shrinking storm
+    circle** that escalates damage on anyone caught outside the safe zone. Last
+    combatant standing wins. Built for the massive **Wasteland** map.
   - **Co-op** — team up against AI through scripted missions, with **downed/revive**
     (go down instead of dying; teammates revive you) and **shared respawn lives**.
     Eight objective types — clear/reach/survive/defend plus **hold-console**,
@@ -54,10 +57,11 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   throttle (W/S), yaw (A/D) and vertical (`Space`/`Ctrl`), and strafe the ground
   with its nose gun (LMB). Has health, explodes when destroyed, and can be flown
   online (driver-authoritative).
-- **Eight maps** — Arena, Facility (mission map), Highlands (vertical ziggurat),
+- **Nine maps** — Arena, Facility (mission map), Highlands (vertical ziggurat),
   Warehouse (CQB aisles), Ruins (open + cover), Compound (enclosed buildings with
-  doorways + roofs), and two **huge open maps built for vehicles** — Outpost and
-  Badlands. All procedural with runtime-baked navmeshes and CC0 art.
+  doorways + roofs), two **huge open maps built for vehicles** — Outpost and
+  Badlands — and **Wasteland**, a *massive* 440×440 battle-royale map (~100× the
+  Arena's footprint). All procedural with runtime-baked navmeshes and CC0 art.
 
 ---
 

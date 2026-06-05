@@ -11,6 +11,7 @@ const MAPS := [
 	{ "name": "Compound", "path": "res://maps/compound.tscn" },
 	{ "name": "Outpost (huge, vehicles)", "path": "res://maps/outpost.tscn" },
 	{ "name": "Badlands (huge, vehicles)", "path": "res://maps/badlands.tscn" },
+	{ "name": "Wasteland (massive, battle royale)", "path": "res://maps/wasteland.tscn" },
 ]
 const SKILLS := [
 	{ "name": "Easy", "value": 0.6 },
@@ -52,6 +53,7 @@ func _ready() -> void:
 	mode_option.add_item("Co-op")
 	mode_option.add_item("Team Deathmatch")
 	mode_option.add_item("Domination")
+	mode_option.add_item("Battle Royale")
 	map_option.clear()
 	for m in MAPS:
 		map_option.add_item(m["name"])
@@ -119,8 +121,9 @@ func _show_options() -> void:
 
 func _on_mode_changed(_idx: int) -> void:
 	var coop := mode_option.selected == 1
+	var br := mode_option.selected == 4  # Battle Royale: no frag limit, last one alive wins
 	map_row.visible = not coop
-	frag_row.visible = not coop
+	frag_row.visible = not coop and not br
 	mission_row.visible = coop
 	if coop and Missions.get_all().is_empty():
 		status_label.text = "No missions found in res://missions/"
@@ -223,6 +226,8 @@ func _refresh_lobby() -> void:
 	if Game.is_coop():
 		var m := Missions.get_mission(Game.config.get("mission_id", ""))
 		summary += " — " + m.get("name", "?")
+	elif Game.is_battle_royale():
+		summary += " — last one standing"
 	else:
 		summary += " — frag limit %d" % int(Game.config["frag_limit"])
 	summary += "\nBots: %d (%s)" % [int(Game.config["bot_count"]), _skill_name(Game.config["bot_skill"])]

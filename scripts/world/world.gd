@@ -83,6 +83,8 @@ func _begin() -> void:
 		_start_team_deathmatch()
 	elif Game.is_domination():
 		_start_domination()
+	elif Game.is_battle_royale():
+		_start_battle_royale()
 	else:
 		_start_deathmatch()
 
@@ -144,6 +146,7 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 const BOT_SCRIPT := preload("res://scripts/ai/bot.gd")
 const TARGET_SCRIPT := preload("res://scripts/world/destructible_target.gd")
 const ESCORT_SCRIPT := preload("res://scripts/world/escort_marker.gd")
+const STORM_SCRIPT := preload("res://scripts/world/storm.gd")
 
 func _random_enemy_type() -> String:
 	var weights: Dictionary = BOT_SCRIPT.SPAWN_WEIGHTS
@@ -206,6 +209,7 @@ func spawn_escort(from: Vector3, dest: Vector3, speed: float) -> Node:
 func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 	if _objective_runner and _objective_runner.has_method("notify_enemy_killed"):
 		_objective_runner.notify_enemy_killed(victim_id)
+	check_last_standing()
 
 # ---------------------------------------------------------------- modes
 
@@ -237,8 +241,14 @@ func _start_domination() -> void:
 	set_process(true)
 
 func _process(delta: float) -> void:
-	if not Net.is_host() or not Game.is_domination() or not Game.match_active:
+	if not Net.is_host() or not Game.match_active:
 		return
+	if Game.is_domination():
+		_process_domination(delta)
+	elif Game.is_battle_royale():
+		_process_storm(delta)
+
+func _process_domination(delta: float) -> void:
 	_dom_sync_t += delta
 	var broadcast := _dom_sync_t >= 0.25
 	if broadcast:
@@ -272,6 +282,131 @@ func _sync_dom(scores_arr: Array) -> void:
 	if not Net.is_host():
 		Game.dom_score = scores_arr
 		Game.dom_changed.emit()
+
+# ---------------------------------------------------------------- battle royale
+
+# Safe-zone radii (m) per phase and the storm damage/sec while outside it.
+const STORM_RADII := [230.0, 150.0, 90.0, 50.0, 22.0, 8.0]
+const STORM_DPS := [1.0, 2.0, 3.0, 5.0, 8.0, 12.0]
+const STORM_FIRST_HOLD := 18.0   # grace before the first shrink
+const STORM_HOLD := 14.0         # pause between shrinks
+const STORM_SHRINK := 18.0       # time to close from one ring to the next
+
+var _storm: Node3D = null
+var _storm_phase: int = 0
+var _storm_state: String = "hold"   # "hold" | "shrink"
+var _storm_from: float = 0.0
+var _storm_to: float = 0.0
+var _storm_cur: float = 0.0
+var _storm_dps: float = 1.0
+var _storm_t: float = 0.0
+var _storm_dmg_accum: float = 0.0
+var _br_sync_t: float = 0.0
+
+func _start_battle_royale() -> void:
+	set_objective_text.rpc("⚠ BATTLE ROYALE — last one standing wins. Stay inside the storm wall!")
+	# Free-for-all: every bot is its own team, and nobody respawns.
+	var n: int = int(Game.config["bot_count"])
+	for i in n:
+		spawn_enemy(float(Game.config["bot_skill"]), false)
+	# Spin up the shrinking storm centred on the map origin.
+	_storm = STORM_SCRIPT.new()
+	_storm.name = "Storm"
+	add_child(_storm)
+	_storm_cur = STORM_RADII[0]
+	_storm_from = _storm_cur
+	_storm_to = _storm_cur
+	_storm_dps = STORM_DPS[0]
+	_storm_phase = 0
+	_storm_state = "hold"
+	_storm_t = 0.0
+	_storm.set_center(Vector3.ZERO)
+	_storm.set_radius(_storm_cur)
+	_sync_storm.rpc(Vector3.ZERO, _storm_cur)
+	set_process(true)
+
+func _process_storm(delta: float) -> void:
+	if _storm == null:
+		return
+	_storm_t += delta
+	if _storm_state == "shrink":
+		var k: float = clampf(_storm_t / STORM_SHRINK, 0.0, 1.0)
+		_storm_cur = lerpf(_storm_from, _storm_to, k)
+		if k >= 1.0:
+			_storm_cur = _storm_to
+			_storm_state = "hold"
+			_storm_t = 0.0
+	else:  # holding
+		var hold: float = STORM_FIRST_HOLD if _storm_phase == 0 else STORM_HOLD
+		if _storm_t >= hold and _storm_phase < STORM_RADII.size() - 1:
+			_storm_phase += 1
+			_storm_from = _storm_cur
+			_storm_to = STORM_RADII[_storm_phase]
+			_storm_dps = STORM_DPS[_storm_phase]
+			_storm_state = "shrink"
+			_storm_t = 0.0
+	_storm.set_radius(_storm_cur)
+
+	# Tick storm damage to everyone caught outside the ring (once a second).
+	_storm_dmg_accum += delta
+	if _storm_dmg_accum >= 1.0:
+		_storm_dmg_accum = 0.0
+		_apply_storm_damage(_storm_dps)
+
+	# Replicate the ring + HUD banner to clients a few times a second.
+	_br_sync_t += delta
+	if _br_sync_t >= 0.4:
+		_br_sync_t = 0.0
+		_sync_storm.rpc(_storm.global_position, _storm_cur)
+		set_objective_text.rpc(_storm_banner())
+		check_last_standing()
+
+func _apply_storm_damage(dps: float) -> void:
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if not is_instance_valid(c) or c.get("dead") or c.get("fully_dead"):
+			continue
+		if _storm.is_outside(c.global_position) and c.has_method("hit"):
+			c.hit(dps, -1)
+
+func _storm_banner() -> String:
+	var alive: int = _count_alive_combatants()
+	var note: String
+	if _storm_state == "shrink":
+		note = "Storm closing!"
+	elif _storm_phase < STORM_RADII.size() - 1:
+		var hold: float = STORM_FIRST_HOLD if _storm_phase == 0 else STORM_HOLD
+		note = "Storm shrinks in %ds" % max(0, int(ceil(hold - _storm_t)))
+	else:
+		note = "Final ring"
+	return "⚠ %s   —   Alive: %d" % [note, alive]
+
+@rpc("authority", "call_local", "reliable")
+func _sync_storm(center: Vector3, radius: float) -> void:
+	if _storm == null:
+		_storm = STORM_SCRIPT.new()
+		_storm.name = "Storm"
+		add_child(_storm)
+	_storm.set_center(center)
+	_storm.set_radius(radius)
+
+func _count_alive_combatants() -> int:
+	var n := 0
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if is_instance_valid(c) and not c.get("dead") and not c.get("fully_dead"):
+			n += 1
+	return n
+
+## Host: end the battle royale the moment one (or zero) combatants remain alive.
+func check_last_standing() -> void:
+	if not Net.is_host() or not Game.is_battle_royale() or not Game.match_active:
+		return
+	var alive: Array = []
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if is_instance_valid(c) and not c.get("dead") and not c.get("fully_dead"):
+			alive.append(c)
+	if alive.size() <= 1:
+		var winner_id: int = int(alive[0].get("combatant_id")) if alive.size() == 1 else 0
+		Game.end_match({"reason": "last_standing", "winner": winner_id})
 
 func _start_coop() -> void:
 	var mission := Missions.get_mission(Game.config.get("mission_id", ""))

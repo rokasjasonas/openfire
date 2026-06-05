@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cwasteland001"]
+
+[ext_resource type="Script" path="res://scripts/world/wasteland.gd" id="1_waste"]
+
+[node name="Wasteland" type="Node3D"]
+script = ExtResource("1_waste")

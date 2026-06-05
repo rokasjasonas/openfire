@@ -16,7 +16,7 @@ var coop_lives: int = 6
 const DOM_LIMIT := 250
 var dom_score: Array = [0, 0]
 
-enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION }
+enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION, BATTLE_ROYALE }
 
 # Team ids. In coop, humans share TEAM_PLAYERS and bots are TEAM_ENEMIES.
 # In team deathmatch, teams 0 and 1 are BLUE and RED (each holds players + bots).
@@ -123,6 +123,9 @@ func is_team_deathmatch() -> bool:
 func is_domination() -> bool:
 	return config["mode"] == Mode.DOMINATION
 
+func is_battle_royale() -> bool:
+	return config["mode"] == Mode.BATTLE_ROYALE
+
 ## True when combatants share teams (coop / TDM / domination) — used for friendly
 ## fire and team-coloured nameplates. Plain deathmatch is free-for-all.
 func is_team_mode() -> bool:
@@ -139,6 +142,7 @@ func mode_name() -> String:
 		Mode.COOP: return "Co-op"
 		Mode.TEAM_DEATHMATCH: return "Team Deathmatch"
 		Mode.DOMINATION: return "Domination"
+		Mode.BATTLE_ROYALE: return "Battle Royale"
 		_: return "Deathmatch"
 
 func end_match(result: Dictionary) -> void:

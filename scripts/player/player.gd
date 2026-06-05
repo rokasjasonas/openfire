@@ -291,7 +291,7 @@ func _enter_vehicle(v: Node) -> void:
 
 func _exit_vehicle() -> void:
 	if driving:
-		var side: Vector3 = driving.global_transform.basis.x * 2.2 + Vector3.UP * 0.6
+		var side: Vector3 = driving.global_transform.basis.x * 3.0 + Vector3.UP * 0.8
 		global_position = driving.global_position + side
 		driving.exit()
 	$CollisionShape3D.disabled = false
@@ -299,21 +299,36 @@ func _exit_vehicle() -> void:
 	velocity = Vector3.ZERO
 	sync_pos = global_position
 	driving = null
+	# Restore the first-person camera.
+	camera.transform = Transform3D.IDENTITY
+	_yaw = rotation.y
+	_pitch = 0.0
+	head.rotation.x = 0.0
 
 func _leave_vehicle_if_driving() -> void:
 	if driving and is_instance_valid(driving):
 		driving.exit()
 	driving = null
+	camera.transform = Transform3D.IDENTITY
 
 func _drive_vehicle(delta: float) -> void:
-	var throttle := Input.get_axis("move_back", "move_forward")  # forward = +1
-	var steer := Input.get_axis("move_right", "move_left")       # left = +1
-	var handbrake := 4.0 if Input.is_action_pressed("jump") else 0.0
+	var throttle := Input.get_axis("move_back", "move_forward")  # W forward = +1
+	# Car drives +Z, so steering is mirrored vs convention: A must give -steering.
+	var steer := Input.get_axis("move_left", "move_right")       # A = -1 (turn left)
+	var handbrake := 5.0 if Input.is_action_pressed("jump") else 0.0
 	driving.set_drive(throttle, steer, handbrake)
+	# Body rides the seat (so others see the driver in the car), facing forward.
 	global_position = driving.seat_position()
 	velocity = Vector3.ZERO
+	var fwd: Vector3 = driving.forward()
+	rotation.y = atan2(fwd.x, fwd.z)
 	sync_pos = global_position
 	sync_yaw = rotation.y
+	# Third-person chase camera behind + above the car.
+	var cam_pos: Vector3 = driving.global_position - fwd * 9.0 + Vector3.UP * 4.5
+	var t := clampf(10.0 * delta, 0.0, 1.0)
+	camera.global_position = camera.global_position.lerp(cam_pos, t)
+	camera.look_at(driving.global_position + Vector3.UP * 1.5, Vector3.UP)
 	if Input.is_action_just_pressed("interact"):
 		_exit_vehicle()
 

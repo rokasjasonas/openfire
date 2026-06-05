@@ -3,14 +3,14 @@ extends VehicleBody3D
 ## physics and replicates the transform; other peers freeze the body and lerp
 ## toward the synced pose. Placed by maps; bots don't drive.
 
-const MAX_ENGINE := 260.0
-const MAX_REVERSE := 130.0
-const MAX_STEER := 0.55
-const STEER_SPEED := 3.5
+const MAX_ENGINE := 1800.0
+const MAX_REVERSE := 800.0
+const MAX_STEER := 0.5
+const STEER_SPEED := 3.0
 
 var driver_id: int = 0           # 0 = empty
 var driver_team: int = -999
-var seat_offset := Vector3(0, 1.0, 0)
+var seat_offset := Vector3(0, 2.4, 0)
 
 var sync_pos: Vector3
 var sync_quat: Quaternion = Quaternion.IDENTITY
@@ -57,6 +57,13 @@ func set_drive(throttle: float, steer: float, brake_force: float) -> void:
 
 func seat_position() -> Vector3:
 	return global_transform * seat_offset
+
+## World-space drive-forward direction (engine_force > 0 drives along local +Z).
+func forward() -> Vector3:
+	return global_transform.basis.z.normalized()
+
+func speed() -> float:
+	return linear_velocity.length()
 
 func is_occupied() -> bool:
 	return driver_id != 0

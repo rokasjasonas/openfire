@@ -124,6 +124,41 @@ func add_slope(bottom: Vector3, top: Vector3, width: float = 4.0, color: String 
 	var t := Transform3D(Basis(right, up, fwd), (bottom + top) * 0.5)
 	mi.transform = t
 
+## An enclosed building: four walls (one side has a doorway gap) plus a roof slab.
+## Interior stays navigable because the roof sits well above agent height and the
+## doorway lets the navmesh connect inside to outside.
+func add_building(center: Vector3, width: float, depth: float, height: float, door_side: String = "south", color: String = "Light", idx: int = 13) -> void:
+	var t := 0.4
+	var hw := width * 0.5
+	var hd := depth * 0.5
+	_wall_with_door("x", center.z - hd, width, height, t, door_side == "south", center, color, idx)
+	_wall_with_door("x", center.z + hd, width, height, t, door_side == "north", center, color, idx)
+	_wall_with_door("z", center.x - hw, depth, height, t, door_side == "west", center, color, idx)
+	_wall_with_door("z", center.x + hw, depth, height, t, door_side == "east", center, color, idx)
+	# Roof.
+	add_box(Vector3(width + t, 0.4, depth + t), Vector3(center.x, height + 0.2, center.z), color, idx)
+
+func _wall_with_door(axis: String, fixed: float, length: float, height: float, t: float, has_door: bool, center: Vector3, color: String, idx: int) -> void:
+	var door_w := 3.0
+	var door_h := 2.6
+	if not has_door:
+		if axis == "x":
+			add_wall(Vector3(length, height, t), Vector3(center.x, height * 0.5, fixed), color, idx)
+		else:
+			add_wall(Vector3(t, height, length), Vector3(fixed, height * 0.5, center.z), color, idx)
+		return
+	var seg := (length - door_w) * 0.5
+	var off := door_w * 0.5 + seg * 0.5
+	var lintel_h := height - door_h
+	if axis == "x":
+		add_wall(Vector3(seg, height, t), Vector3(center.x - off, height * 0.5, fixed), color, idx)
+		add_wall(Vector3(seg, height, t), Vector3(center.x + off, height * 0.5, fixed), color, idx)
+		add_wall(Vector3(door_w, lintel_h, t), Vector3(center.x, door_h + lintel_h * 0.5, fixed), color, idx)
+	else:
+		add_wall(Vector3(t, height, seg), Vector3(fixed, height * 0.5, center.z - off), color, idx)
+		add_wall(Vector3(t, height, seg), Vector3(fixed, height * 0.5, center.z + off), color, idx)
+		add_wall(Vector3(t, lintel_h, door_w), Vector3(fixed, door_h + lintel_h * 0.5, center.z), color, idx)
+
 ## Decorative crate prop (small collider, not added to navmesh).
 func add_crate(glb: String, pos: Vector3, scale: float = 1.0) -> void:
 	if not ResourceLoader.exists(glb):

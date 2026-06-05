@@ -208,7 +208,7 @@ func _ready() -> void:
 
 	# New maps bake navmeshes.
 	var new_maps_ok := true
-	for mp in ["res://maps/warehouse.tscn", "res://maps/ruins.tscn"]:
+	for mp in ["res://maps/warehouse.tscn", "res://maps/ruins.tscn", "res://maps/compound.tscn"]:
 		var m: Node = load(mp).instantiate()
 		get_tree().root.add_child(m)
 		await get_tree().process_frame
@@ -218,6 +218,22 @@ func _ready() -> void:
 			new_maps_ok = false
 		m.queue_free()
 	print("SMOKE: new_maps_ok=", new_maps_ok)
+
+	# Compound buildings: a point inside a building is reachable on the navmesh
+	# (i.e. the doorway connects the interior to the rest of the map).
+	var interior_ok := false
+	var comp: Node = load("res://maps/compound.tscn").instantiate()
+	get_tree().root.add_child(comp)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var creg = comp.get_node_or_null("NavRegion")
+	if creg:
+		var navmap: RID = creg.get_navigation_map()
+		var inside := Vector3(-18, 0.3, -18)  # centre of a corner building
+		var closest := NavigationServer3D.map_get_closest_point(navmap, inside)
+		interior_ok = Vector2(closest.x - inside.x, closest.z - inside.z).length() < 2.0
+	print("SMOKE: building_interior_navigable=", interior_ok)
+	comp.queue_free()
 
 	# Colored kill feed builds without error.
 	var killfeed_ok := false
@@ -254,7 +270,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

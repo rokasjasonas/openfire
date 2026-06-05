@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://ccompound0001"]
+
+[ext_resource type="Script" path="res://scripts/world/compound.gd" id="1_comp"]
+
+[node name="Compound" type="Node3D"]
+script = ExtResource("1_comp")

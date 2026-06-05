@@ -37,10 +37,11 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   is the same code path hosting locally. Up to 8 players.
 - **Configurable missions** — defined as plain **JSON** files in [`missions/`](missions/).
   Add a mission by dropping in a new file. See [docs/missions.md](docs/missions.md).
-- **Five maps** — Arena (symmetrical), Facility (multi-room, mission map), Highlands
-  (vertical stepped ziggurat), Warehouse (tight CQB aisles) and Ruins (open, central
-  platform + cover), all built procedurally with runtime-baked navmeshes and CC0
-  prototype textures.
+- **Six maps** — Arena (symmetrical), Facility (multi-room, mission map), Highlands
+  (vertical stepped ziggurat), Warehouse (tight CQB aisles), Ruins (open, central
+  platform + cover) and Compound (enclosed buildings with doorways + roofs around a
+  plaza, one roof reachable by ramp). All procedural with runtime-baked navmeshes
+  (bots path through doorways and into building interiors) and CC0 prototype textures.
 
 ---
 

@@ -159,9 +159,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := MOUSE_SENS * Settings.mouse_sensitivity
 		if driving != null:
-			# Orbit the chase camera around the car.
+			# Orbit the chase camera around the car (pitch inverted on purpose).
 			_cam_yaw -= event.relative.x * sens
-			_cam_pitch = clamp(_cam_pitch - event.relative.y * sens, deg_to_rad(-55), deg_to_rad(35))
+			_cam_pitch = clamp(_cam_pitch + event.relative.y * sens, deg_to_rad(-55), deg_to_rad(35))
 			_cam_idle = 0.0
 		else:
 			_yaw -= event.relative.x * sens

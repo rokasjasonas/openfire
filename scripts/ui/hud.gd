@@ -28,6 +28,10 @@ var _player: Node = null
 var _last_health: float = -1.0
 var _flash_tween: Tween = null
 
+const RESULT_COUNTDOWN := 3.0
+var _result_base_text: String = ""
+var _result_left: float = 0.0
+
 func _ready() -> void:
 	scoreboard.visible = false
 	result_panel.visible = false
@@ -47,7 +51,10 @@ func _ready() -> void:
 	%VersionLabel.text = "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
 	set_process(true)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if result_panel.visible and _result_left > 0.0:
+		_result_left = maxf(0.0, _result_left - delta)
+		_update_result_label()
 	if _player == null or not is_instance_valid(_player):
 		_try_bind()
 	elif not pause_panel.visible:
@@ -305,8 +312,17 @@ func show_result(result: Dictionary) -> void:
 				txt = "%s wins the Battle Royale!" % wname
 		"time":
 			txt = "Time!"
-	result_label.text = txt + "\n\nReturning to menu…"
+	_result_base_text = txt
+	_result_left = RESULT_COUNTDOWN
+	_update_result_label()
 	_refresh_scoreboard()
+
+func _update_result_label() -> void:
+	var secs := int(ceil(_result_left))
+	if secs > 0:
+		result_label.text = "%s\n\nReturning to menu in %d…" % [_result_base_text, secs]
+	else:
+		result_label.text = "%s\n\nReturning to menu…" % _result_base_text
 
 func _toggle_pause() -> void:
 	if result_panel.visible:

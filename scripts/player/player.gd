@@ -88,7 +88,9 @@ func _ready() -> void:
 	add_to_group("combatant")
 	add_to_group("player")
 	name_label.text = display_name
-	name_label.visible = not is_multiplayer_authority()
+	# Battle Royale is a stealthy FFA: hide every floating name tag so labels never
+	# reveal positions. Otherwise remote players show their name.
+	name_label.visible = not is_multiplayer_authority() and not Game.is_battle_royale()
 	if Game.is_team_mode():
 		name_label.modulate = Game.team_color(team)
 	camera.fov = Settings.fov

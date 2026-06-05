@@ -112,6 +112,8 @@ func _apply_profile() -> void:
 		sync_health = max_health
 	name_label.text = "%s %d" % [p["name"], absi(combatant_id) % 1000]
 	name_label.modulate = Game.team_color(team) if Game.is_team_mode() else p["color"]
+	# Battle Royale hides all name tags (no labels giving away positions in FFA).
+	name_label.visible = not Game.is_battle_royale()
 	body_model.scale = Vector3.ONE * float(p["scale"])
 	# Swap the body model to the archetype's character.
 	for c in body_model.get_children():

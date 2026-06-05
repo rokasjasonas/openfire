@@ -552,7 +552,7 @@ func _show_result(result: Dictionary) -> void:
 	if hud and hud.has_method("show_result"):
 		hud.show_result(result)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	await get_tree().create_timer(7.0).timeout
+	await get_tree().create_timer(3.0).timeout
 	_leave_to_menu()
 
 func _leave_to_menu() -> void:

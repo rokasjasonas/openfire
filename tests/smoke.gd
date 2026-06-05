@@ -392,7 +392,11 @@ func _ready() -> void:
 		await get_tree().physics_frame
 		await get_tree().physics_frame
 		var vh0: float = tv.health
-		b._shoot_at(tv)
+		# Fire a few times: a single shot can miss on the random spread cone.
+		for _i in 8:
+			b._shoot_cd = 0.0
+			b._shoot_at(tv)
+			await get_tree().physics_frame
 		bot_veh_ok = tv.health < vh0
 		print("SMOKE: bot_shoots_vehicle_ok=", bot_veh_ok, " (", vh0, " -> ", tv.health, ")")
 		tv.queue_free()
@@ -492,6 +496,10 @@ func _ready() -> void:
 		var prev_active: bool = Game.match_active
 		Game.config["mode"] = Game.Mode.BATTLE_ROYALE
 		var name_ok: bool = Game.is_battle_royale() and Game.mode_name() == "Battle Royale"
+		var tag_ok := true
+		if not sbots.is_empty():
+			sbots[0]._apply_profile()  # re-resolve profile under BR -> tag should hide
+			tag_ok = not sbots[0].name_label.visible
 		Game.match_active = true
 		world.check_last_standing()  # several bots alive -> must NOT end the match
 		var no_false_end: bool = Game.match_active
@@ -499,8 +507,8 @@ func _ready() -> void:
 		Game.config["mode"] = prev_mode
 		world._storm = null
 		storm.queue_free()
-		br_ok = geom_ok and storm_dmg_ok and name_ok and no_false_end
-		print("SMOKE: battle_royale_ok=", br_ok, " geom=", geom_ok, " storm_dmg=", storm_dmg_ok, " name=", name_ok, " no_false_end=", no_false_end)
+		br_ok = geom_ok and storm_dmg_ok and name_ok and no_false_end and tag_ok
+		print("SMOKE: battle_royale_ok=", br_ok, " geom=", geom_ok, " storm_dmg=", storm_dmg_ok, " name=", name_ok, " no_false_end=", no_false_end, " tag_hidden=", tag_ok)
 
 	# Massive Wasteland map bakes a navmesh, spreads spawns and places vehicles.
 	var wasteland_ok := false

@@ -21,6 +21,8 @@ extends CanvasLayer
 @onready var team_score_label: Label = %TeamScoreLabel
 @onready var lives_label: Label = %LivesLabel
 @onready var vehicle_prompt: Label = %VehiclePrompt
+@onready var car_health_bar: ProgressBar = %CarHealthBar
+@onready var car_health_label: Label = %CarHealthLabel
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -35,6 +37,8 @@ func _ready() -> void:
 	Game.score_changed.connect(_refresh_team_score)
 	Game.lives_changed.connect(_on_lives)
 	team_score_label.visible = false
+	car_health_bar.visible = false
+	car_health_label.visible = false
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -51,16 +55,16 @@ func _process(_delta: float) -> void:
 		_update_health_display()
 
 func _update_health_display() -> void:
-	if _player.driving != null and is_instance_valid(_player.driving):
+	# Player health is always shown on the main bar (driven by _on_health). The car
+	# health is shown as a separate extra bar only while seated in a vehicle.
+	var inside := _player.driving != null and is_instance_valid(_player.driving)
+	car_health_bar.visible = inside
+	car_health_label.visible = inside
+	if inside:
 		var car = _player.driving
-		health_bar.max_value = car.MAX_HEALTH
-		health_bar.value = car.health
-		health_label.text = "🚗 %d    ♥ %d" % [int(car.health), int(_player.sync_health)]
-	elif health_label.text.begins_with("🚗"):
-		# Just left the car — restore the player readout.
-		health_bar.max_value = _player.MAX_HEALTH
-		health_bar.value = _player.sync_health
-		health_label.text = "%d" % int(_player.sync_health)
+		car_health_bar.max_value = car.MAX_HEALTH
+		car_health_bar.value = car.health
+		car_health_label.text = "🚗 %d" % int(car.health)
 
 func _update_vehicle_prompt() -> void:
 	if _player.driving != null and is_instance_valid(_player.driving):

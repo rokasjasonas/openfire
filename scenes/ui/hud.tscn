@@ -105,6 +105,30 @@ offset_bottom = 34.0
 modulate = Color(0.7, 1, 0.8, 1)
 text = ""
 
+[node name="CarHealthLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -158.0
+offset_right = 264.0
+offset_bottom = -132.0
+modulate = Color(1, 0.8, 0.4, 1)
+text = "🚗 350"
+
+[node name="CarHealthBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -130.0
+offset_right = 264.0
+offset_bottom = -106.0
+modulate = Color(1, 0.8, 0.4, 1)
+max_value = 350.0
+value = 350.0
+show_percentage = false
+
 [node name="WeaponLabel" type="Label" parent="."]
 unique_name_in_owner = true
 anchor_left = 1.0

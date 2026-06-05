@@ -48,6 +48,8 @@ var _spawn_quat: Quaternion = Quaternion.IDENTITY
 var _flip_t := 0.0
 var _flip_target := Quaternion.IDENTITY
 var _empty_over_t := 0.0
+var _prev_speed := 0.0
+var _crash_cd := 0.0
 
 var _smoke: CPUParticles3D
 
@@ -61,6 +63,9 @@ func _ready() -> void:
 	_make_smoke()
 	_update_authority()
 	set_process(true)
+	contact_monitor = true
+	max_contacts_reported = 4
+	body_entered.connect(_on_crash)
 
 func _make_smoke() -> void:
 	_smoke = CPUParticles3D.new()
@@ -143,6 +148,8 @@ func _physics_process(delta: float) -> void:
 		if _flip_t > 0.0:
 			_animate_flip(delta)
 			return
+		if _crash_cd > 0.0:
+			_crash_cd -= delta
 		_auto_flip(delta)
 		engine_force = _throttle * (max_engine if _throttle >= 0.0 else max_reverse)
 		steering = move_toward(steering, _steer * max_steer, STEER_SPEED * delta)
@@ -151,6 +158,7 @@ func _physics_process(delta: float) -> void:
 		sync_quat = global_transform.basis.get_rotation_quaternion()
 		if driver_id != 0:
 			_roadkill(delta)
+		_prev_speed = speed()
 	else:
 		var t := clampf(15.0 * delta, 0.0, 1.0)
 		global_position = global_position.lerp(sync_pos, t)
@@ -205,6 +213,21 @@ func _auto_flip(delta: float) -> void:
 			flip()
 	else:
 		_empty_over_t = 0.0
+
+## Crash damage from high-speed collisions with the world or other cars.
+func _on_crash(body: Node) -> void:
+	if not is_multiplayer_authority() or destroyed or _crash_cd > 0.0:
+		return
+	if body and body.is_in_group("combatant"):
+		return  # bodies are handled by roadkill, not crash damage
+	if _prev_speed < 12.0:
+		return
+	_crash_cd = 0.5
+	var dmg := clampf((_prev_speed - 8.0) * 5.0, 0.0, 200.0)
+	health = maxf(0.0, health - dmg)
+	Audio.play_3d("res://assets/audio/impact.ogg", global_position, 2.0, 0.1)
+	if health <= 0.0:
+		_destroy(driver_id)
 
 func set_drive(throttle: float, steer: float, brake_force: float) -> void:
 	_throttle = throttle

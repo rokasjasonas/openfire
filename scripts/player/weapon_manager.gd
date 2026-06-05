@@ -348,6 +348,35 @@ func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
 	if normal.length() > 0.01:
 		fx.look_at(pos + normal, Vector3.UP)
 	Audio.play_3d("res://assets/audio/impact.ogg", pos, -8.0, 0.12)
+	_spawn_bullet_hole(pos, normal)
+
+## A small fading scorch decal at the impact point. Capped + auto-removed.
+func _spawn_bullet_hole(pos: Vector3, normal: Vector3) -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var holes := get_tree().get_nodes_in_group("bullet_hole")
+	if holes.size() > 80:
+		holes[0].queue_free()
+	var mi := MeshInstance3D.new()
+	mi.add_to_group("bullet_hole")
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.13, 0.13)
+	mi.mesh = quad
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.04, 0.04, 0.05, 0.9)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mi.material_override = mat
+	scene.add_child(mi)
+	mi.global_position = pos + normal * 0.02
+	if normal.length() > 0.01:
+		var up := Vector3.UP if absf(normal.y) < 0.9 else Vector3.FORWARD
+		mi.look_at(pos - normal, up)  # quad face (+Z) points back along the normal
+	var tw := mi.create_tween()
+	tw.tween_interval(8.0)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 2.0)
+	tw.tween_callback(mi.queue_free)
 
 func _make_tracer(from: Vector3, to: Vector3) -> void:
 	var mesh := MeshInstance3D.new()

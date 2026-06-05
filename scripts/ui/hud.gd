@@ -53,7 +53,8 @@ func _process(_delta: float) -> void:
 		_update_status_label()
 		_update_vehicle_prompt()
 		_update_health_display()
-		crosshair.visible = _player.driving == null
+		crosshair.visible = _player.driving == null or \
+			(is_instance_valid(_player.driving) and _player.driving.is_in_group("aircraft"))
 
 func _update_health_display() -> void:
 	# Player health is always shown on the main bar (driven by _on_health). The car
@@ -65,7 +66,8 @@ func _update_health_display() -> void:
 		var car = _player.driving
 		car_health_bar.max_value = car.MAX_HEALTH
 		car_health_bar.value = car.health
-		car_health_label.text = "🚗 %d" % int(car.health)
+		var icon: String = "🚁" if car.is_in_group("aircraft") else "🚗"
+		car_health_label.text = "%s %d" % [icon, int(car.health)]
 
 func _update_vehicle_prompt() -> void:
 	if _player.driving != null and is_instance_valid(_player.driving):

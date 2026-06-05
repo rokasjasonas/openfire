@@ -242,8 +242,8 @@ func _maybe_enter_vehicle() -> void:
 	var best: Node = null
 	var bd := VEH_RANGE
 	for v in get_tree().get_nodes_in_group("vehicle"):
-		if v.is_occupied():
-			continue
+		if v.is_occupied() or v.is_in_group("aircraft"):
+			continue  # bots drive cars, not helicopters
 		var d: float = global_position.distance_to(v.global_position)
 		if d < bd:
 			bd = d

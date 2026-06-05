@@ -35,6 +35,8 @@ func build_level() -> void:
 	add_vehicle(Vector3(18, 0, -14), 200)
 	add_vehicle(Vector3(-40, 0, -16), 90)
 	add_vehicle(Vector3(40, 0, 20), 270)
+	add_helicopter(Vector3(20, 0, 0), 0)
+	add_helicopter(Vector3(-46, 0, 40), 135)
 
 	var pts := [
 		Vector3(-60, 0, -60), Vector3(60, 0, 60), Vector3(-60, 0, 60), Vector3(60, 0, -60),

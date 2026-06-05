@@ -200,7 +200,10 @@ func _physics_process(delta: float) -> void:
 
 	# Driving a vehicle redirects all movement input to the vehicle.
 	if driving != null and is_instance_valid(driving):
-		_drive_vehicle(delta)
+		if driving.is_in_group("aircraft"):
+			_fly_vehicle(delta)
+		else:
+			_drive_vehicle(delta)
 		return
 	near_vehicle = _nearest_vehicle() != null
 	if Input.is_action_just_pressed("interact") and near_vehicle:
@@ -324,6 +327,40 @@ func _exit_vehicle() -> void:
 	_yaw = rotation.y
 	_pitch = 0.0
 	head.rotation.x = 0.0
+
+func _fly_vehicle(delta: float) -> void:
+	if driving.destroyed:
+		_exit_vehicle()
+		return
+	var throttle := Input.get_axis("move_back", "move_forward")
+	var yaw := Input.get_axis("move_right", "move_left")
+	var vertical := (1.0 if Input.is_action_pressed("jump") else 0.0) \
+		- (1.0 if Input.is_action_pressed("crouch") else 0.0)
+	driving.set_fly(throttle, yaw, vertical)
+	if Input.is_action_pressed("fire"):
+		driving.request_fire()
+	if Input.is_action_just_pressed("interact"):
+		_exit_vehicle()
+		return
+	# Ride the seat.
+	global_position = driving.seat_position()
+	velocity = Vector3.ZERO
+	var fwd: Vector3 = driving.forward()
+	rotation.y = atan2(-fwd.x, -fwd.z)
+	sync_pos = global_position
+	sync_yaw = rotation.y
+	# Orbitable chase camera (same as cars), a little higher/further for the heli.
+	_cam_idle += delta
+	if _cam_idle > 0.7:
+		var back := clampf(3.0 * delta, 0.0, 1.0)
+		_cam_yaw = lerp_angle(_cam_yaw, 0.0, back)
+		_cam_pitch = lerpf(_cam_pitch, 0.0, back)
+	var orbit := (-fwd).rotated(Vector3.UP, _cam_yaw)
+	var right := orbit.cross(Vector3.UP).normalized()
+	orbit = orbit.rotated(right, _cam_pitch)
+	var cam_pos: Vector3 = driving.global_position + orbit * 9.0 + Vector3.UP * 4.0
+	camera.global_position = camera.global_position.lerp(cam_pos, clampf(8.0 * delta, 0.0, 1.0))
+	camera.look_at(driving.global_position + Vector3.UP * 0.5, Vector3.UP)
 
 func _leave_vehicle_if_driving() -> void:
 	if driving and is_instance_valid(driving):

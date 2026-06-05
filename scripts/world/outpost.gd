@@ -40,6 +40,8 @@ func build_level() -> void:
 	add_vehicle(Vector3(14, 0, 6), 120)
 	add_vehicle(Vector3(2, 0, -38), 200)
 	add_vehicle(Vector3(-38, 0, 38), 320)
+	add_helicopter(Vector3(0, 0, 12), 180)
+	add_helicopter(Vector3(-50, 0, -10), 90)
 
 	# Spawns spread far apart
 	var pts := [

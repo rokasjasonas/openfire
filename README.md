@@ -42,7 +42,12 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   Cars have **health and explode when destroyed** (ejecting + blasting the driver);
   while you're inside, hits deplete the car's HP, not yours (shown on the HUD).
   **Bots drive too** — they grab a nearby car to close distance on far targets.
-  Driver-authoritative and replicated for LAN play.
+  Cars take **crash damage** from high-speed collisions and leave **bullet holes**
+  where shots land. Driver-authoritative and replicated for LAN play.
+- **Helicopter** — an arcade gunship on the huge maps: enter with `E`, fly with
+  throttle (W/S), yaw (A/D) and vertical (`Space`/`Ctrl`), and strafe the ground
+  with its nose gun (LMB). Has health, explodes when destroyed, and can be flown
+  online (driver-authoritative).
 - **Eight maps** — Arena, Facility (mission map), Highlands (vertical ziggurat),
   Warehouse (CQB aisles), Ruins (open + cover), Compound (enclosed buildings with
   doorways + roofs), and two **huge open maps built for vehicles** — Outpost and

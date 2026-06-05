@@ -8,11 +8,13 @@ const TEX_DIR := "res://assets/kenney/prototype-textures/PNG/"
 
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 const VEHICLE_SCENE := preload("res://scenes/vehicle.tscn")
+const HELI_SCENE := preload("res://scenes/helicopter.tscn")
 
 var region: NavigationRegion3D
 var _tex_cache: Dictionary = {}
 var _pickup_count: int = 0
 var _vehicle_count: int = 0
+var _heli_count: int = 0
 
 func _ready() -> void:
 	add_to_group("map")
@@ -210,6 +212,14 @@ func add_vehicle(pos: Vector3, yaw_deg: float = 0.0) -> void:
 	v.position = pos + Vector3.UP * 0.6
 	v.rotation_degrees.y = yaw_deg
 	add_child(v)
+
+func add_helicopter(pos: Vector3, yaw_deg: float = 0.0) -> void:
+	var h := HELI_SCENE.instantiate()
+	h.name = "Heli_%d" % _heli_count
+	_heli_count += 1
+	h.position = pos + Vector3.UP * 0.8
+	h.rotation_degrees.y = yaw_deg
+	add_child(h)
 
 func add_zone(zone_id: String, pos: Vector3, size: Vector3) -> void:
 	var area := Area3D.new()

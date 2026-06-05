@@ -306,6 +306,8 @@ func _ready() -> void:
 	var idxs := {}
 	var engines := {}
 	for v in get_tree().get_nodes_in_group("vehicle"):
+		if v.get("model_index") == null or v.is_in_group("aircraft"):
+			continue  # cars only (helicopters share the group but not these props)
 		idxs[v.model_index] = true
 		engines[v.max_engine] = true
 	variant_ok = idxs.size() >= 3
@@ -340,6 +342,43 @@ func _ready() -> void:
 	print("SMOKE: flip up before/after=", snappedf(before_up, 0.01), "/", snappedf(after_up, 0.01), " flip_ok=", flip_ok)
 	fr.queue_free()
 
+	# Bullet holes: impacts leave a decal in the "bullet_hole" group.
+	var hole_ok := false
+	if me:
+		me.weapons._spawn_bullet_hole(me.global_position + Vector3(0, 0, 3), Vector3(0, 0, 1))
+		await get_tree().process_frame
+		hole_ok = get_tree().get_nodes_in_group("bullet_hole").size() > 0
+	print("SMOKE: bullet_hole_ok=", hole_ok)
+
+	# Crash damage: a high-speed collision damages the car.
+	var crash_ok := false
+	var cn := Node3D.new()
+	get_tree().root.add_child(cn)
+	var cv: Node = load("res://scenes/vehicle.tscn").instantiate()
+	cn.add_child(cv)
+	await get_tree().process_frame
+	var chp0: float = cv.health
+	cv._prev_speed = 25.0
+	cv._on_crash(StaticBody3D.new())
+	crash_ok = cv.health < chp0
+	print("SMOKE: crash_damage_ok=", crash_ok, " (", chp0, " -> ", cv.health, ")")
+	cn.queue_free()
+
+	# Helicopter: ascends with vertical throttle and the gun fires without error.
+	var heli_ok := false
+	var heli: Node = load("res://scenes/helicopter.tscn").instantiate()
+	get_tree().root.add_child(heli)
+	heli.global_position = Vector3(700, 30, 700)
+	await get_tree().physics_frame
+	var hy0: float = heli.global_position.y
+	heli.set_fly(0.0, 0.0, 1.0)  # ascend
+	for i in 40:
+		await get_tree().physics_frame
+	heli.request_fire()
+	heli_ok = heli.global_position.y > hy0 + 1.0 and heli.is_in_group("aircraft")
+	print("SMOKE: helicopter_ok=", heli_ok, " climb=", snappedf(heli.global_position.y - hy0, 0.1))
+	heli.queue_free()
+
 	# Team helpers + friendly fire rule.
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
 	print("SMOKE: team_helpers_ok=", team_helpers_ok)
@@ -367,7 +406,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

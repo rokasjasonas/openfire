@@ -210,12 +210,14 @@ offset_left = -220.0
 offset_top = -200.0
 offset_right = 220.0
 offset_bottom = 200.0
+mouse_filter = 2
 
 [node name="ScoreTitle" type="Label" parent="Scoreboard"]
 offset_left = 16.0
 offset_top = 10.0
 offset_right = 420.0
 offset_bottom = 40.0
+mouse_filter = 2
 text = "SCOREBOARD"
 horizontal_alignment = 1
 
@@ -225,6 +227,7 @@ offset_left = 24.0
 offset_top = 50.0
 offset_right = 416.0
 offset_bottom = 388.0
+mouse_filter = 2
 
 [node name="ResultPanel" type="Panel" parent="."]
 unique_name_in_owner = true

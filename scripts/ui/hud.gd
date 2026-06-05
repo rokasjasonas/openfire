@@ -212,8 +212,16 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("scoreboard"):
 		scoreboard.visible = true
 		_refresh_scoreboard()
+		# Free the cursor while the scoreboard is up so you can move it around.
+		# The panel ignores the mouse and fire/aim still poll through, so this
+		# doesn't block any gameplay mouse actions.
+		if not pause_panel.visible and not result_panel.visible:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event.is_action_released("scoreboard"):
 		scoreboard.visible = false
+		# Recapture for mouse-look (unless a menu/result took over meanwhile).
+		if not pause_panel.visible and not result_panel.visible:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if event.is_action_pressed("pause"):
 		_toggle_pause()
 
@@ -257,6 +265,7 @@ func _team_label(t: int) -> String:
 
 func _make_row(a: String, b: String, c: String, header: bool, col: Color = Color.WHITE) -> HBoxContainer:
 	var h := HBoxContainer.new()
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var l1 := Label.new()
 	l1.text = a
 	l1.custom_minimum_size.x = 240
@@ -268,6 +277,7 @@ func _make_row(a: String, b: String, c: String, header: bool, col: Color = Color
 	l3.custom_minimum_size.x = 50
 	for l in [l1, l2, l3]:
 		l.add_theme_color_override("font_color", col)
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(l1)
 	h.add_child(l2)
 	h.add_child(l3)

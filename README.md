@@ -20,9 +20,11 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
 - **Grenades, footsteps, kill feed, directional damage indicator**, and an
   **options menu** (mouse sensitivity, master volume, FOV — saved to disk).
 - **Smoothed netplay** — remote players and bots interpolate between updates.
-- **Two game modes:**
+- **Three game modes:**
   - **Deathmatch** — free-for-all vs other players and respawning bots, frag-limited.
-  - **Co-op** — team up against AI through scripted missions with objectives.
+  - **Team Deathmatch** — BLUE vs RED (players + bots), friendly fire off, team scoring.
+  - **Co-op** — team up against AI through scripted missions, with **downed/revive**
+    (go down instead of dying; teammates revive you) and **shared respawn lives**.
 - **Bots** — `NavigationAgent3D` pathfinding, line-of-sight perception, patrol → chase →
   attack behaviour, difficulty scaling (Easy / Normal / Hard).
 - **Enemy archetypes** — soldier, rusher (fast/weak), sniper (long-range/high-damage),

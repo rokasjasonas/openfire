@@ -94,7 +94,7 @@ func _apply_profile() -> void:
 	if is_multiplayer_authority():
 		sync_health = max_health
 	name_label.text = "%s %d" % [p["name"], absi(combatant_id) % 1000]
-	name_label.modulate = p["color"]
+	name_label.modulate = Game.team_color(team) if Game.is_team_mode() else p["color"]
 	body_model.scale = Vector3.ONE * float(p["scale"])
 	# Swap the body model to the archetype's character.
 	for c in body_model.get_children():
@@ -179,7 +179,7 @@ func _acquire_target() -> void:
 	for c in get_tree().get_nodes_in_group("combatant"):
 		if c == self or not is_instance_valid(c):
 			continue
-		if c.get("dead"):
+		if c.get("dead") or c.get("downed") or c.get("fully_dead"):
 			continue
 		if c.get("team") == team:
 			continue

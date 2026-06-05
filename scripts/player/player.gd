@@ -19,6 +19,12 @@ const STAND_HEAD := 1.6
 const CROUCH_HEAD := 1.05
 const CROUCH_SPEED_FACTOR := 8.0   # how fast we transition
 
+# Co-op downed / revive
+const BLEED_TIME := 15.0
+const REVIVE_RANGE := 2.6
+const REVIVE_TIME := 3.0
+const REVIVE_HEALTH := 40.0
+
 # combatant_id == peer id for players (always positive). Used for scoring.
 var combatant_id: int = 1
 var team: int = -1
@@ -31,6 +37,12 @@ var sync_crouch: float = 0.0   # 0 = standing, 1 = fully crouched
 var sync_pos: Vector3 = Vector3.ZERO   # replicated; remotes interpolate toward it
 var sync_yaw: float = 0.0
 var dead: bool = false
+var downed: bool = false        # co-op: incapacitated, awaiting revive (synced)
+var fully_dead: bool = false    # co-op: bled out with no lives left (synced)
+
+var _bleed: float = 0.0
+var _revive_prog: float = 0.0
+var _awaiting_life: bool = false
 
 var _yaw: float = 0.0
 var _pitch: float = 0.0
@@ -53,6 +65,7 @@ signal weapon_changed(weapon_name: String)
 signal dealt_damage(amount: float)
 signal grenades_changed(count: int)
 signal damaged_from(angle: float)
+signal downed_changed(is_downed: bool, bleed_frac: float, revive_frac: float, spectator: bool)
 signal died(attacker_id: int)
 
 const MAX_GRENADES := 2
@@ -69,6 +82,8 @@ func _ready() -> void:
 	add_to_group("player")
 	name_label.text = display_name
 	name_label.visible = not is_multiplayer_authority()
+	if Game.is_team_mode():
+		name_label.modulate = Game.team_color(team)
 	camera.fov = Settings.fov
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
@@ -143,10 +158,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not is_multiplayer_authority():
-		# Remote copy: keep weapon model + crouch pose matched, and smoothly
+		# Remote copy: keep weapon model + crouch/downed pose matched, and smoothly
 		# interpolate toward the replicated transform instead of snapping.
 		weapons.ensure_index(sync_weapon_index)
-		_apply_crouch(sync_crouch)
+		if downed or fully_dead:
+			body_model.scale.y = 0.5
+			weapons.set_hidden(true)
+		else:
+			weapons.set_hidden(false)
+			_apply_crouch(sync_crouch)
 		var t := clampf(15.0 * delta, 0.0, 1.0)
 		if global_position.distance_to(sync_pos) > 5.0:
 			global_position = sync_pos  # snap on teleport / respawn
@@ -157,6 +177,12 @@ func _physics_process(delta: float) -> void:
 
 	if dead:
 		_respawn_timer -= delta
+		return
+
+	if fully_dead:
+		return
+	if downed:
+		_update_downed(delta)
 		return
 
 	# Crouch (hold). Can't stand back up if something is overhead.
@@ -253,7 +279,7 @@ func hit(amount: float, attacker_id: int) -> void:
 
 @rpc("any_peer", "call_local", "reliable")
 func receive_damage(amount: float, attacker_id: int) -> void:
-	if dead:
+	if dead or downed or fully_dead:
 		return
 	sync_health = max(0.0, sync_health - amount)
 	if is_multiplayer_authority():
@@ -262,7 +288,11 @@ func receive_damage(amount: float, attacker_id: int) -> void:
 			Audio.play_3d("res://assets/audio/hurt.ogg", global_position, -1.0, 0.05)
 			_emit_damage_direction(attacker_id)
 	if sync_health <= 0.0:
-		_die(attacker_id)
+		# In co-op you go down (revivable) instead of dying outright.
+		if Game.is_coop():
+			_go_down(attacker_id)
+		else:
+			_die(attacker_id)
 
 func _emit_damage_direction(attacker_id: int) -> void:
 	var a := _combatant_by_id(attacker_id)
@@ -277,6 +307,75 @@ func _combatant_by_id(id: int) -> Node3D:
 		if c.get("combatant_id") == id:
 			return c
 	return null
+
+# ---------------------------------------------------------------- co-op downed
+
+func _go_down(attacker_id: int) -> void:
+	downed = true
+	_bleed = BLEED_TIME
+	_revive_prog = 0.0
+	_awaiting_life = false
+	velocity = Vector3.ZERO
+	weapons.set_hidden(true)
+	body_model.scale.y = 0.5  # slumped
+	Audio.play_3d("res://assets/audio/hurt.ogg", global_position, 2.0, 0.0)
+	# Count the down as a death for scoring + let the host check for a team wipe.
+	_report_death.rpc_id(1, attacker_id, combatant_id)
+	downed_changed.emit(true, 1.0, 0.0, false)
+
+func _update_downed(delta: float) -> void:
+	if _awaiting_life:
+		return
+	_bleed -= delta
+	if _alive_teammate_near():
+		_revive_prog += delta
+	else:
+		_revive_prog = maxf(0.0, _revive_prog - delta * 0.5)
+	downed_changed.emit(true, clampf(_bleed / BLEED_TIME, 0, 1), clampf(_revive_prog / REVIVE_TIME, 0, 1), false)
+	if _revive_prog >= REVIVE_TIME:
+		_revive()
+	elif _bleed <= 0.0:
+		_bleed_out()
+
+func _alive_teammate_near() -> bool:
+	for p in get_tree().get_nodes_in_group("player"):
+		if p == self:
+			continue
+		if p.get("team") != team:
+			continue
+		if p.get("downed") or p.get("dead") or p.get("fully_dead"):
+			continue
+		if global_position.distance_to(p.global_position) <= REVIVE_RANGE:
+			return true
+	return false
+
+func _revive() -> void:
+	downed = false
+	sync_health = REVIVE_HEALTH
+	weapons.set_hidden(false)
+	body_model.scale.y = 1.0
+	health_changed.emit(sync_health, MAX_HEALTH)
+	downed_changed.emit(false, 0, 0, false)
+
+func _bleed_out() -> void:
+	# Ask the host for a shared life; it replies via apply_life_result().
+	_awaiting_life = true
+	var world := get_tree().get_first_node_in_group("world")
+	if world:
+		world.request_life.rpc_id(1, combatant_id)
+
+## Called (on this player's authority) by the world once the host decides.
+func apply_life_result(granted: bool) -> void:
+	_awaiting_life = false
+	if granted:
+		downed = false
+		weapons.set_hidden(false)
+		body_model.scale.y = 1.0
+		_request_respawn()
+	else:
+		downed = false
+		fully_dead = true
+		downed_changed.emit(false, 0, 0, true)  # spectator
 
 func _die(attacker_id: int) -> void:
 	if dead:
@@ -299,6 +398,9 @@ func _die(attacker_id: int) -> void:
 func _report_death(attacker_id: int, victim_id: int) -> void:
 	if Net.is_host():
 		Game.add_kill(attacker_id, victim_id)
+		var world := get_tree().get_first_node_in_group("world")
+		if world and world.has_method("check_coop_wipe"):
+			world.check_coop_wipe()
 
 func _process(_delta: float) -> void:
 	if dead and is_multiplayer_authority() and _respawn_timer <= 0.0:

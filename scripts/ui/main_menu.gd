@@ -45,6 +45,7 @@ func _ready() -> void:
 	mode_option.clear()
 	mode_option.add_item("Deathmatch")
 	mode_option.add_item("Co-op")
+	mode_option.add_item("Team Deathmatch")
 	map_option.clear()
 	for m in MAPS:
 		map_option.add_item(m["name"])
@@ -123,7 +124,8 @@ func _capture_config() -> void:
 	if Game.player_name == "":
 		Game.player_name = "Player"
 	var coop := mode_option.selected == 1
-	Game.config["mode"] = Game.Mode.COOP if coop else Game.Mode.DEATHMATCH
+	# Option order matches the Mode enum (0=Deathmatch, 1=Co-op, 2=Team Deathmatch).
+	Game.config["mode"] = mode_option.selected
 	Game.config["bot_count"] = int(bots_spin.value)
 	Game.config["bot_skill"] = SKILLS[skill_option.selected]["value"]
 	if coop:

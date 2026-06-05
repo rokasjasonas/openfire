@@ -211,6 +211,9 @@ func _fire() -> void:
 			var hit := _resolve_hit(res.collider)
 			var victim = hit[0]
 			var mult: float = hit[1]
+			# Friendly fire is off: never damage a same-team combatant.
+			if victim and victim != player and victim.get("team") == player.team:
+				victim = null
 			if victim and victim != player and victim.has_method("hit"):
 				var dealt := base_dmg * mult
 				victim.hit(dealt, player.combatant_id)

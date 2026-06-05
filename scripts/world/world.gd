@@ -17,6 +17,7 @@ var _expected_peers: Array = []
 var _ready_peers: Dictionary = {}
 var _begun: bool = false
 var _objective_runner: Node = null
+var _player_team: Dictionary = {}
 
 func _ready() -> void:
 	add_to_group("world")
@@ -71,18 +72,35 @@ func _begin() -> void:
 	if _begun:
 		return
 	_begun = true
+	if Game.is_team_deathmatch():
+		_assign_teams()
 	# Spawn a player for every connected peer.
 	for pid in Net.players.keys():
 		_spawn_player(pid)
 	if Game.is_coop():
 		_start_coop()
+	elif Game.is_team_deathmatch():
+		_start_team_deathmatch()
 	else:
 		_start_deathmatch()
+
+func _assign_teams() -> void:
+	# Alternate connected peers between the two teams for rough balance.
+	var ids := Net.players.keys()
+	ids.sort()
+	for i in ids.size():
+		_player_team[ids[i]] = i % 2
 
 # ---------------------------------------------------------------- spawning
 
 func _spawn_player(peer_id: int) -> void:
-	var team: int = Game.TEAM_PLAYERS if Game.is_coop() else peer_id  # FFA: unique team
+	var team: int
+	if Game.is_coop():
+		team = Game.TEAM_PLAYERS
+	elif Game.is_team_deathmatch():
+		team = _player_team.get(peer_id, 0)
+	else:
+		team = peer_id  # FFA: unique team
 	var xform := get_spawn_transform(false)
 	Game.register_combatant(peer_id, Net.get_player_name(peer_id), false, team)
 	spawner.spawn({
@@ -93,10 +111,16 @@ func _spawn_player(peer_id: int) -> void:
 		"pos": xform.origin,
 	})
 
-func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "") -> int:
+func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "", team_override: int = -999) -> int:
 	_bot_counter += 1
 	var id := -1000 - _bot_counter
-	var team: int = Game.TEAM_ENEMIES if Game.is_coop() else id  # FFA: unique team
+	var team: int
+	if team_override != -999:
+		team = team_override
+	elif Game.is_coop():
+		team = Game.TEAM_ENEMIES
+	else:
+		team = id  # FFA: unique team
 	var pos := at
 	if pos == Vector3.INF:
 		pos = get_spawn_transform(true).origin
@@ -162,15 +186,68 @@ func _start_deathmatch() -> void:
 	for i in n:
 		spawn_enemy(float(Game.config["bot_skill"]), true)
 
+func _start_team_deathmatch() -> void:
+	set_objective_text.rpc("Team Deathmatch — %s vs %s, first to %d" % [
+		Game.team_name(0), Game.team_name(1), int(Game.config["frag_limit"])])
+	# Fill both teams with bots, alternating.
+	var n: int = int(Game.config["bot_count"])
+	for i in n:
+		spawn_enemy(float(Game.config["bot_skill"]), true, Vector3.INF, "", i % 2)
+
 func _start_coop() -> void:
 	var mission := Missions.get_mission(Game.config.get("mission_id", ""))
 	if mission.is_empty():
 		set_objective_text.rpc("No mission loaded.")
 		return
+	_set_lives.rpc(int(mission.get("lives", 6)))
 	_objective_runner = OBJECTIVE_RUNNER.new()
 	_objective_runner.name = "ObjectiveRunner"
 	add_child(_objective_runner)
 	_objective_runner.start(self, mission)
+
+# ---------------------------------------------------------------- co-op lives
+
+@rpc("authority", "call_local", "reliable")
+func _set_lives(n: int) -> void:
+	Game.coop_lives = n
+	Game.lives_changed.emit(n)
+
+## A downed player bled out and asks the host for a shared life.
+@rpc("any_peer", "reliable")
+func request_life(victim_id: int) -> void:
+	if not Net.is_host():
+		return
+	var granted := Game.coop_lives > 0
+	if granted:
+		Game.coop_lives -= 1
+	_life_result.rpc(victim_id, granted, Game.coop_lives)
+
+@rpc("authority", "call_local", "reliable")
+func _life_result(victim_id: int, granted: bool, lives: int) -> void:
+	Game.coop_lives = lives
+	Game.lives_changed.emit(lives)
+	var p := _player_by_id(victim_id)
+	if p and p.is_multiplayer_authority():
+		p.apply_life_result(granted)
+	if Net.is_host():
+		check_coop_wipe()
+
+func _player_by_id(id: int) -> Node:
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.combatant_id == id:
+			return p
+	return null
+
+## Host: mission fails if no one can act and there are no lives left to recover.
+func check_coop_wipe() -> void:
+	if not Net.is_host() or not Game.is_coop() or not Game.match_active:
+		return
+	if Game.coop_lives > 0:
+		return
+	for p in get_tree().get_nodes_in_group("player"):
+		if not p.get("dead") and not p.get("downed") and not p.get("fully_dead"):
+			return  # someone is still up
+	Game.end_match({"reason": "mission_failed"})
 
 # ---------------------------------------------------------------- helpers
 

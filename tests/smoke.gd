@@ -206,8 +206,24 @@ func _ready() -> void:
 	print("SMOKE: highlands polys=", polys, " spawn_heights=", heights.size(), " ok=", highlands_ok)
 	hl.queue_free()
 
+	# Team helpers + friendly fire rule.
+	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
+	print("SMOKE: team_helpers_ok=", team_helpers_ok)
+
+	# Co-op downed/revive: lethal damage downs (not kills); granting a life revives.
+	var revive_ok := false
+	if me and Game.is_coop():
+		var lives_before: int = Game.coop_lives
+		me.receive_damage(9999.0, -1)
+		await get_tree().process_frame
+		var was_downed: bool = me.downed and not me.dead
+		me.apply_life_result(true)
+		await get_tree().process_frame
+		revive_ok = was_downed and not me.downed and lives_before > 0
+	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

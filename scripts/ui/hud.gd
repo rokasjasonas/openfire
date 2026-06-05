@@ -18,6 +18,8 @@ extends CanvasLayer
 @onready var grenade_label: Label = %GrenadeLabel
 @onready var damage_direction: Control = $DamageDirection
 @onready var kill_feed: VBoxContainer = %KillFeed
+@onready var team_score_label: Label = %TeamScoreLabel
+@onready var lives_label: Label = %LivesLabel
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -29,6 +31,11 @@ func _ready() -> void:
 	pause_panel.visible = false
 	death_label.visible = false
 	Game.score_changed.connect(_refresh_scoreboard)
+	Game.score_changed.connect(_refresh_team_score)
+	Game.lives_changed.connect(_on_lives)
+	team_score_label.visible = false
+	_refresh_team_score()
+	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
 	%LeaveButton.pressed.connect(_leave)
 	%VersionLabel.text = "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
@@ -37,8 +44,28 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_try_bind()
-	elif death_label.visible != _player.dead and pause_panel.visible == false:
-		death_label.visible = _player.dead
+	elif not pause_panel.visible:
+		_update_status_label()
+
+func _on_lives(n: int) -> void:
+	lives_label.visible = Game.is_coop()
+	lives_label.text = "Lives: %d" % n
+
+func _update_status_label() -> void:
+	if _player.fully_dead:
+		death_label.text = "You are out — spectating"
+		death_label.visible = true
+	elif _player.downed:
+		if _player._revive_prog > 0.05:
+			death_label.text = "Being revived…  %d%%" % int(_player._revive_prog / _player.REVIVE_TIME * 100.0)
+		else:
+			death_label.text = "DOWNED — wait for a teammate"
+		death_label.visible = true
+	elif _player.dead:
+		death_label.text = "You died — respawning…"
+		death_label.visible = true
+	else:
+		death_label.visible = false
 
 func _try_bind() -> void:
 	for p in get_tree().get_nodes_in_group("player"):
@@ -53,6 +80,14 @@ func _try_bind() -> void:
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
 			break
+
+func _refresh_team_score() -> void:
+	if not Game.is_team_deathmatch():
+		team_score_label.visible = false
+		return
+	team_score_label.visible = true
+	team_score_label.text = "%s  %d   —   %d  %s" % [
+		Game.team_name(0), Game.team_score(0), Game.team_score(1), Game.team_name(1)]
 
 func _on_damaged_from(angle: float) -> void:
 	if damage_direction and damage_direction.has_method("show_from"):
@@ -163,9 +198,12 @@ func show_result(result: Dictionary) -> void:
 		"mission_complete":
 			txt = "MISSION COMPLETE\n%s" % result.get("mission", "")
 		"frag_limit":
-			var wid: int = int(result.get("winner", 0))
-			var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
-			txt = "%s wins!" % wname
+			if result.has("winner_team"):
+				txt = "%s team wins!" % Game.team_name(int(result["winner_team"]))
+			else:
+				var wid: int = int(result.get("winner", 0))
+				var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
+				txt = "%s wins!" % wname
 		"time":
 			txt = "Time!"
 	result_label.text = txt + "\n\nReturning to menu…"

@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" path="res://assets/models/vehicles/suv.glb" id="2_model"]
 
 [sub_resource type="BoxShape3D" id="Box_1"]
-size = Vector3(2.6, 1.4, 4.9)
+size = Vector3(2.6, 1.2, 4.9)
 
 [sub_resource type="SceneReplicationConfig" id="Rep_1"]
 properties/0/path = NodePath(".:sync_pos")
@@ -16,28 +16,30 @@ properties/1/replication_mode = 1
 
 [node name="Vehicle" type="VehicleBody3D"]
 mass = 1000.0
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, -0.6, 0)
 collision_layer = 1
 collision_mask = 1
 script = ExtResource("1_veh")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
 shape = SubResource("Box_1")
 
 [node name="Model" parent="." instance=ExtResource("2_model")]
 transform = Transform3D(1.9, 0, 0, 0, 1.9, 0, 0, 0, 1.9, 0, -0.57, 0)
 
 [node name="Seat" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.85, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
 
 [node name="WheelFL" type="VehicleWheel3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.15, 0.0, 1.7)
 use_as_traction = true
 use_as_steering = true
-wheel_radius = 0.8
-wheel_rest_length = 0.4
-wheel_friction_slip = 11.0
-suspension_travel = 0.5
+wheel_radius = 0.55
+wheel_rest_length = 0.25
+wheel_friction_slip = 7.0
+suspension_travel = 0.4
 suspension_stiffness = 35.0
 suspension_max_force = 16000.0
 damping_compression = 0.5
@@ -47,10 +49,10 @@ damping_relaxation = 1.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.15, 0.0, 1.7)
 use_as_traction = true
 use_as_steering = true
-wheel_radius = 0.8
-wheel_rest_length = 0.4
-wheel_friction_slip = 11.0
-suspension_travel = 0.5
+wheel_radius = 0.55
+wheel_rest_length = 0.25
+wheel_friction_slip = 7.0
+suspension_travel = 0.4
 suspension_stiffness = 35.0
 suspension_max_force = 16000.0
 damping_compression = 0.5
@@ -59,10 +61,10 @@ damping_relaxation = 1.0
 [node name="WheelBL" type="VehicleWheel3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.15, 0.0, -1.7)
 use_as_traction = true
-wheel_radius = 0.8
-wheel_rest_length = 0.4
-wheel_friction_slip = 11.0
-suspension_travel = 0.5
+wheel_radius = 0.55
+wheel_rest_length = 0.25
+wheel_friction_slip = 7.0
+suspension_travel = 0.4
 suspension_stiffness = 35.0
 suspension_max_force = 16000.0
 damping_compression = 0.5
@@ -71,10 +73,10 @@ damping_relaxation = 1.0
 [node name="WheelBR" type="VehicleWheel3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.15, 0.0, -1.7)
 use_as_traction = true
-wheel_radius = 0.8
-wheel_rest_length = 0.4
-wheel_friction_slip = 11.0
-suspension_travel = 0.5
+wheel_radius = 0.55
+wheel_rest_length = 0.25
+wheel_friction_slip = 7.0
+suspension_travel = 0.4
 suspension_stiffness = 35.0
 suspension_max_force = 16000.0
 damping_compression = 0.5

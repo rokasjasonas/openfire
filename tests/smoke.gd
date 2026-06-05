@@ -80,8 +80,15 @@ func _ready() -> void:
 	for w in get_tree().get_nodes_in_group("world"):
 		if w.has_node("HUD"):
 			hud = w.get_node("HUD")
-	if me and hud and not me.dead:
-		await get_tree().process_frame  # ensure HUD has bound to the player
+	if me and hud:
+		# Force a known-alive, full-health state (bots may have downed the dummy)
+		# and prime the HUD's last-health so the drop registers as damage.
+		me.downed = false
+		me.dead = false
+		me.fully_dead = false
+		me.sync_health = 100.0
+		me.health_changed.emit(100.0, me.MAX_HEALTH)
+		await get_tree().process_frame
 		me.receive_damage(20.0, 0)      # take a non-lethal hit
 		await get_tree().process_frame
 		flash_ok = hud.damage_flash.color.a > 0.0

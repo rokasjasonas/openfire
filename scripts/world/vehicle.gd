@@ -5,12 +5,12 @@ extends VehicleBody3D
 
 const MAX_ENGINE := 1400.0
 const MAX_REVERSE := 650.0
-const MAX_STEER := 0.5
-const STEER_SPEED := 3.0
+const MAX_STEER := 0.45
+const STEER_SPEED := 2.6
 
 var driver_id: int = 0           # 0 = empty
 var driver_team: int = -999
-var seat_offset := Vector3(0, 1.85, 0)
+var seat_offset := Vector3(0, 1.5, 0)
 
 var sync_pos: Vector3
 var sync_quat: Quaternion = Quaternion.IDENTITY

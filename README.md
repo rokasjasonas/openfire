@@ -37,9 +37,12 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   is the same code path hosting locally. Up to 8 players.
 - **Configurable missions** — defined as plain **JSON** files in [`missions/`](missions/).
   Add a mission by dropping in a new file. See [docs/missions.md](docs/missions.md).
-- **Drivable vehicles** — arcade `VehicleBody3D` cars you enter with `E`; drive with
-  WASD, handbrake on `Space`, run enemies over. Driver-authoritative and replicated
-  for LAN play.
+- **Drivable vehicles** — arcade `VehicleBody3D` cars (4 model variants) you enter
+  with `E`; drive WASD, handbrake `Space`, third-person chase cam, run enemies over.
+  Cars have **health and explode when destroyed** (ejecting + blasting the driver);
+  while you're inside, hits deplete the car's HP, not yours (shown on the HUD).
+  **Bots drive too** — they grab a nearby car to close distance on far targets.
+  Driver-authoritative and replicated for LAN play.
 - **Eight maps** — Arena, Facility (mission map), Highlands (vertical ziggurat),
   Warehouse (CQB aisles), Ruins (open + cover), Compound (enclosed buildings with
   doorways + roofs), and two **huge open maps built for vehicles** — Outpost and

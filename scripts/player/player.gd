@@ -288,6 +288,13 @@ func _enter_vehicle(v: Node) -> void:
 	v.enter(combatant_id, team)
 	$CollisionShape3D.disabled = true
 	weapons.set_hidden(true)
+	_set_hitboxes_enabled(false)  # the car takes hits, not the driver
+
+func _set_hitboxes_enabled(on: bool) -> void:
+	if has_node("Hitboxes"):
+		for a in $Hitboxes.get_children():
+			if a is Area3D:
+				a.collision_layer = 16 if on else 0
 
 func _exit_vehicle() -> void:
 	if driving:
@@ -296,6 +303,7 @@ func _exit_vehicle() -> void:
 		driving.exit()
 	$CollisionShape3D.disabled = false
 	weapons.set_hidden(false)
+	_set_hitboxes_enabled(true)
 	velocity = Vector3.ZERO
 	sync_pos = global_position
 	driving = null
@@ -312,6 +320,9 @@ func _leave_vehicle_if_driving() -> void:
 	camera.transform = Transform3D.IDENTITY
 
 func _drive_vehicle(delta: float) -> void:
+	if driving.destroyed:
+		_exit_vehicle()
+		return
 	var throttle := Input.get_axis("move_back", "move_forward")  # W forward = +1
 	# Chase cam looks along +Z (drive dir); from that view A steers left, D right.
 	var steer := Input.get_axis("move_right", "move_left")       # A left = +1

@@ -68,6 +68,12 @@ var _reaction: float = 0.0       # delay before firing after acquiring a target
 var _strafe_sign: float = 1.0
 var _strafe_timer: float = 0.0
 
+# Vehicle AI
+const VEH_ENTER_DIST := 35.0
+const VEH_EXIT_DIST := 18.0
+const VEH_RANGE := 9.0
+var _vehicle: Node = null
+
 @onready var nav: NavigationAgent3D = $NavigationAgent3D
 @onready var body_model: Node3D = $BodyModel
 @onready var muzzle: Marker3D = $Muzzle
@@ -132,10 +138,17 @@ func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String
 
 func _physics_process(delta: float) -> void:
 	if dead:
+		if _vehicle:
+			_exit_bot_vehicle()
 		if respawns:
 			_respawn_timer -= delta
 			if _respawn_timer <= 0.0:
 				_do_respawn()
+		return
+
+	# Driving a vehicle overrides on-foot behaviour.
+	if _vehicle != null and is_instance_valid(_vehicle):
+		_drive_bot_vehicle(delta)
 		return
 
 	# Gravity
@@ -146,6 +159,7 @@ func _physics_process(delta: float) -> void:
 	if _think_cd <= 0.0:
 		_think_cd = 0.25
 		_acquire_target()
+		_maybe_enter_vehicle()
 
 	if _shoot_cd > 0.0:
 		_shoot_cd -= delta
@@ -217,6 +231,63 @@ func _acquire_target() -> void:
 
 func _reaction_time() -> float:
 	return clampf(0.45 / skill, 0.08, 0.6)
+
+# ---------------------------------------------------------------- vehicle AI
+
+func _maybe_enter_vehicle() -> void:
+	if _vehicle != null or _target == null:
+		return
+	if global_position.distance_to(_target.global_position) < VEH_ENTER_DIST:
+		return
+	var best: Node = null
+	var bd := VEH_RANGE
+	for v in get_tree().get_nodes_in_group("vehicle"):
+		if v.is_occupied():
+			continue
+		var d: float = global_position.distance_to(v.global_position)
+		if d < bd:
+			bd = d
+			best = v
+	if best:
+		_vehicle = best
+		best.enter(combatant_id, team)
+		$CollisionShape3D.disabled = true
+		_set_hitboxes(false)
+
+func _drive_bot_vehicle(delta: float) -> void:
+	var v := _vehicle
+	if v.get("destroyed") or _target == null \
+			or global_position.distance_to(_target.global_position) < VEH_EXIT_DIST:
+		_exit_bot_vehicle()
+		return
+	# Steer toward the target.
+	var to: Vector3 = _target.global_position - v.global_position
+	to.y = 0.0
+	var fwd: Vector3 = v.forward()
+	fwd.y = 0.0
+	var angle := fwd.signed_angle_to(to.normalized(), Vector3.UP)
+	var steer := clampf(angle * 2.0, -1.0, 1.0)
+	v.set_drive(1.0, steer, 0.0)
+	# Ride the seat so clients see the bot in the car.
+	global_position = v.seat_position()
+	rotation.y = atan2(fwd.x, fwd.z)
+	sync_pos = global_position
+	sync_yaw = rotation.y
+
+func _exit_bot_vehicle() -> void:
+	if _vehicle and is_instance_valid(_vehicle):
+		var side: Vector3 = _vehicle.global_transform.basis.x * 3.0 + Vector3.UP * 0.8
+		global_position = _vehicle.global_position + side
+		_vehicle.exit()
+	$CollisionShape3D.disabled = false
+	_set_hitboxes(true)
+	_vehicle = null
+
+func _set_hitboxes(on: bool) -> void:
+	if has_node("Hitboxes"):
+		for a in $Hitboxes.get_children():
+			if a is Area3D:
+				a.collision_layer = 16 if on else 0
 
 func _can_see(c: Node3D) -> bool:
 	var space := get_world_3d().direct_space_state

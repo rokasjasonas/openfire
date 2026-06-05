@@ -48,6 +48,19 @@ func _process(_delta: float) -> void:
 	elif not pause_panel.visible:
 		_update_status_label()
 		_update_vehicle_prompt()
+		_update_health_display()
+
+func _update_health_display() -> void:
+	if _player.driving != null and is_instance_valid(_player.driving):
+		var car = _player.driving
+		health_bar.max_value = car.MAX_HEALTH
+		health_bar.value = car.health
+		health_label.text = "🚗 %d" % int(car.health)
+	elif health_label.text.begins_with("🚗"):
+		# Just left the car — restore the player readout.
+		health_bar.max_value = _player.MAX_HEALTH
+		health_bar.value = _player.sync_health
+		health_label.text = "%d" % int(_player.sync_health)
 
 func _update_vehicle_prompt() -> void:
 	if _player.driving != null:

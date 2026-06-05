@@ -48,6 +48,13 @@ func _apply_damage(pos: Vector3) -> void:
 		var dmg := MAX_DAMAGE * (1.0 - dist / RADIUS)
 		if c.has_method("hit"):
 			c.hit(dmg, thrower_id)
+	# Also damage vehicles in range.
+	for v in get_tree().get_nodes_in_group("vehicle"):
+		if not is_instance_valid(v) or v.get("destroyed"):
+			continue
+		var vd := pos.distance_to(v.global_position)
+		if vd < RADIUS and v.has_method("hit"):
+			v.hit(MAX_DAMAGE * (1.0 - vd / RADIUS), thrower_id)
 
 func _spawn_fx(pos: Vector3) -> void:
 	Audio.play_3d("res://assets/audio/death.ogg", pos, 4.0, 0.05)

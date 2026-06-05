@@ -205,6 +205,7 @@ func add_pickup(kind: String, pos: Vector3, amount: int = 25, weapon_id: String 
 func add_vehicle(pos: Vector3, yaw_deg: float = 0.0) -> void:
 	var v := VEHICLE_SCENE.instantiate()
 	v.name = "Vehicle_%d" % _vehicle_count
+	v.model_index = _vehicle_count % 4  # cycle through the car variants
 	_vehicle_count += 1
 	v.position = pos + Vector3.UP * 0.6
 	v.rotation_degrees.y = yaw_deg

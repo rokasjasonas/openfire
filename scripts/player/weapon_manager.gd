@@ -222,6 +222,11 @@ func _fire() -> void:
 				hit_combatant = true
 				if mult >= 2.0:
 					was_headshot = true
+			elif res.collider and res.collider.is_in_group("vehicle") and res.collider.has_method("hit"):
+				res.collider.hit(base_dmg, player.combatant_id)
+				dmg_dealt += base_dmg
+				last_hit = res.position
+				hit_combatant = true
 			else:
 				_spawn_impact.rpc(res.position, res.normal)
 		furthest = endpoint

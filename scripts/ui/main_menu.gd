@@ -144,6 +144,9 @@ func _on_mode_changed(_idx: int) -> void:
 	mission_points_row.visible = survival
 	seed_row.visible = survival
 	map_size_row.visible = survival
+	# Survival has no manual bot selection — NPC count/difficulty are auto for now.
+	bots_spin.get_parent().visible = not survival
+	skill_option.get_parent().visible = not survival
 	if coop and Missions.get_all().is_empty():
 		status_label.text = "No missions found in res://missions/"
 
@@ -169,6 +172,10 @@ func _capture_config() -> void:
 		Game.config["map"] = SURVIVAL_MAPS[clampi(map_size_option.selected, 0, SURVIVAL_MAPS.size() - 1)]
 		Game.config["frag_limit"] = 0
 		Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
+		# No manual bot selection in Survival — fixed placeholder count/difficulty
+		# until the NPC population system (Survival #5) replaces this.
+		Game.config["bot_count"] = 12
+		Game.config["bot_skill"] = 1.0
 	else:
 		Game.config["map"] = MAPS[map_option.selected]["path"]
 		Game.config["frag_limit"] = int(frag_spin.value)
@@ -193,7 +200,8 @@ func _on_host() -> void:
 
 func _on_solo() -> void:
 	_capture_config()
-	Game.config["bot_count"] = maxi(1, int(bots_spin.value))
+	if not Game.is_survival():
+		Game.config["bot_count"] = maxi(1, int(bots_spin.value))
 	if Net.host_game():
 		Net.start_match()
 	else:

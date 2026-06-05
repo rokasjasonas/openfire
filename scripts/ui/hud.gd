@@ -161,15 +161,40 @@ func _refresh_scoreboard() -> void:
 		return
 	for c in score_rows.get_children():
 		c.queue_free()
-	var header := _make_row("Player", "K", "D", true)
-	score_rows.add_child(header)
-	for row in Game.sorted_scoreboard():
-		var label: String = row["name"]
-		if row.get("is_bot", false):
-			label = "🤖 " + label
-		score_rows.add_child(_make_row(label, str(row["kills"]), str(row["deaths"]), false))
+	score_rows.add_child(_make_row("Player", "K", "D", true, Color(1, 0.8, 0.4)))
+	var rows := Game.sorted_scoreboard()
+	if Game.is_team_mode():
+		# Group by team, with a coloured team header + total.
+		var by_team := {}
+		for r in rows:
+			var t: int = r["team"]
+			if not by_team.has(t):
+				by_team[t] = []
+			by_team[t].append(r)
+		var order: Array = []
+		for t in [Game.TEAM_PLAYERS, Game.TEAM_ENEMIES]:
+			if by_team.has(t):
+				order.append(t)
+		for t in by_team:
+			if not order.has(t):
+				order.append(t)
+		for t in order:
+			var col: Color = Game.team_color(t)
+			score_rows.add_child(_make_row("— %s (%d) —" % [_team_label(t), Game.team_score(t)], "", "", true, col))
+			for r in by_team[t]:
+				var label: String = ("🤖 " + r["name"]) if r.get("is_bot", false) else r["name"]
+				score_rows.add_child(_make_row(label, str(r["kills"]), str(r["deaths"]), false, col.lerp(Color.WHITE, 0.35)))
+	else:
+		for r in rows:
+			var label: String = ("🤖 " + r["name"]) if r.get("is_bot", false) else r["name"]
+			score_rows.add_child(_make_row(label, str(r["kills"]), str(r["deaths"]), false, Color.WHITE))
 
-func _make_row(a: String, b: String, c: String, header: bool) -> HBoxContainer:
+func _team_label(t: int) -> String:
+	if Game.is_team_deathmatch():
+		return Game.team_name(t)
+	return "Squad" if t == Game.TEAM_PLAYERS else "Hostiles"
+
+func _make_row(a: String, b: String, c: String, header: bool, col: Color = Color.WHITE) -> HBoxContainer:
 	var h := HBoxContainer.new()
 	var l1 := Label.new()
 	l1.text = a
@@ -180,9 +205,8 @@ func _make_row(a: String, b: String, c: String, header: bool) -> HBoxContainer:
 	var l3 := Label.new()
 	l3.text = c
 	l3.custom_minimum_size.x = 50
-	if header:
-		for l in [l1, l2, l3]:
-			l.add_theme_color_override("font_color", Color(1, 0.8, 0.4))
+	for l in [l1, l2, l3]:
+		l.add_theme_color_override("font_color", col)
 	h.add_child(l1)
 	h.add_child(l2)
 	h.add_child(l3)

@@ -210,6 +210,16 @@ func _ready() -> void:
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
 	print("SMOKE: team_helpers_ok=", team_helpers_ok)
 
+	# Team scoreboard: grouped rows (team headers) build without error in a team mode.
+	var scoreboard_ok := false
+	if hud:
+		hud.scoreboard.visible = true
+		hud._refresh_scoreboard()
+		# header row + 2 team headers (squad/hostiles) + one row per combatant.
+		scoreboard_ok = hud.score_rows.get_child_count() >= Game.scores.size() + 2
+		hud.scoreboard.visible = false
+	print("SMOKE: team_scoreboard_ok=", scoreboard_ok)
+
 	# Co-op downed/revive: lethal damage downs (not kills); granting a life revives.
 	var revive_ok := false
 	if me and Game.is_coop():
@@ -223,7 +233,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

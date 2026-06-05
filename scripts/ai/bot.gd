@@ -213,13 +213,24 @@ func _acquire_target() -> void:
 		if d < best_d and d < sight_range and _can_see(c):
 			best_d = d
 			best = c
+	# Also consider enemy-occupied vehicles (cars / helicopters).
+	for v in get_tree().get_nodes_in_group("vehicle"):
+		if v.get("destroyed") or v.get("driver_id") == 0 or v.get("driver_team") == team:
+			continue
+		var d: float = global_position.distance_to(v.global_position)
+		if d < best_d and d < sight_range and _can_see(v):
+			best_d = d
+			best = v
 	if best != null:
 		if _target == null:
 			_reaction = _reaction_time()  # we just spotted someone
 		_target = best
 		_last_seen = best.global_position
 		_has_last_seen = true
-		_state = State.ATTACK if best_d <= attack_range else State.CHASE
+		if best.is_in_group("vehicle"):
+			_state = State.ATTACK  # shoot vehicles from wherever we can see them
+		else:
+			_state = State.ATTACK if best_d <= attack_range else State.CHASE
 	else:
 		# Lost sight: investigate the last known position before giving up.
 		_target = null
@@ -289,15 +300,17 @@ func _set_hitboxes(on: bool) -> void:
 			if a is Area3D:
 				a.collision_layer = 16 if on else 0
 
-func _can_see(c: Node3D) -> bool:
+func _can_see(c: Node) -> bool:
 	var space := get_world_3d().direct_space_state
 	var from := muzzle.global_position
-	var to := c.global_position + Vector3.UP * 1.2
+	var to: Vector3 = c.global_position + Vector3.UP * 1.2
 	var q := PhysicsRayQueryParameters3D.create(from, to)
 	q.collision_mask = LOS_MASK
 	q.exclude = [get_rid()]
 	var res := space.intersect_ray(q)
-	return res.is_empty()  # nothing solid in the way
+	if res.is_empty():
+		return true
+	return res.collider == c  # only the target itself (a vehicle) blocks -> visible
 
 # ---------------------------------------------------------------- behaviours
 
@@ -327,6 +340,14 @@ func _do_attack(delta: float) -> void:
 		return
 	_last_seen = _target.global_position
 	_has_last_seen = true
+	# Vehicles (incl. flying helicopters): stand ground and shoot, don't chase.
+	if _target.is_in_group("vehicle"):
+		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+		_face(_target.global_position)
+		if _shoot_cd <= 0.0 and _reaction <= 0.0 and _can_see(_target):
+			_shoot_at(_target)
+		return
 	# Close to preferred range, otherwise strafe sideways to be harder to hit.
 	var to_target := _target.global_position - global_position
 	to_target.y = 0
@@ -381,7 +402,7 @@ func _shoot_at(target: Node3D) -> void:
 	# Cadence and accuracy come from the archetype, scaled by skill.
 	_shoot_cd = clampf(fire_cooldown / skill, 0.3, 3.0)
 	var origin := muzzle.global_position
-	var reach := maxf(attack_range + 10.0, 90.0)
+	var reach := maxf(origin.distance_to(target.global_position) + 12.0, 90.0)
 	var aim := (target.global_position + Vector3.UP * 1.1) - origin
 	var spread := deg_to_rad(lerpf(spread_far, spread_near, clampf(skill - 0.5, 0.0, 1.0)))
 	var dir := aim.normalized()
@@ -400,16 +421,20 @@ func _shoot_at(target: Node3D) -> void:
 	if res:
 		endpoint = res.position
 		var col = res.collider
-		# Resolve body-part hitbox -> combatant + damage multiplier.
+		# Resolve body-part hitbox -> combatant + damage multiplier, or a vehicle.
 		var victim: Node = null
 		var mult := 1.0
 		if col is Hitbox:
 			victim = col.combatant()
 			mult = col.multiplier
+		elif col and col.is_in_group("vehicle"):
+			victim = col
 		elif col and col.is_in_group("combatant"):
 			victim = col
-		if victim and victim.has_method("hit") and victim.get("team") != team:
-			victim.hit(shoot_damage * clampf(skill, 0.6, 1.6) * mult, combatant_id)
+		if victim and victim.has_method("hit"):
+			var vteam: int = victim.driver_team if victim.is_in_group("vehicle") else int(victim.get("team"))
+			if vteam != team:
+				victim.hit(shoot_damage * clampf(skill, 0.6, 1.6) * mult, combatant_id)
 	_fire_fx.rpc(endpoint)
 
 @rpc("any_peer", "call_local", "unreliable")

@@ -379,6 +379,24 @@ func _ready() -> void:
 	print("SMOKE: helicopter_ok=", heli_ok, " climb=", snappedf(heli.global_position.y - hy0, 0.1))
 	heli.queue_free()
 
+	# Bots shoot enemy-occupied vehicles (e.g. a player flying a heli).
+	var bot_veh_ok := false
+	var bots2 := get_tree().get_nodes_in_group("bot")
+	if not bots2.is_empty() and world:
+		var b: Node = bots2[0]
+		var tv: Node = load("res://scenes/vehicle.tscn").instantiate()
+		world.add_child(tv)
+		tv.global_position = b.global_position + Vector3(0, 0.8, 0) + b.global_transform.basis.z * 2.5
+		tv.driver_id = 99
+		tv.driver_team = 0  # enemy to the bot (team 1 in coop)
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var vh0: float = tv.health
+		b._shoot_at(tv)
+		bot_veh_ok = tv.health < vh0
+		print("SMOKE: bot_shoots_vehicle_ok=", bot_veh_ok, " (", vh0, " -> ", tv.health, ")")
+		tv.queue_free()
+
 	# Team helpers + friendly fire rule.
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
 	print("SMOKE: team_helpers_ok=", team_helpers_ok)
@@ -406,7 +424,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

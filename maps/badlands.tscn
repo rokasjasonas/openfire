@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cbadlands0001"]
+
+[ext_resource type="Script" path="res://scripts/world/badlands.gd" id="1_bad"]
+
+[node name="Badlands" type="Node3D"]
+script = ExtResource("1_bad")

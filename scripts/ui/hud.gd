@@ -20,6 +20,7 @@ extends CanvasLayer
 @onready var kill_feed: VBoxContainer = %KillFeed
 @onready var team_score_label: Label = %TeamScoreLabel
 @onready var lives_label: Label = %LivesLabel
+@onready var vehicle_prompt: Label = %VehiclePrompt
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -46,6 +47,15 @@ func _process(_delta: float) -> void:
 		_try_bind()
 	elif not pause_panel.visible:
 		_update_status_label()
+		_update_vehicle_prompt()
+
+func _update_vehicle_prompt() -> void:
+	if _player.driving != null:
+		vehicle_prompt.text = "[E] Exit vehicle    [Space] Handbrake"
+	elif _player.near_vehicle:
+		vehicle_prompt.text = "[E] Enter vehicle"
+	else:
+		vehicle_prompt.text = ""
 
 func _on_lives(n: int) -> void:
 	lives_label.visible = Game.is_coop()

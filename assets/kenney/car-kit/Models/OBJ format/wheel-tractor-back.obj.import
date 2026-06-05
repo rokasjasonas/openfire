@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://b0wp6b36uuyvi"
+path="res://.godot/imported/wheel-tractor-back.obj-94b69c13a2343a4d84c30ff2cc30fa65.mesh"
+
+[deps]
+
+files=["res://.godot/imported/wheel-tractor-back.obj-94b69c13a2343a4d84c30ff2cc30fa65.mesh"]
+
+source_file="res://assets/kenney/car-kit/Models/OBJ format/wheel-tractor-back.obj"
+dest_files=["res://.godot/imported/wheel-tractor-back.obj-94b69c13a2343a4d84c30ff2cc30fa65.mesh", "res://.godot/imported/wheel-tractor-back.obj-94b69c13a2343a4d84c30ff2cc30fa65.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

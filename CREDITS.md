@@ -15,6 +15,7 @@ No attribution is required for CC0, but credit is given gratefully.
 | [Blaster Kit](https://kenney.nl/assets/blaster-kit) | Weapon & crate models | `assets/kenney/blaster-kit/`, `assets/models/weapons/` |
 | [Blocky Characters](https://kenney.nl/assets/blocky-characters) | Player & bot models | `assets/kenney/blocky-characters/`, `assets/models/characters/` |
 | [Prototype Textures](https://kenney.nl/assets/prototype-textures) | Level/greybox textures | `assets/kenney/prototype-textures/` |
+| [Car Kit](https://kenney.nl/assets/car-kit) | Drivable vehicle models | `assets/kenney/car-kit/`, `assets/models/vehicles/` |
 | [Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds) | Weapon fire, reload, hurt, death | `assets/audio/` |
 | [Impact Sounds](https://kenney.nl/assets/impact-sounds) | Bullet impacts | `assets/audio/` |
 | [Interface Sounds](https://kenney.nl/assets/interface-sounds) | UI clicks | `assets/audio/` |

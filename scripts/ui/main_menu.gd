@@ -9,6 +9,8 @@ const MAPS := [
 	{ "name": "Warehouse", "path": "res://maps/warehouse.tscn" },
 	{ "name": "Ruins", "path": "res://maps/ruins.tscn" },
 	{ "name": "Compound", "path": "res://maps/compound.tscn" },
+	{ "name": "Outpost (huge, vehicles)", "path": "res://maps/outpost.tscn" },
+	{ "name": "Badlands (huge, vehicles)", "path": "res://maps/badlands.tscn" },
 ]
 const SKILLS := [
 	{ "name": "Easy", "value": 0.6 },

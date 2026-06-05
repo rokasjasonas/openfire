@@ -243,6 +243,45 @@ func _ready() -> void:
 		killfeed_ok = hud.kill_feed.get_child_count() > kf_before
 	print("SMOKE: killfeed_ok=", killfeed_ok)
 
+	# Huge vehicle map bakes a navmesh and places vehicles.
+	var huge_ok := false
+	var t0 := Time.get_ticks_msec()
+	var hm: Node = load("res://maps/outpost.tscn").instantiate()
+	get_tree().root.add_child(hm)
+	var hreg = hm.get_node_or_null("NavRegion")
+	var hpolys: int = hreg.navigation_mesh.get_polygon_count() if hreg and hreg.navigation_mesh else 0
+	var nveh: int = get_tree().get_nodes_in_group("vehicle").size()
+	print("SMOKE: outpost bake_ms=", Time.get_ticks_msec() - t0, " polys=", hpolys, " vehicles=", nveh)
+	huge_ok = hpolys > 0 and nveh >= 4
+	hm.queue_free()
+
+	# Vehicle physics: applying throttle moves the car.
+	var vehicle_ok := false
+	var vr := Node3D.new()
+	get_tree().root.add_child(vr)
+	var fl := StaticBody3D.new()
+	fl.collision_layer = 1
+	var fcs := CollisionShape3D.new()
+	var fbs := BoxShape3D.new()
+	fbs.size = Vector3(60, 2, 60)
+	fcs.shape = fbs
+	fl.add_child(fcs)
+	vr.add_child(fl)
+	fl.global_position = Vector3(500, -1, 500)
+	var veh: Node = load("res://scenes/vehicle.tscn").instantiate()
+	vr.add_child(veh)
+	veh.global_position = Vector3(500, 1.0, 500)
+	for i in 40:
+		await get_tree().physics_frame
+	var vp0: Vector3 = veh.global_position
+	veh.set_drive(1.0, 0.0, 0.0)
+	for i in 110:
+		await get_tree().physics_frame
+	var vmoved: float = Vector2(veh.global_position.x - vp0.x, veh.global_position.z - vp0.z).length()
+	vehicle_ok = vmoved > 1.5
+	print("SMOKE: vehicle_drive_ok=", vehicle_ok, " moved=", snappedf(vmoved, 0.1))
+	vr.queue_free()
+
 	# Team helpers + friendly fire rule.
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
 	print("SMOKE: team_helpers_ok=", team_helpers_ok)
@@ -270,7 +309,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

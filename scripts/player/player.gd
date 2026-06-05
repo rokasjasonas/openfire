@@ -72,6 +72,10 @@ const MAX_GRENADES := 2
 const GRENADE_SCENE := preload("res://scenes/grenade.tscn")
 var grenades: int = MAX_GRENADES
 
+const ENTER_RANGE := 3.5
+var driving: Node = null       # the vehicle we're in, or null
+var near_vehicle: bool = false
+
 func _ready() -> void:
 	_spawn_point = global_transform
 	sync_pos = global_position
@@ -185,6 +189,15 @@ func _physics_process(delta: float) -> void:
 		_update_downed(delta)
 		return
 
+	# Driving a vehicle redirects all movement input to the vehicle.
+	if driving != null and is_instance_valid(driving):
+		_drive_vehicle(delta)
+		return
+	near_vehicle = _nearest_vehicle() != null
+	if Input.is_action_just_pressed("interact") and near_vehicle:
+		_enter_vehicle(_nearest_vehicle())
+		return
+
 	# Crouch (hold). Can't stand back up if something is overhead.
 	var want_crouch := Input.is_action_pressed("crouch")
 	if not want_crouch and _crouch > 0.05 and not _has_headroom():
@@ -253,6 +266,57 @@ func add_grenades(n: int) -> void:
 	grenades = mini(MAX_GRENADES, grenades + n)
 	grenades_changed.emit(grenades)
 
+# ---------------------------------------------------------------- vehicles
+
+func _nearest_vehicle() -> Node:
+	var best: Node = null
+	var bd := ENTER_RANGE
+	for v in get_tree().get_nodes_in_group("vehicle"):
+		if v.is_occupied():
+			continue
+		var d: float = global_position.distance_to(v.global_position)
+		if d < bd:
+			bd = d
+			best = v
+	return best
+
+func _enter_vehicle(v: Node) -> void:
+	if v == null:
+		return
+	driving = v
+	near_vehicle = false
+	v.enter(combatant_id, team)
+	$CollisionShape3D.disabled = true
+	weapons.set_hidden(true)
+
+func _exit_vehicle() -> void:
+	if driving:
+		var side: Vector3 = driving.global_transform.basis.x * 2.2 + Vector3.UP * 0.6
+		global_position = driving.global_position + side
+		driving.exit()
+	$CollisionShape3D.disabled = false
+	weapons.set_hidden(false)
+	velocity = Vector3.ZERO
+	sync_pos = global_position
+	driving = null
+
+func _leave_vehicle_if_driving() -> void:
+	if driving and is_instance_valid(driving):
+		driving.exit()
+	driving = null
+
+func _drive_vehicle(delta: float) -> void:
+	var throttle := Input.get_axis("move_back", "move_forward")  # forward = +1
+	var steer := Input.get_axis("move_right", "move_left")       # left = +1
+	var handbrake := 4.0 if Input.is_action_pressed("jump") else 0.0
+	driving.set_drive(throttle, steer, handbrake)
+	global_position = driving.seat_position()
+	velocity = Vector3.ZERO
+	sync_pos = global_position
+	sync_yaw = rotation.y
+	if Input.is_action_just_pressed("interact"):
+		_exit_vehicle()
+
 func _throw_grenade() -> void:
 	grenades -= 1
 	grenades_changed.emit(grenades)
@@ -311,6 +375,7 @@ func _combatant_by_id(id: int) -> Node3D:
 # ---------------------------------------------------------------- co-op downed
 
 func _go_down(attacker_id: int) -> void:
+	_leave_vehicle_if_driving()
 	downed = true
 	_bleed = BLEED_TIME
 	_revive_prog = 0.0
@@ -380,6 +445,7 @@ func apply_life_result(granted: bool) -> void:
 func _die(attacker_id: int) -> void:
 	if dead:
 		return
+	_leave_vehicle_if_driving()
 	dead = true
 	died.emit(attacker_id)
 	# Report to host for scoring.

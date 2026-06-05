@@ -37,11 +37,13 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   is the same code path hosting locally. Up to 8 players.
 - **Configurable missions** — defined as plain **JSON** files in [`missions/`](missions/).
   Add a mission by dropping in a new file. See [docs/missions.md](docs/missions.md).
-- **Six maps** — Arena (symmetrical), Facility (multi-room, mission map), Highlands
-  (vertical stepped ziggurat), Warehouse (tight CQB aisles), Ruins (open, central
-  platform + cover) and Compound (enclosed buildings with doorways + roofs around a
-  plaza, one roof reachable by ramp). All procedural with runtime-baked navmeshes
-  (bots path through doorways and into building interiors) and CC0 prototype textures.
+- **Drivable vehicles** — arcade `VehicleBody3D` cars you enter with `E`; drive with
+  WASD, handbrake on `Space`, run enemies over. Driver-authoritative and replicated
+  for LAN play.
+- **Eight maps** — Arena, Facility (mission map), Highlands (vertical ziggurat),
+  Warehouse (CQB aisles), Ruins (open + cover), Compound (enclosed buildings with
+  doorways + roofs), and two **huge open maps built for vehicles** — Outpost and
+  Badlands. All procedural with runtime-baked navmeshes and CC0 art.
 
 ---
 
@@ -77,6 +79,7 @@ during setup (gitignored); otherwise grab it from <https://godotengine.org/downl
 | Fire / Aim | `LMB` / `RMB` |
 | Reload | `R` |
 | Throw grenade | `G` |
+| Enter / exit vehicle | `E` |
 | Weapons 1/2/3 | `1` `2` `3` |
 | Scoreboard | `Tab` (hold) |
 | Pause menu | `Esc` |

@@ -158,6 +158,19 @@ offset_bottom = 80.0
 horizontal_alignment = 1
 text = "You died — respawning…"
 
+[node name="VehiclePrompt" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -130.0
+offset_right = 200.0
+offset_bottom = -106.0
+horizontal_alignment = 1
+text = ""
+
 [node name="Scoreboard" type="Panel" parent="."]
 unique_name_in_owner = true
 anchor_left = 0.5

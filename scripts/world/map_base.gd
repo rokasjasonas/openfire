@@ -7,10 +7,12 @@ class_name MapBase
 const TEX_DIR := "res://assets/kenney/prototype-textures/PNG/"
 
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
+const VEHICLE_SCENE := preload("res://scenes/vehicle.tscn")
 
 var region: NavigationRegion3D
 var _tex_cache: Dictionary = {}
 var _pickup_count: int = 0
+var _vehicle_count: int = 0
 
 func _ready() -> void:
 	add_to_group("map")
@@ -198,6 +200,15 @@ func add_pickup(kind: String, pos: Vector3, amount: int = 25, weapon_id: String 
 	p.weapon_id = weapon_id
 	p.position = pos
 	add_child(p)
+
+## Place a drivable vehicle. Deterministic names keep RPC paths identical on peers.
+func add_vehicle(pos: Vector3, yaw_deg: float = 0.0) -> void:
+	var v := VEHICLE_SCENE.instantiate()
+	v.name = "Vehicle_%d" % _vehicle_count
+	_vehicle_count += 1
+	v.position = pos + Vector3.UP * 0.6
+	v.rotation_degrees.y = yaw_deg
+	add_child(v)
 
 func add_zone(zone_id: String, pos: Vector3, size: Vector3) -> void:
 	var area := Area3D.new()

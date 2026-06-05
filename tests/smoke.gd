@@ -206,6 +206,27 @@ func _ready() -> void:
 	print("SMOKE: highlands polys=", polys, " spawn_heights=", heights.size(), " ok=", highlands_ok)
 	hl.queue_free()
 
+	# New maps bake navmeshes.
+	var new_maps_ok := true
+	for mp in ["res://maps/warehouse.tscn", "res://maps/ruins.tscn"]:
+		var m: Node = load(mp).instantiate()
+		get_tree().root.add_child(m)
+		await get_tree().process_frame
+		var reg = m.get_node_or_null("NavRegion")
+		var pc: int = reg.navigation_mesh.get_polygon_count() if reg and reg.navigation_mesh else 0
+		if pc <= 0:
+			new_maps_ok = false
+		m.queue_free()
+	print("SMOKE: new_maps_ok=", new_maps_ok)
+
+	# Colored kill feed builds without error.
+	var killfeed_ok := false
+	if hud:
+		var kf_before: int = hud.kill_feed.get_child_count()
+		hud.add_kill_feed("Alpha", "Bravo", false, 0, 1)
+		killfeed_ok = hud.kill_feed.get_child_count() > kf_before
+	print("SMOKE: killfeed_ok=", killfeed_ok)
+
 	# Team helpers + friendly fire rule.
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
 	print("SMOKE: team_helpers_ok=", team_helpers_ok)
@@ -233,7 +254,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

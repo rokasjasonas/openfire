@@ -317,13 +317,15 @@ func _recv_scores(data: Dictionary) -> void:
 func _host_on_kill(killer_id: int, victim_id: int) -> void:
 	var killer: String = Game.scores.get(killer_id, {}).get("name", "?")
 	var victim: String = Game.scores.get(victim_id, {}).get("name", "?")
+	var kt: int = int(Game.scores.get(killer_id, {}).get("team", -1))
+	var vt: int = int(Game.scores.get(victim_id, {}).get("team", -1))
 	var suicide := killer_id == victim_id
-	_kill_feed.rpc(killer, victim, suicide)
+	_kill_feed.rpc(killer, victim, suicide, kt, vt)
 
 @rpc("authority", "call_local", "reliable")
-func _kill_feed(killer: String, victim: String, suicide: bool) -> void:
+func _kill_feed(killer: String, victim: String, suicide: bool, killer_team: int, victim_team: int) -> void:
 	if hud and hud.has_method("add_kill_feed"):
-		hud.add_kill_feed(killer, victim, suicide)
+		hud.add_kill_feed(killer, victim, suicide, killer_team, victim_team)
 
 # ---------------------------------------------------------------- match end
 

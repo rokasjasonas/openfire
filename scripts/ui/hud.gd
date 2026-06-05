@@ -93,22 +93,32 @@ func _on_damaged_from(angle: float) -> void:
 	if damage_direction and damage_direction.has_method("show_from"):
 		damage_direction.show_from(angle)
 
-## Add a "killer ▸ victim" line that fades out after a few seconds.
-func add_kill_feed(killer: String, victim: String, suicide: bool) -> void:
-	var l := Label.new()
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+## Add a "killer ▸ victim" line (names coloured by team) that fades out.
+func add_kill_feed(killer: String, victim: String, suicide: bool, killer_team: int = -1, victim_team: int = -1) -> void:
+	var rt := RichTextLabel.new()
+	rt.bbcode_enabled = true
+	rt.fit_content = true
+	rt.scroll_active = false
+	rt.autowrap_mode = TextServer.AUTOWRAP_OFF
+	rt.custom_minimum_size = Vector2(0, 22)
+	var kc := _feed_color(killer_team)
+	var vc := _feed_color(victim_team)
 	if suicide:
-		l.text = "%s ☠" % victim
+		rt.text = "[right][color=%s]%s[/color] ☠[/right]" % [vc, victim]
 	else:
-		l.text = "%s  ▸  %s" % [killer, victim]
-	l.add_theme_color_override("font_color", Color(1, 0.85, 0.6))
-	kill_feed.add_child(l)
+		rt.text = "[right][color=%s]%s[/color]  ▸  [color=%s]%s[/color][/right]" % [kc, killer, vc, victim]
+	kill_feed.add_child(rt)
 	while kill_feed.get_child_count() > 5:
 		kill_feed.get_child(0).free()
-	var tw := l.create_tween()
+	var tw := rt.create_tween()
 	tw.tween_interval(4.0)
-	tw.tween_property(l, "modulate:a", 0.0, 1.0)
-	tw.tween_callback(l.queue_free)
+	tw.tween_property(rt, "modulate:a", 0.0, 1.0)
+	tw.tween_callback(rt.queue_free)
+
+func _feed_color(team: int) -> String:
+	if Game.is_team_mode() and team >= 0:
+		return "#" + Game.team_color(team).to_html(false)
+	return "#e0c080"  # neutral gold for free-for-all
 
 func _on_grenades(count: int) -> void:
 	grenade_label.text = "Grenades: %d" % count

@@ -4,7 +4,7 @@ extends CharacterBody3D
 ## Targets any combatant whose team differs from its own (works for both co-op
 ## team play and free-for-all deathmatch).
 
-enum State { PATROL, CHASE, ATTACK, DEAD }
+enum State { PATROL, CHASE, ATTACK, SEARCH, DEAD }
 
 const HIT_MASK := 1 | 16  # world | hitbox
 const LOS_MASK := 1   # only world geometry blocks line of sight
@@ -59,6 +59,14 @@ var _patrol_target: Vector3
 var _has_patrol: bool = false
 var _spawn_pos: Vector3
 var _respawn_timer: float = 0.0
+
+# Smarter-AI memory/behaviour
+var _last_seen: Vector3
+var _has_last_seen: bool = false
+var _search_time: float = 0.0
+var _reaction: float = 0.0       # delay before firing after acquiring a target
+var _strafe_sign: float = 1.0
+var _strafe_timer: float = 0.0
 
 @onready var nav: NavigationAgent3D = $NavigationAgent3D
 @onready var body_model: Node3D = $BodyModel
@@ -141,6 +149,8 @@ func _physics_process(delta: float) -> void:
 
 	if _shoot_cd > 0.0:
 		_shoot_cd -= delta
+	if _reaction > 0.0:
+		_reaction -= delta
 
 	match _state:
 		State.PATROL:
@@ -149,6 +159,8 @@ func _physics_process(delta: float) -> void:
 			_do_chase()
 		State.ATTACK:
 			_do_attack(delta)
+		State.SEARCH:
+			_do_search(delta)
 
 	move_and_slide()
 	_update_footsteps(delta)
@@ -187,13 +199,24 @@ func _acquire_target() -> void:
 		if d < best_d and d < sight_range and _can_see(c):
 			best_d = d
 			best = c
-	_target = best
-	if _target == null:
-		_state = State.PATROL
-	elif best_d <= attack_range:
-		_state = State.ATTACK
+	if best != null:
+		if _target == null:
+			_reaction = _reaction_time()  # we just spotted someone
+		_target = best
+		_last_seen = best.global_position
+		_has_last_seen = true
+		_state = State.ATTACK if best_d <= attack_range else State.CHASE
 	else:
-		_state = State.CHASE
+		# Lost sight: investigate the last known position before giving up.
+		_target = null
+		if _has_last_seen and _state != State.SEARCH:
+			_state = State.SEARCH
+			_search_time = 4.0
+		elif not _has_last_seen:
+			_state = State.PATROL
+
+func _reaction_time() -> float:
+	return clampf(0.45 / skill, 0.08, 0.6)
 
 func _can_see(c: Node3D) -> bool:
 	var space := get_world_3d().direct_space_state
@@ -231,18 +254,36 @@ func _do_attack(delta: float) -> void:
 	if _target == null:
 		_state = State.PATROL
 		return
-	# Hold preferred range, face the target and shoot. Snipers/heavies keep their
-	# distance; rushers close in (low attack_range).
+	_last_seen = _target.global_position
+	_has_last_seen = true
+	# Close to preferred range, otherwise strafe sideways to be harder to hit.
 	var to_target := _target.global_position - global_position
 	to_target.y = 0
 	if to_target.length() > attack_range * 0.7:
-		_move_toward(_target.global_position, move_speed * 0.8)
+		_move_toward(_target.global_position, move_speed * 0.85)
 	else:
-		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
-		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+		_strafe_timer -= delta
+		if _strafe_timer <= 0.0:
+			_strafe_timer = randf_range(0.7, 1.6)
+			_strafe_sign = -_strafe_sign
+		var sv := global_transform.basis.x * _strafe_sign * move_speed * 0.55
+		velocity.x = sv.x
+		velocity.z = sv.z
 	_face(_target.global_position)
-	if _shoot_cd <= 0.0 and _can_see(_target):
+	# Reaction delay before the first shot makes them feel human, not instant.
+	if _shoot_cd <= 0.0 and _reaction <= 0.0 and _can_see(_target):
 		_shoot_at(_target)
+
+func _do_search(delta: float) -> void:
+	_search_time -= delta
+	if not _has_last_seen or _search_time <= 0.0:
+		_has_last_seen = false
+		_state = State.PATROL
+		return
+	_move_toward(_last_seen, move_speed * 0.85)
+	if global_position.distance_to(_last_seen) < 2.5:
+		_has_last_seen = false  # reached it, nobody here — resume patrol
+		_state = State.PATROL
 
 func _move_toward(world_pos: Vector3, speed: float) -> void:
 	nav.target_position = world_pos

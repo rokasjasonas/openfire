@@ -29,15 +29,18 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
   attack behaviour, difficulty scaling (Easy / Normal / Hard).
 - **Enemy archetypes** — soldier, rusher (fast/weak), sniper (long-range/high-damage),
   and heavy (tanky), each with its own model, stats and behaviour; spawns are a mix.
+  Bots have a reaction delay, strafe in combat, and search your last-known position
+  when they lose sight of you.
 - **Pickups** — health, grenades, ammo and weapon drops scattered on the maps, with
   respawn timers (glowing, floating, networked).
 - **LAN / direct-IP multiplayer** — host a server, others join by IP. "Solo vs Bots"
   is the same code path hosting locally. Up to 8 players.
 - **Configurable missions** — defined as plain **JSON** files in [`missions/`](missions/).
   Add a mission by dropping in a new file. See [docs/missions.md](docs/missions.md).
-- **Three maps** — a symmetrical arena, a multi-room facility, and Highlands (a
-  vertical stepped-ziggurat map with ramps and raised platforms), all built
-  procedurally with runtime-baked navigation meshes and CC0 prototype textures.
+- **Five maps** — Arena (symmetrical), Facility (multi-room, mission map), Highlands
+  (vertical stepped ziggurat), Warehouse (tight CQB aisles) and Ruins (open, central
+  platform + cover), all built procedurally with runtime-baked navmeshes and CC0
+  prototype textures.
 
 ---
 

@@ -397,6 +397,24 @@ func _ready() -> void:
 		print("SMOKE: bot_shoots_vehicle_ok=", bot_veh_ok, " (", vh0, " -> ", tv.health, ")")
 		tv.queue_free()
 
+	# Domination: a control point counts team presence + scoring increments.
+	var dom_ok := false
+	if me and world:
+		var cpn := Area3D.new()
+		cpn.set_script(load("res://scripts/world/control_point.gd"))
+		cpn.point_id = "A"
+		world.add_child(cpn)
+		cpn.global_position = me.global_position
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var counts: Array = cpn.team_counts()
+		var present_ok: bool = int(counts[0]) >= 1  # me is team 0 (BLUE)
+		var s0: int = int(Game.dom_score[0])
+		Game.add_dom_point(0)
+		dom_ok = present_ok and int(Game.dom_score[0]) == s0 + 1
+		print("SMOKE: domination_ok=", dom_ok, " counts=", counts)
+		cpn.queue_free()
+
 	# Team helpers + friendly fire rule.
 	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
 	print("SMOKE: team_helpers_ok=", team_helpers_ok)
@@ -424,7 +442,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

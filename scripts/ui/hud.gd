@@ -35,6 +35,7 @@ func _ready() -> void:
 	death_label.visible = false
 	Game.score_changed.connect(_refresh_scoreboard)
 	Game.score_changed.connect(_refresh_team_score)
+	Game.dom_changed.connect(_refresh_team_score)
 	Game.lives_changed.connect(_on_lives)
 	team_score_label.visible = false
 	car_health_bar.visible = false
@@ -115,12 +116,29 @@ func _try_bind() -> void:
 			break
 
 func _refresh_team_score() -> void:
-	if not Game.is_team_deathmatch():
+	if Game.is_team_deathmatch():
+		team_score_label.visible = true
+		team_score_label.text = "%s  %d   —   %d  %s" % [
+			Game.team_name(0), Game.team_score(0), Game.team_score(1), Game.team_name(1)]
+	elif Game.is_domination():
+		team_score_label.visible = true
+		team_score_label.text = "%s  %d   —   %d  %s     %s" % [
+			Game.team_name(0), int(Game.dom_score[0]), int(Game.dom_score[1]), Game.team_name(1), _cp_status()]
+	else:
 		team_score_label.visible = false
-		return
-	team_score_label.visible = true
-	team_score_label.text = "%s  %d   —   %d  %s" % [
-		Game.team_name(0), Game.team_score(0), Game.team_score(1), Game.team_name(1)]
+
+func _cp_status() -> String:
+	var cps := get_tree().get_nodes_in_group("control_point")
+	cps.sort_custom(func(a, b): return a.point_id < b.point_id)
+	var parts: Array = []
+	for cp in cps:
+		var who := "-"
+		if cp.owner_team == 0:
+			who = Game.team_name(0)[0]
+		elif cp.owner_team == 1:
+			who = Game.team_name(1)[0]
+		parts.append("%s:%s" % [cp.point_id, who])
+	return " ".join(parts)
 
 func _on_damaged_from(angle: float) -> void:
 	if damage_direction and damage_direction.has_method("show_from"):
@@ -264,6 +282,8 @@ func show_result(result: Dictionary) -> void:
 	match result.get("reason", ""):
 		"mission_complete":
 			txt = "MISSION COMPLETE\n%s" % result.get("mission", "")
+		"domination":
+			txt = "%s team wins Domination!" % Game.team_name(int(result.get("winner_team", 0)))
 		"frag_limit":
 			if result.has("winner_team"):
 				txt = "%s team wins!" % Game.team_name(int(result["winner_team"]))

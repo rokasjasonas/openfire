@@ -72,7 +72,7 @@ func _begin() -> void:
 	if _begun:
 		return
 	_begun = true
-	if Game.is_team_deathmatch():
+	if Game.is_team_deathmatch() or Game.is_domination():
 		_assign_teams()
 	# Spawn a player for every connected peer.
 	for pid in Net.players.keys():
@@ -81,6 +81,8 @@ func _begin() -> void:
 		_start_coop()
 	elif Game.is_team_deathmatch():
 		_start_team_deathmatch()
+	elif Game.is_domination():
+		_start_domination()
 	else:
 		_start_deathmatch()
 
@@ -97,7 +99,7 @@ func _spawn_player(peer_id: int) -> void:
 	var team: int
 	if Game.is_coop():
 		team = Game.TEAM_PLAYERS
-	elif Game.is_team_deathmatch():
+	elif Game.is_team_deathmatch() or Game.is_domination():
 		team = _player_team.get(peer_id, 0)
 	else:
 		team = peer_id  # FFA: unique team
@@ -193,6 +195,56 @@ func _start_team_deathmatch() -> void:
 	var n: int = int(Game.config["bot_count"])
 	for i in n:
 		spawn_enemy(float(Game.config["bot_skill"]), true, Vector3.INF, "", i % 2)
+
+# ---------------------------------------------------------------- domination
+
+const DOM_CAP_RATE := 0.4
+var _dom_score_t := 0.0
+var _dom_sync_t := 0.0
+
+func _start_domination() -> void:
+	set_objective_text.rpc("Domination — hold the points to score, first to %d" % Game.DOM_LIMIT)
+	var n: int = int(Game.config["bot_count"])
+	for i in n:
+		spawn_enemy(float(Game.config["bot_skill"]), true, Vector3.INF, "", i % 2)
+	set_process(true)
+
+func _process(delta: float) -> void:
+	if not Net.is_host() or not Game.is_domination() or not Game.match_active:
+		return
+	_dom_sync_t += delta
+	var broadcast := _dom_sync_t >= 0.25
+	if broadcast:
+		_dom_sync_t = 0.0
+	for cp in get_tree().get_nodes_in_group("control_point"):
+		var counts: Array = cp.team_counts()
+		var blue: int = counts[0]
+		var red: int = counts[1]
+		if blue > 0 and red == 0:
+			cp.bar = minf(1.0, cp.bar + DOM_CAP_RATE * delta)
+		elif red > 0 and blue == 0:
+			cp.bar = maxf(-1.0, cp.bar - DOM_CAP_RATE * delta)
+		if cp.bar >= 0.99:
+			cp.owner_team = 0
+		elif cp.bar <= -0.99:
+			cp.owner_team = 1
+		else:
+			cp.owner_team = -1
+		if broadcast:
+			cp.set_state.rpc(cp.bar, cp.owner_team)
+	_dom_score_t += delta
+	if _dom_score_t >= 1.0:
+		_dom_score_t = 0.0
+		for cp in get_tree().get_nodes_in_group("control_point"):
+			if cp.owner_team >= 0:
+				Game.add_dom_point(cp.owner_team)
+		_sync_dom.rpc(Game.dom_score.duplicate())
+
+@rpc("authority", "call_local", "reliable")
+func _sync_dom(scores_arr: Array) -> void:
+	if not Net.is_host():
+		Game.dom_score = scores_arr
+		Game.dom_changed.emit()
 
 func _start_coop() -> void:
 	var mission := Missions.get_mission(Game.config.get("mission_id", ""))

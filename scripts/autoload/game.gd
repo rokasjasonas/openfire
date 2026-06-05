@@ -6,12 +6,17 @@ extends Node
 signal score_changed
 signal kill_logged(killer_id: int, victim_id: int)
 signal lives_changed(lives: int)
+signal dom_changed
 signal match_over(result: Dictionary)
 
 # Shared co-op respawn tickets (host-authoritative, replicated to clients).
 var coop_lives: int = 6
 
-enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH }
+# Domination: ticket score per team (0=BLUE, 1=RED). First to DOM_LIMIT wins.
+const DOM_LIMIT := 250
+var dom_score: Array = [0, 0]
+
+enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION }
 
 # Team ids. In coop, humans share TEAM_PLAYERS and bots are TEAM_ENEMIES.
 # In team deathmatch, teams 0 and 1 are BLUE and RED (each holds players + bots).
@@ -42,7 +47,18 @@ var match_active: bool = false
 
 func reset_scores() -> void:
 	scores.clear()
+	dom_score = [0, 0]
 	score_changed.emit()
+	dom_changed.emit()
+
+## Domination: award a control-point tick to a team; ends the match at DOM_LIMIT.
+func add_dom_point(team: int) -> void:
+	if team != 0 and team != 1:
+		return
+	dom_score[team] += 1
+	dom_changed.emit()
+	if match_active and dom_score[team] >= DOM_LIMIT:
+		end_match({"reason": "domination", "winner_team": team})
 
 func register_combatant(id: int, cname: String, is_bot: bool, team: int) -> void:
 	if not scores.has(id):
@@ -104,10 +120,13 @@ func is_coop() -> bool:
 func is_team_deathmatch() -> bool:
 	return config["mode"] == Mode.TEAM_DEATHMATCH
 
-## True when combatants share teams (coop or TDM) — used for friendly fire and
-## team-coloured nameplates. Plain deathmatch is free-for-all.
+func is_domination() -> bool:
+	return config["mode"] == Mode.DOMINATION
+
+## True when combatants share teams (coop / TDM / domination) — used for friendly
+## fire and team-coloured nameplates. Plain deathmatch is free-for-all.
 func is_team_mode() -> bool:
-	return is_coop() or is_team_deathmatch()
+	return is_coop() or is_team_deathmatch() or is_domination()
 
 func team_color(team: int) -> Color:
 	return TEAM_COLORS.get(team, Color(1, 1, 1))
@@ -119,6 +138,7 @@ func mode_name() -> String:
 	match config["mode"]:
 		Mode.COOP: return "Co-op"
 		Mode.TEAM_DEATHMATCH: return "Team Deathmatch"
+		Mode.DOMINATION: return "Domination"
 		_: return "Deathmatch"
 
 func end_match(result: Dictionary) -> void:

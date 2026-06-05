@@ -49,3 +49,8 @@ func build_level() -> void:
 	add_pickup("ammo", Vector3(-16, 0, 0))
 	add_pickup("ammo", Vector3(16, 0, 0))
 	add_pickup("weapon", Vector3(-12, 0, -12), 0, "shotgun")
+
+	# Domination control points
+	add_control_point("A", Vector3(0, 2.1, 0))     # central platform
+	add_control_point("B", Vector3(-16, 0, -16))
+	add_control_point("C", Vector3(16, 0, 16))

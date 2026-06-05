@@ -51,6 +51,7 @@ func _ready() -> void:
 	mode_option.add_item("Deathmatch")
 	mode_option.add_item("Co-op")
 	mode_option.add_item("Team Deathmatch")
+	mode_option.add_item("Domination")
 	map_option.clear()
 	for m in MAPS:
 		map_option.add_item(m["name"])

@@ -9,6 +9,7 @@ const TEX_DIR := "res://assets/kenney/prototype-textures/PNG/"
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 const VEHICLE_SCENE := preload("res://scenes/vehicle.tscn")
 const HELI_SCENE := preload("res://scenes/helicopter.tscn")
+const CONTROL_POINT_SCRIPT := preload("res://scripts/world/control_point.gd")
 
 var region: NavigationRegion3D
 var _tex_cache: Dictionary = {}
@@ -220,6 +221,15 @@ func add_helicopter(pos: Vector3, yaw_deg: float = 0.0) -> void:
 	h.position = pos + Vector3.UP * 0.8
 	h.rotation_degrees.y = yaw_deg
 	add_child(h)
+
+## Place a Domination control point. Only active in Domination mode.
+func add_control_point(point_id: String, pos: Vector3) -> void:
+	var cp := Area3D.new()
+	cp.set_script(CONTROL_POINT_SCRIPT)
+	cp.name = "CP_" + point_id
+	cp.point_id = point_id
+	cp.position = pos
+	add_child(cp)
 
 func add_zone(zone_id: String, pos: Vector3, size: Vector3) -> void:
 	var area := Area3D.new()

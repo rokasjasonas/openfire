@@ -23,6 +23,8 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
 - **Three game modes:**
   - **Deathmatch** — free-for-all vs other players and respawning bots, frag-limited.
   - **Team Deathmatch** — BLUE vs RED (players + bots), friendly fire off, team scoring.
+  - **Domination** — capture and hold control points to tick up your team's score;
+    first to the limit wins (Arena, Ruins, Compound).
   - **Co-op** — team up against AI through scripted missions, with **downed/revive**
     (go down instead of dying; teammates revive you) and **shared respawn lives**.
 - **Bots** — `NavigationAgent3D` pathfinding, line-of-sight perception, patrol → chase →

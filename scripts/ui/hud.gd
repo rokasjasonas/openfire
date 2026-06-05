@@ -212,16 +212,11 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("scoreboard"):
 		scoreboard.visible = true
 		_refresh_scoreboard()
-		# Free the cursor while the scoreboard is up so you can move it around.
-		# The panel ignores the mouse and fire/aim still poll through, so this
-		# doesn't block any gameplay mouse actions.
-		if not pause_panel.visible and not result_panel.visible:
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		# Keep the mouse captured so you can still look/aim and fire while the
+		# scoreboard overlay is up. The panel is mouse-transparent, so it never
+		# steals input.
 	elif event.is_action_released("scoreboard"):
 		scoreboard.visible = false
-		# Recapture for mouse-look (unless a menu/result took over meanwhile).
-		if not pause_panel.visible and not result_panel.visible:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if event.is_action_pressed("pause"):
 		_toggle_pause()
 

@@ -24,6 +24,9 @@ const PROFILES := {
 	"heavy": {"name": "Heavy", "health": 210.0, "speed": 3.6, "cooldown": 0.7, "damage": 14.0,
 		"sight": 55.0, "attack": 22.0, "spread_far": 6.0, "spread_near": 2.0,
 		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.3, 0.3), "scale": 1.18},
+	"boss": {"name": "WARLORD", "health": 1500.0, "speed": 4.2, "cooldown": 0.5, "damage": 22.0,
+		"sight": 95.0, "attack": 45.0, "spread_far": 4.0, "spread_near": 1.0,
+		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.15, 0.55), "scale": 1.9},
 }
 # Spawn weighting (soldiers common, others rarer).
 const SPAWN_WEIGHTS := {"soldier": 5, "rusher": 3, "sniper": 2, "heavy": 1}

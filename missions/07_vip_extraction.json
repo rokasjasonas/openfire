@@ -1,0 +1,12 @@
+{
+	"id": "vip_extraction",
+	"name": "VIP Extraction",
+	"description": "Escort the VIP across the compound to the landing zone — he only moves while you stay close.",
+	"map": "res://maps/facility.tscn",
+	"enemy_skill": 1.0,
+	"objectives": [
+		{ "type": "eliminate_all", "description": "Secure the insertion point", "enemy_count": 5, "wave_size": 3 },
+		{ "type": "escort", "description": "Escort the VIP to the LZ", "from": "alpha", "to": "extraction", "speed": 2.6, "wave_size": 3, "spawn_interval": 6.0 },
+		{ "type": "hold_console", "description": "Hold the LZ for evac", "zone": "extraction", "duration": 18, "wave_size": 4, "spawn_interval": 5.0 }
+	]
+}

@@ -441,8 +441,34 @@ func _ready() -> void:
 		revive_ok = was_downed and not me.downed and lives_before > 0
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
+	# New co-op objective entities: destructible target, escort VIP, boss archetype.
+	var objectives_ok := false
+	if me and world:
+		var fwd2: Vector3 = -me.global_transform.basis.z
+		var tgt: Node = world.spawn_target(me.global_position + fwd2 * 6.0, 120.0)
+		await get_tree().physics_frame
+		var th0: float = tgt.sync_health
+		tgt.receive_damage(40.0, -1)
+		var dmg_ok: bool = tgt.sync_health < th0 and tgt.is_in_group("destructible")
+		tgt.receive_damage(1000.0, -1)
+		await get_tree().process_frame
+		var destroyed_ok: bool = tgt.destroyed
+		var goal: Vector3 = me.global_position + fwd2 * 14.0
+		var vip: Node = world.spawn_escort(me.global_position + fwd2 * 2.0, goal, 4.0)
+		await get_tree().process_frame
+		var ed0: float = vip.global_position.distance_to(goal)
+		for i in 30:
+			await get_tree().process_frame
+		var escort_ok: bool = vip.is_in_group("escort") and (vip.arrived or vip.global_position.distance_to(goal) < ed0 - 0.5)
+		var BotScript = load("res://scripts/ai/bot.gd")
+		var boss_ok: bool = BotScript.PROFILES.has("boss") and float(BotScript.PROFILES["boss"]["health"]) >= 1000.0
+		objectives_ok = dmg_ok and destroyed_ok and escort_ok and boss_ok
+		print("SMOKE: objectives_ok=", objectives_ok, " dmg=", dmg_ok, " destroyed=", destroyed_ok, " escort=", escort_ok, " boss=", boss_ok)
+		tgt.queue_free()
+		vip.queue_free()
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

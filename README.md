@@ -27,6 +27,10 @@ All 3D models and textures are free **CC0** assets from [Kenney](https://kenney.
     first to the limit wins (Arena, Ruins, Compound).
   - **Co-op** — team up against AI through scripted missions, with **downed/revive**
     (go down instead of dying; teammates revive you) and **shared respawn lives**.
+    Eight objective types — clear/reach/survive/defend plus **hold-console**,
+    **destroy-target**, **escort-VIP** and **boss** fights — mixed and matched per mission.
+- **Minimap** — a player-centred top-down radar (rotates with you) showing allies,
+  enemies, vehicles, control points and live objective markers (targets, the VIP, zones).
 - **Bots** — `NavigationAgent3D` pathfinding, line-of-sight perception, patrol → chase →
   attack behaviour, difficulty scaling (Easy / Normal / Hard).
 - **Enemy archetypes** — soldier, rusher (fast/weak), sniper (long-range/high-damage),
@@ -115,7 +119,8 @@ Drop a JSON file into [`missions/`](missions/):
 ```
 
 It appears in the co-op mission list automatically. Full schema and the list of
-objective types (`eliminate_all`, `reach_zone`, `survive_time`, `defend`, …) are in
+objective types (`eliminate_all`, `reach_zone`, `survive_time`, `defend`,
+`hold_console`, `destroy_target`, `escort`, `boss`) are in
 [docs/missions.md](docs/missions.md).
 
 ---

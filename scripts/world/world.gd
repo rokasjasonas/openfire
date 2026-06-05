@@ -142,6 +142,8 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 	return id
 
 const BOT_SCRIPT := preload("res://scripts/ai/bot.gd")
+const TARGET_SCRIPT := preload("res://scripts/world/destructible_target.gd")
+const ESCORT_SCRIPT := preload("res://scripts/world/escort_marker.gd")
 
 func _random_enemy_type() -> String:
 	var weights: Dictionary = BOT_SCRIPT.SPAWN_WEIGHTS
@@ -157,24 +159,49 @@ func _random_enemy_type() -> String:
 
 ## Runs on every peer (via MultiplayerSpawner) to construct the node from data.
 func _spawn_combatant(data: Dictionary) -> Node:
-	if data["type"] == "player":
-		var p := PLAYER_SCENE.instantiate()
-		p.name = "P%d" % int(data["id"])
-		p.combatant_id = int(data["id"])
-		p.team = int(data["team"])
-		p.display_name = String(data["name"])
-		p.position = data["pos"]
-		p.set_multiplayer_authority(int(data["id"]))
-		return p
-	else:
-		var b := BOT_SCENE.instantiate()
-		b.name = "B%d" % absi(int(data["id"]))
-		b.position = data["pos"]
-		# Authority stays with the host (default), which drives the AI.
-		b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")))
-		if Net.is_host():
-			b.died.connect(_on_bot_died)
-		return b
+	match String(data["type"]):
+		"player":
+			var p := PLAYER_SCENE.instantiate()
+			p.name = "P%d" % int(data["id"])
+			p.combatant_id = int(data["id"])
+			p.team = int(data["team"])
+			p.display_name = String(data["name"])
+			p.position = data["pos"]
+			p.set_multiplayer_authority(int(data["id"]))
+			return p
+		"target":
+			var t: Node3D = TARGET_SCRIPT.new()
+			t.name = "T%d" % absi(int(data["id"]))
+			t.position = data["pos"]
+			t.setup(int(data["id"]), float(data["health"]))
+			return t
+		"escort":
+			var e: Node3D = ESCORT_SCRIPT.new()
+			e.name = "E%d" % absi(int(data["id"]))
+			e.position = data["pos"]
+			e.setup(int(data["id"]), data["dest"], float(data["speed"]))
+			return e
+		_:
+			var b := BOT_SCENE.instantiate()
+			b.name = "B%d" % absi(int(data["id"]))
+			b.position = data["pos"]
+			# Authority stays with the host (default), which drives the AI.
+			b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")))
+			if Net.is_host():
+				b.died.connect(_on_bot_died)
+			return b
+
+## Host-only: spawn a destructible objective target (replicated). Returns the node.
+func spawn_target(pos: Vector3, health: float) -> Node:
+	_bot_counter += 1
+	var id := -3000 - _bot_counter
+	return spawner.spawn({"type": "target", "id": id, "pos": pos, "health": health})
+
+## Host-only: spawn an escort VIP that walks from its spawn to `dest`. Returns the node.
+func spawn_escort(from: Vector3, dest: Vector3, speed: float) -> Node:
+	_bot_counter += 1
+	var id := -4000 - _bot_counter
+	return spawner.spawn({"type": "escort", "id": id, "pos": from, "dest": dest, "speed": speed})
 
 func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 	if _objective_runner and _objective_runner.has_method("notify_enemy_killed"):

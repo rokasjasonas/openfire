@@ -1,0 +1,12 @@
+{
+	"id": "sabotage",
+	"name": "Sabotage",
+	"description": "Breach the facility, blow the reactor core, then extract before reinforcements arrive.",
+	"map": "res://maps/facility.tscn",
+	"enemy_skill": 1.0,
+	"objectives": [
+		{ "type": "eliminate_all", "description": "Breach and clear the entrance", "enemy_count": 6, "wave_size": 3 },
+		{ "type": "destroy_target", "description": "Destroy the reactor core", "at": [0, 0, -12], "health": 700, "wave_size": 3, "spawn_interval": 6.0 },
+		{ "type": "reach_zone", "description": "Get to the extraction point", "zone": "extraction" }
+	]
+}

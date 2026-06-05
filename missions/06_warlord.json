@@ -1,0 +1,12 @@
+{
+	"id": "warlord",
+	"name": "The Warlord",
+	"description": "Hack the terminal to expose the warlord, then put him down and escape.",
+	"map": "res://maps/facility.tscn",
+	"enemy_skill": 1.0,
+	"objectives": [
+		{ "type": "hold_console", "description": "Hack the terminal in Room Alpha", "zone": "alpha", "duration": 20, "wave_size": 4, "spawn_interval": 5.0 },
+		{ "type": "boss", "description": "Defeat the Warlord", "boss_type": "boss", "adds": 4, "skill_mult": 1.2 },
+		{ "type": "reach_zone", "description": "Get to the extraction point", "zone": "extraction" }
+	]
+}

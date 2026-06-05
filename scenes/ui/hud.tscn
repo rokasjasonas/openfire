@@ -1,11 +1,16 @@
-[gd_scene load_steps=4 format=3 uid="uid://chud00000001"]
+[gd_scene load_steps=5 format=3 uid="uid://chud00000001"]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/ui/crosshair.gd" id="2_cross"]
 [ext_resource type="Script" path="res://scripts/ui/damage_direction.gd" id="3_dmgdir"]
+[ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="4_minimap"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
+
+[node name="Minimap" type="Control" parent="."]
+mouse_filter = 2
+script = ExtResource("4_minimap")
 
 [node name="Crosshair" type="Control" parent="."]
 anchors_preset = 15

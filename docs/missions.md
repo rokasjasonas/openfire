@@ -29,10 +29,16 @@ a `description` (shown on the HUD), and type-specific parameters.
 | `reach_zone` | `zone` | all living players stand inside the named zone |
 | `survive_time` | `duration`, `spawn_interval`, `wave_size` | `duration` seconds elapse (enemies keep spawning) |
 | `defend` | `zone`, `duration`, `spawn_interval`, `wave_size` | like `survive_time`, themed as holding a zone |
+| `hold_console` | `zone`, `duration`, `wave_size`, `spawn_interval` | a player stands in the zone for a **cumulative** `duration` (progress slips back if abandoned); optional reinforcement pressure |
+| `destroy_target` | `at` \| `zone`, `health`, `wave_size`, `spawn_interval` | a destructible objective (reactor/console) is shot down to 0 HP; optional defenders |
+| `escort` | `from`, `to`, `speed`, `wave_size`, `spawn_interval` | a VIP walks from `from` to `to` — it only advances while a living player stays within ~10 m |
+| `boss` | `boss_type`, `skill_mult`, `adds` | a boss enemy (default the `boss`/WARLORD archetype) is killed; `adds` reinforcements are kept alive until it falls |
 
-### Zones
+### Zones & positions
 
-`reach_zone` / `defend` reference a **named zone** placed by the map. The `facility` map
+`reach_zone` / `defend` / `hold_console` reference a **named zone** placed by the map.
+`destroy_target` (`at`) and `escort` (`from`, `to`) accept **either** a zone id string
+**or** an explicit `[x, y, z]` world-coordinate array. The `facility` map
 provides: `alpha`, `bravo`, `defend`, `extraction`. To add zones, edit the map's
 `build_level()` and call `add_zone("my_zone", position, size)` (see
 [`../scripts/world/facility.gd`](../scripts/world/facility.gd)).

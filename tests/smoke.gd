@@ -527,8 +527,32 @@ func _ready() -> void:
 	print("SMOKE: wasteland_ok=", wasteland_ok, " bake_ms=", Time.get_ticks_msec() - wt0, " polys=", wpolys, " spawns=", wspawns, " vehicles=", wveh)
 	wm.queue_free()
 
+	# Survival: mode helpers, needs drain over time, starvation damage, eat/drink restore.
+	var survival_ok := false
+	if me:
+		var prev_mode2 = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.SURVIVAL
+		var helpers_ok: bool = Game.is_survival() and Game.mode_name() == "Survival" and Game.is_team_mode()
+		me.velocity = Vector3.ZERO
+		me.hunger = 50.0
+		me.thirst = 50.0
+		me._update_needs(2.0)  # 2 simulated seconds of drain
+		var drain_ok: bool = me.hunger < 50.0 and me.thirst < 50.0
+		me.hunger = 0.0
+		me.thirst = 0.0
+		me.sync_health = 100.0
+		me._need_dmg_accum = 0.0
+		me._update_needs(1.1)  # crosses the 1s starvation tick
+		var starve_ok: bool = me.sync_health < 100.0
+		me.eat(40.0)
+		me.drink(60.0)
+		var restore_ok: bool = me.hunger >= 39.0 and me.thirst >= 59.0
+		Game.config["mode"] = prev_mode2
+		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok
+		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

@@ -134,6 +134,53 @@ max_value = 100.0
 step = 5.0
 value = 25.0
 
+[node name="MissionPointsRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MissionPointsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Mission points"
+
+[node name="MissionPointsSpin" type="SpinBox" parent="SetupPanel/Center/Box/VBox/MissionPointsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+min_value = 2.0
+max_value = 100.0
+step = 1.0
+value = 10.0
+
+[node name="SeedRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/SeedRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Seed"
+
+[node name="SeedEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/SeedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+placeholder_text = "random"
+
+[node name="MapSizeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MapSizeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Map size"
+
+[node name="MapSizeOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/MapSizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
 [node name="BotsRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
 layout_mode = 2
 

@@ -25,6 +25,14 @@ const REVIVE_RANGE := 2.6
 const REVIVE_TIME := 3.0
 const REVIVE_HEALTH := 40.0
 
+# Survival needs (only active in Survival mode). Hunger/thirst drain over time
+# (faster while sprinting) and chip health once either hits zero.
+const MAX_NEED := 100.0
+const HUNGER_RATE := 0.45        # points/sec
+const THIRST_RATE := 0.7         # points/sec (thirst drains a bit faster)
+const NEED_SPRINT_MULT := 1.8
+const NEED_DAMAGE := 2.0         # health/sec while starving or dehydrated
+
 # combatant_id == peer id for players (always positive). Used for scoring.
 var combatant_id: int = 1
 var team: int = -1
@@ -43,6 +51,11 @@ var fully_dead: bool = false    # co-op: bled out with no lives left (synced)
 var _bleed: float = 0.0
 var _revive_prog: float = 0.0
 var _awaiting_life: bool = false
+
+# Survival needs (authority-owned; HUD shows the local player's only).
+var hunger: float = MAX_NEED
+var thirst: float = MAX_NEED
+var _need_dmg_accum: float = 0.0
 
 var _yaw: float = 0.0
 var _pitch: float = 0.0
@@ -64,6 +77,8 @@ signal ammo_changed(mag: int, reserve: int)
 signal weapon_changed(weapon_name: String)
 signal dealt_damage(amount: float)
 signal grenades_changed(count: int)
+signal hunger_changed(value: float, maximum: float)
+signal thirst_changed(value: float, maximum: float)
 signal damaged_from(angle: float)
 signal downed_changed(is_downed: bool, bleed_frac: float, revive_frac: float, spectator: bool)
 signal died(attacker_id: int)
@@ -200,6 +215,9 @@ func _physics_process(delta: float) -> void:
 		_update_downed(delta)
 		return
 
+	if Game.is_survival():
+		_update_needs(delta)
+
 	# Driving a vehicle redirects all movement input to the vehicle.
 	if driving != null and is_instance_valid(driving):
 		if driving.is_in_group("aircraft"):
@@ -279,6 +297,41 @@ func add_grenades(n: int) -> void:
 		return
 	grenades = mini(MAX_GRENADES, grenades + n)
 	grenades_changed.emit(grenades)
+
+# ---------------------------------------------------------------- survival needs
+
+## Drain hunger/thirst over time (faster while sprinting); chip health when empty.
+func _update_needs(delta: float) -> void:
+	var moving := Vector2(velocity.x, velocity.z).length() > 1.2
+	var mult := NEED_SPRINT_MULT if (moving and Input.is_action_pressed("sprint")) else 1.0
+	var h0 := hunger
+	var t0 := thirst
+	hunger = maxf(0.0, hunger - HUNGER_RATE * mult * delta)
+	thirst = maxf(0.0, thirst - THIRST_RATE * mult * delta)
+	if not is_equal_approx(hunger, h0):
+		hunger_changed.emit(hunger, MAX_NEED)
+	if not is_equal_approx(thirst, t0):
+		thirst_changed.emit(thirst, MAX_NEED)
+	if hunger <= 0.0 or thirst <= 0.0:
+		_need_dmg_accum += delta
+		if _need_dmg_accum >= 1.0:
+			_need_dmg_accum = 0.0
+			receive_damage(NEED_DAMAGE, combatant_id)  # starvation/dehydration
+	else:
+		_need_dmg_accum = 0.0
+
+## Consumables (Survival #3) call these to restore the needs.
+func eat(amount: float) -> void:
+	if not is_multiplayer_authority():
+		return
+	hunger = minf(MAX_NEED, hunger + amount)
+	hunger_changed.emit(hunger, MAX_NEED)
+
+func drink(amount: float) -> void:
+	if not is_multiplayer_authority():
+		return
+	thirst = minf(MAX_NEED, thirst + amount)
+	thirst_changed.emit(thirst, MAX_NEED)
 
 # ---------------------------------------------------------------- vehicles
 

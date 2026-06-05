@@ -110,6 +110,46 @@ offset_bottom = 34.0
 modulate = Color(0.7, 1, 0.8, 1)
 text = ""
 
+[node name="HungerLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 40.0
+offset_right = 240.0
+offset_bottom = 62.0
+modulate = Color(1, 0.75, 0.4, 1)
+text = "Hunger 100"
+
+[node name="HungerBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 62.0
+offset_right = 224.0
+offset_bottom = 78.0
+modulate = Color(1, 0.75, 0.4, 1)
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="ThirstLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 82.0
+offset_right = 240.0
+offset_bottom = 104.0
+modulate = Color(0.4, 0.7, 1, 1)
+text = "Thirst 100"
+
+[node name="ThirstBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 104.0
+offset_right = 224.0
+offset_bottom = 120.0
+modulate = Color(0.4, 0.7, 1, 1)
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
 [node name="CarHealthLabel" type="Label" parent="."]
 unique_name_in_owner = true
 anchor_top = 1.0

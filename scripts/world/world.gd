@@ -85,6 +85,8 @@ func _begin() -> void:
 		_start_domination()
 	elif Game.is_battle_royale():
 		_start_battle_royale()
+	elif Game.is_survival():
+		_start_survival()
 	else:
 		_start_deathmatch()
 
@@ -99,7 +101,7 @@ func _assign_teams() -> void:
 
 func _spawn_player(peer_id: int) -> void:
 	var team: int
-	if Game.is_coop():
+	if Game.is_coop() or Game.is_survival():
 		team = Game.TEAM_PLAYERS
 	elif Game.is_team_deathmatch() or Game.is_domination():
 		team = _player_team.get(peer_id, 0)
@@ -121,7 +123,7 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 	var team: int
 	if team_override != -999:
 		team = team_override
-	elif Game.is_coop():
+	elif Game.is_coop() or Game.is_survival():
 		team = Game.TEAM_ENEMIES
 	else:
 		team = id  # FFA: unique team
@@ -212,6 +214,15 @@ func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 	check_last_standing()
 
 # ---------------------------------------------------------------- modes
+
+func _start_survival() -> void:
+	# Chunk 1 skeleton: boot the world with some hostile NPCs on a placeholder map
+	# (Outpost/Badlands/Wasteland by size). Terrain gen, villages, NPC names and
+	# quests land in later Survival chunks.
+	set_objective_text.rpc("Survive \u2014 %d mission point(s) ahead. Mind your hunger and thirst." % int(Game.config.get("mission_points", 10)))
+	var n: int = int(Game.config["bot_count"])
+	for i in n:
+		spawn_enemy(float(Game.config["bot_skill"]), true)
 
 func _start_deathmatch() -> void:
 	set_objective_text.rpc("Deathmatch — first to %d frags" % int(Game.config["frag_limit"]))

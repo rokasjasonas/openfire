@@ -23,6 +23,10 @@ extends CanvasLayer
 @onready var vehicle_prompt: Label = %VehiclePrompt
 @onready var car_health_bar: ProgressBar = %CarHealthBar
 @onready var car_health_label: Label = %CarHealthLabel
+@onready var hunger_bar: ProgressBar = %HungerBar
+@onready var hunger_label: Label = %HungerLabel
+@onready var thirst_bar: ProgressBar = %ThirstBar
+@onready var thirst_label: Label = %ThirstLabel
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -44,6 +48,10 @@ func _ready() -> void:
 	team_score_label.visible = false
 	car_health_bar.visible = false
 	car_health_label.visible = false
+	hunger_bar.visible = false
+	hunger_label.visible = false
+	thirst_bar.visible = false
+	thirst_label.visible = false
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -118,8 +126,19 @@ func _try_bind() -> void:
 			p.dealt_damage.connect(_on_dealt_damage)
 			p.grenades_changed.connect(_on_grenades)
 			p.damaged_from.connect(_on_damaged_from)
+			p.hunger_changed.connect(_on_hunger)
+			p.thirst_changed.connect(_on_thirst)
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
+			# Hunger/thirst bars are only shown in Survival mode.
+			var surv := Game.is_survival()
+			hunger_bar.visible = surv
+			hunger_label.visible = surv
+			thirst_bar.visible = surv
+			thirst_label.visible = surv
+			if surv:
+				_on_hunger(p.hunger, p.MAX_NEED)
+				_on_thirst(p.thirst, p.MAX_NEED)
 			break
 
 func _refresh_team_score() -> void:
@@ -180,6 +199,16 @@ func _feed_color(team: int) -> String:
 
 func _on_grenades(count: int) -> void:
 	grenade_label.text = "Grenades: %d" % count
+
+func _on_hunger(value: float, maximum: float) -> void:
+	hunger_bar.max_value = maximum
+	hunger_bar.value = value
+	hunger_label.text = "Hunger %d" % int(value)
+
+func _on_thirst(value: float, maximum: float) -> void:
+	thirst_bar.max_value = maximum
+	thirst_bar.value = value
+	thirst_label.text = "Thirst %d" % int(value)
 
 func _on_dealt_damage(_amount: float) -> void:
 	if crosshair and crosshair.has_method("hit"):

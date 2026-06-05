@@ -16,7 +16,7 @@ var coop_lives: int = 6
 const DOM_LIMIT := 250
 var dom_score: Array = [0, 0]
 
-enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION, BATTLE_ROYALE }
+enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION, BATTLE_ROYALE, SURVIVAL }
 
 # Team ids. In coop, humans share TEAM_PLAYERS and bots are TEAM_ENEMIES.
 # In team deathmatch, teams 0 and 1 are BLUE and RED (each holds players + bots).
@@ -38,6 +38,10 @@ var config: Dictionary = {
 	"bot_skill": 1.0,          # 0.5 = easy, 1.0 = normal, 1.5 = hard
 	"frag_limit": 25,          # deathmatch
 	"time_limit": 600,         # seconds, 0 = unlimited
+	# Survival mode (most take effect in later chunks).
+	"mission_points": 10,      # number of story mission points (2-100)
+	"seed": 0,                 # world generation seed (0 = random at host time)
+	"map_size": 1,             # 0 = small, 1 = medium, 2 = large
 }
 
 # Live per-combatant scoreboard: id -> { name, kills, deaths, is_bot, team }
@@ -126,10 +130,14 @@ func is_domination() -> bool:
 func is_battle_royale() -> bool:
 	return config["mode"] == Mode.BATTLE_ROYALE
 
+func is_survival() -> bool:
+	return config["mode"] == Mode.SURVIVAL
+
 ## True when combatants share teams (coop / TDM / domination) — used for friendly
 ## fire and team-coloured nameplates. Plain deathmatch is free-for-all.
 func is_team_mode() -> bool:
-	return is_coop() or is_team_deathmatch() or is_domination()
+	# Survival: humans share a team vs the NPC world (friendly fire off).
+	return is_coop() or is_team_deathmatch() or is_domination() or is_survival()
 
 func team_color(team: int) -> Color:
 	return TEAM_COLORS.get(team, Color(1, 1, 1))
@@ -143,6 +151,7 @@ func mode_name() -> String:
 		Mode.TEAM_DEATHMATCH: return "Team Deathmatch"
 		Mode.DOMINATION: return "Domination"
 		Mode.BATTLE_ROYALE: return "Battle Royale"
+		Mode.SURVIVAL: return "Survival"
 		_: return "Deathmatch"
 
 func end_match(result: Dictionary) -> void:

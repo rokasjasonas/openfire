@@ -18,6 +18,10 @@ const SKILLS := [
 	{ "name": "Normal", "value": 1.0 },
 	{ "name": "Hard", "value": 1.4 },
 ]
+# Survival placeholder maps by size (small/medium/large) until terrain gen lands.
+const SURVIVAL_MAPS := [
+	"res://maps/outpost.tscn", "res://maps/badlands.tscn", "res://maps/wasteland.tscn",
+]
 
 @onready var setup_panel: Control = %SetupPanel
 @onready var lobby_panel: Control = %LobbyPanel
@@ -37,6 +41,12 @@ const SKILLS := [
 @onready var lobby_summary: Label = %LobbySummary
 @onready var start_button: Button = %StartButton
 @onready var options_panel: Control = %OptionsPanel
+@onready var mission_points_row: Control = %MissionPointsRow
+@onready var mission_points_spin: SpinBox = %MissionPointsSpin
+@onready var seed_row: Control = %SeedRow
+@onready var seed_edit: LineEdit = %SeedEdit
+@onready var map_size_row: Control = %MapSizeRow
+@onready var map_size_option: OptionButton = %MapSizeOption
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -54,6 +64,11 @@ func _ready() -> void:
 	mode_option.add_item("Team Deathmatch")
 	mode_option.add_item("Domination")
 	mode_option.add_item("Battle Royale")
+	mode_option.add_item("Survival")
+	map_size_option.clear()
+	for size_name in ["Small", "Medium", "Large"]:
+		map_size_option.add_item(size_name)
+	map_size_option.selected = 1
 	map_option.clear()
 	for m in MAPS:
 		map_option.add_item(m["name"])
@@ -122,9 +137,13 @@ func _show_options() -> void:
 func _on_mode_changed(_idx: int) -> void:
 	var coop := mode_option.selected == 1
 	var br := mode_option.selected == 4  # Battle Royale: no frag limit, last one alive wins
-	map_row.visible = not coop
-	frag_row.visible = not coop and not br
+	var survival := mode_option.selected == 5
+	map_row.visible = not coop and not survival      # Survival picks a size, not a map
+	frag_row.visible = not coop and not br and not survival
 	mission_row.visible = coop
+	mission_points_row.visible = survival
+	seed_row.visible = survival
+	map_size_row.visible = survival
 	if coop and Missions.get_all().is_empty():
 		status_label.text = "No missions found in res://missions/"
 
@@ -133,7 +152,8 @@ func _capture_config() -> void:
 	if Game.player_name == "":
 		Game.player_name = "Player"
 	var coop := mode_option.selected == 1
-	# Option order matches the Mode enum (0=Deathmatch, 1=Co-op, 2=Team Deathmatch).
+	var survival := mode_option.selected == 5
+	# Option order matches the Mode enum (0=Deathmatch … 5=Survival).
 	Game.config["mode"] = mode_option.selected
 	Game.config["bot_count"] = int(bots_spin.value)
 	Game.config["bot_skill"] = SKILLS[skill_option.selected]["value"]
@@ -143,9 +163,23 @@ func _capture_config() -> void:
 			var m: Dictionary = missions[clampi(mission_option.selected, 0, missions.size() - 1)]
 			Game.config["mission_id"] = m["id"]
 			Game.config["map"] = m["map"]
+	elif survival:
+		Game.config["mission_points"] = int(mission_points_spin.value)
+		Game.config["map_size"] = map_size_option.selected
+		Game.config["map"] = SURVIVAL_MAPS[clampi(map_size_option.selected, 0, SURVIVAL_MAPS.size() - 1)]
+		Game.config["frag_limit"] = 0
+		Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
 	else:
 		Game.config["map"] = MAPS[map_option.selected]["path"]
 		Game.config["frag_limit"] = int(frag_spin.value)
+
+## Resolve the seed field: blank = random, a plain integer = itself, else hashed.
+func _parse_seed(txt: String) -> int:
+	if txt == "":
+		return randi()
+	if txt.is_valid_int():
+		return int(txt)
+	return hash(txt)
 
 # ---------------------------------------------------------------- buttons
 
@@ -228,6 +262,8 @@ func _refresh_lobby() -> void:
 		summary += " — " + m.get("name", "?")
 	elif Game.is_battle_royale():
 		summary += " — last one standing"
+	elif Game.is_survival():
+		summary += " — %d mission points" % int(Game.config.get("mission_points", 10))
 	else:
 		summary += " — frag limit %d" % int(Game.config["frag_limit"])
 	summary += "\nBots: %d (%s)" % [int(Game.config["bot_count"]), _skill_name(Game.config["bot_skill"])]

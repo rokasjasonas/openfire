@@ -53,6 +53,7 @@ func _process(_delta: float) -> void:
 		_update_status_label()
 		_update_vehicle_prompt()
 		_update_health_display()
+		crosshair.visible = _player.driving == null
 
 func _update_health_display() -> void:
 	# Player health is always shown on the main bar (driven by _on_health). The car

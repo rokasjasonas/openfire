@@ -227,6 +227,7 @@ func _fire() -> void:
 				dmg_dealt += base_dmg
 				last_hit = res.position
 				hit_combatant = true
+				_spawn_impact.rpc(res.position, res.normal)  # sparks off the car
 			else:
 				_spawn_impact.rpc(res.position, res.normal)
 		furthest = endpoint

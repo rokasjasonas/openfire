@@ -286,11 +286,15 @@ func _ready() -> void:
 		await get_tree().physics_frame
 	var vmoved: float = Vector2(veh.global_position.x - vp0.x, veh.global_position.z - vp0.z).length()
 	vehicle_ok = vmoved > 1.5
-	# Destructible: enough damage destroys the car.
+	# Damaged car smokes; enough damage destroys it.
+	veh.receive_damage(veh.MAX_HEALTH * 0.7, 0)  # ~30% health left
+	for i in 5:
+		await get_tree().process_frame
+	var smoke_ok: bool = veh._smoke != null and veh._smoke.emitting
 	veh.hit(veh.MAX_HEALTH + 50.0, 0)
 	await get_tree().process_frame
 	var destroy_ok: bool = veh.destroyed
-	print("SMOKE: vehicle_drive_ok=", vehicle_ok, " moved=", snappedf(vmoved, 0.1), " destroy_ok=", destroy_ok)
+	print("SMOKE: vehicle_drive_ok=", vehicle_ok, " moved=", snappedf(vmoved, 0.1), " smoke_ok=", smoke_ok, " destroy_ok=", destroy_ok)
 	vr.queue_free()
 
 	# Car model variants: outpost places vehicles with cycling model_index.
@@ -363,7 +367,7 @@ func _ready() -> void:
 	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

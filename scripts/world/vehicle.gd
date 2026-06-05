@@ -49,6 +49,8 @@ var _flip_t := 0.0
 var _flip_target := Quaternion.IDENTITY
 var _empty_over_t := 0.0
 
+var _smoke: CPUParticles3D
+
 func _ready() -> void:
 	add_to_group("vehicle")
 	_spawn_pos = global_position
@@ -56,7 +58,48 @@ func _ready() -> void:
 	sync_pos = global_position
 	sync_quat = _spawn_quat
 	_apply_model()
+	_make_smoke()
 	_update_authority()
+	set_process(true)
+
+func _make_smoke() -> void:
+	_smoke = CPUParticles3D.new()
+	_smoke.emitting = false
+	_smoke.amount = 26
+	_smoke.lifetime = 1.3
+	_smoke.position = Vector3(0, 1.1, 1.0)  # over the hood
+	_smoke.direction = Vector3(0, 1, 0)
+	_smoke.spread = 22.0
+	_smoke.initial_velocity_min = 1.2
+	_smoke.initial_velocity_max = 3.0
+	_smoke.gravity = Vector3(0, 1.2, 0)
+	_smoke.scale_amount_min = 0.6
+	_smoke.scale_amount_max = 1.4
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.25
+	mesh.height = 0.5
+	mesh.radial_segments = 6
+	mesh.rings = 3
+	_smoke.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.15, 0.15, 0.15, 0.7)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_smoke.mesh.surface_set_material(0, mat)
+	add_child(_smoke)
+
+## Drive smoke from synced health on every peer (more + darker as it gets worse).
+func _process(_delta: float) -> void:
+	if _smoke == null:
+		return
+	var frac := health / MAX_HEALTH
+	# Light smoke under half health, heavier (faster + bigger) when nearly dead.
+	if destroyed or frac >= 0.55:
+		_smoke.emitting = false
+	else:
+		_smoke.emitting = true
+		_smoke.lifetime = 1.3 if frac > 0.25 else 1.8
+		_smoke.initial_velocity_max = 3.0 if frac > 0.25 else 4.5
 
 func _apply_model() -> void:
 	var p: Dictionary = PROFILES[clampi(model_index, 0, PROFILES.size() - 1)]

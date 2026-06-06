@@ -111,6 +111,15 @@ offset_bottom = 34.0
 modulate = Color(0.7, 1, 0.8, 1)
 text = ""
 
+[node name="QuestTracker" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 132.0
+offset_right = 380.0
+offset_bottom = 280.0
+modulate = Color(1, 0.92, 0.6, 1)
+text = ""
+
 [node name="HungerLabel" type="Label" parent="."]
 unique_name_in_owner = true
 offset_left = 24.0
@@ -373,6 +382,10 @@ unique_name_in_owner = true
 autowrap_mode = 3
 horizontal_alignment = 1
 text = "..."
+
+[node name="NpcAccept" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Accept Task"
 
 [node name="NpcClose" type="Button" parent="NpcDialog/VBox"]
 unique_name_in_owner = true

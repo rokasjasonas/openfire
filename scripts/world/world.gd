@@ -6,6 +6,7 @@ extends Node3D
 const PLAYER_SCENE := preload("res://scenes/player.tscn")
 const BOT_SCENE := preload("res://scenes/bot.tscn")
 const OBJECTIVE_RUNNER := preload("res://scripts/world/objective_runner.gd")
+const QUEST_MANAGER := preload("res://scripts/world/quest_manager.gd")
 
 @onready var map_holder: Node3D = $MapHolder
 @onready var combatants: Node3D = $Combatants
@@ -17,6 +18,7 @@ var _expected_peers: Array = []
 var _ready_peers: Dictionary = {}
 var _begun: bool = false
 var _objective_runner: Node = null
+var _quest_manager: Node = null
 var _player_team: Dictionary = {}
 
 func _ready() -> void:
@@ -215,6 +217,8 @@ func spawn_escort(from: Vector3, dest: Vector3, speed: float) -> Node:
 func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 	if _objective_runner and _objective_runner.has_method("notify_enemy_killed"):
 		_objective_runner.notify_enemy_killed(victim_id)
+	if _quest_manager:
+		_quest_manager.notify_kill(victim_id)
 	check_last_standing()
 
 # ---------------------------------------------------------------- modes
@@ -266,6 +270,11 @@ func _start_survival() -> void:
 		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
 		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": NameGen.npc_name(Game.RAIDER_FACTION), "role": rrole})
 	set_process(true)
+	# Quests reference the villages/NPCs we just spawned, so build them last.
+	_quest_manager = QUEST_MANAGER.new()
+	_quest_manager.name = "QuestManager"
+	add_child(_quest_manager)
+	_quest_manager.start(self)
 
 ## World height at (x, z) via a downward ray; falls back to `approx`.
 func _ground_y(x: float, z: float, approx: float) -> float:
@@ -600,6 +609,21 @@ func set_objective_text(t: String) -> void:
 func broadcast_objective(t: String) -> void:
 	if Net.is_host():
 		set_objective_text.rpc(t)
+
+func broadcast_quests(t: String) -> void:
+	if Net.is_host():
+		set_quest_text.rpc(t)
+
+@rpc("authority", "call_local", "reliable")
+func set_quest_text(t: String) -> void:
+	if hud and hud.has_method("set_quest_tracker"):
+		hud.set_quest_tracker(t)
+
+## A player accepts an NPC's side quest (routed to the host).
+@rpc("any_peer", "call_local", "reliable")
+func accept_quest(quest_id: int) -> void:
+	if Net.is_host() and _quest_manager:
+		_quest_manager.accept(quest_id)
 
 func _host_broadcast_scores() -> void:
 	_recv_scores.rpc(Game.scores)

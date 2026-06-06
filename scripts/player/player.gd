@@ -575,12 +575,20 @@ func _nearest_talkable_npc() -> Node:
 	return best
 
 func _talk_to(npc: Node) -> void:
-	talk_to.emit({
+	var info := {
 		"name": String(npc.get("display_name")),
 		"role": String(npc.get("role")),
 		"faction": String(npc.get("faction")),
 		"greeting": _npc_greeting(npc),
-	})
+	}
+	var qm := get_tree().get_first_node_in_group("quest_manager")
+	if qm != null:
+		var offer: Dictionary = qm.offer_for(int(npc.get("combatant_id")))
+		if not offer.is_empty():
+			info["quest_id"] = int(offer["id"])
+			info["quest_title"] = String(offer["title"])
+			info["quest_desc"] = "%s  (+%d pts)" % [String(offer["desc"]), int(offer["points"])]
+	talk_to.emit(info)
 
 func _npc_greeting(npc: Node) -> String:
 	var fac := String(npc.get("faction"))

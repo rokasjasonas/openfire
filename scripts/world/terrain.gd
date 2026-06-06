@@ -56,6 +56,7 @@ func build_level() -> void:
 	_add_water()
 	_add_perimeter()
 	_scatter_props(rng)
+	_scatter_loot(rng)
 	_place_sites()
 
 func _size_for(idx: int) -> float:
@@ -233,6 +234,29 @@ func _scatter_props(rng: RandomNumberGenerator) -> void:
 			var th := rng.randf_range(4.0, 7.0)
 			add_box(Vector3(0.8, th, 0.8), Vector3(x, h + th * 0.5, z), "Orange", 5)
 			add_box(Vector3(3.2, 3.0, 3.2), Vector3(x, h + th, z), "Green", 13)
+
+## Scatter survival loot (food/water/ammo/health/grenade/weapons) around villages
+## so the backpack and collect/deliver quests have something to interact with.
+func _scatter_loot(rng: RandomNumberGenerator) -> void:
+	var weapons := ["shotgun", "sniper", "smg", "pistol", "rifle"]
+	for s in _sites:
+		for k in rng.randi_range(4, 7):
+			var ang := rng.randf() * TAU
+			var rr := rng.randf_range(2.0, float(s.r))
+			var pos := Vector3(s.x + cos(ang) * rr, float(s.h) + 0.6, s.z + sin(ang) * rr)
+			match rng.randi() % 6:
+				0:
+					add_pickup("food", pos, 40)
+				1:
+					add_pickup("water", pos, 50)
+				2:
+					add_pickup("health", pos, 50)
+				3:
+					add_pickup("grenade", pos)
+				4:
+					add_pickup("weapon", pos, 0, weapons[rng.randi() % weapons.size()])
+				_:
+					add_pickup("ammo", pos)
 
 func _place_sites() -> void:
 	for k in _sites.size():

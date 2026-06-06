@@ -35,6 +35,8 @@ extends CanvasLayer
 @onready var npc_name: Label = %NpcName
 @onready var npc_role: Label = %NpcRole
 @onready var npc_body: Label = %NpcBody
+@onready var quest_tracker: Label = %QuestTracker
+var _offer_quest_id: int = -1
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -63,7 +65,10 @@ func _ready() -> void:
 	inventory_panel.visible = false
 	npc_dialog.visible = false
 	npc_prompt.text = ""
+	quest_tracker.text = ""
+	quest_tracker.visible = false
 	%NpcClose.pressed.connect(_close_npc_dialog)
+	%NpcAccept.pressed.connect(_on_accept_quest)
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -95,15 +100,34 @@ func _update_npc_prompt() -> void:
 func _on_talk(info: Dictionary) -> void:
 	npc_name.text = String(info.get("name", "?"))
 	npc_role.text = "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
-	npc_body.text = String(info.get("greeting", ""))
+	var body := String(info.get("greeting", ""))
+	if info.has("quest_id"):
+		body += "\n\nTASK: %s\n%s" % [String(info.get("quest_title", "")), String(info.get("quest_desc", ""))]
+		_offer_quest_id = int(info["quest_id"])
+		%NpcAccept.visible = true
+	else:
+		_offer_quest_id = -1
+		%NpcAccept.visible = false
+	npc_body.text = body
 	npc_dialog.visible = true
 	npc_prompt.text = ""
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _on_accept_quest() -> void:
+	if _offer_quest_id >= 0:
+		var w := get_tree().get_first_node_in_group("world")
+		if w:
+			w.accept_quest.rpc_id(1, _offer_quest_id)
+	_offer_quest_id = -1
+	_close_npc_dialog()
 
 func _close_npc_dialog() -> void:
 	npc_dialog.visible = false
 	if not pause_panel.visible and not inventory_panel.visible and not result_panel.visible:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func set_quest_tracker(t: String) -> void:
+	quest_tracker.text = t
 
 func _update_health_display() -> void:
 	# Player health is always shown on the main bar (driven by _on_health). The car
@@ -175,6 +199,7 @@ func _try_bind() -> void:
 			if surv:
 				_on_hunger(p.hunger, p.MAX_NEED)
 				_on_thirst(p.thirst, p.MAX_NEED)
+			quest_tracker.visible = surv
 			break
 
 func _refresh_team_score() -> void:
@@ -396,6 +421,8 @@ func show_result(result: Dictionary) -> void:
 				var wid: int = int(result.get("winner", 0))
 				var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
 				txt = "%s wins!" % wname
+		"survival_win":
+			txt = "YOU SURVIVED\nReached the goal with %d points" % int(result.get("points", 0))
 		"last_standing":
 			var wid: int = int(result.get("winner", 0))
 			if wid == 0:

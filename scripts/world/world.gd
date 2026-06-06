@@ -275,6 +275,22 @@ func _start_survival() -> void:
 	_quest_manager.name = "QuestManager"
 	add_child(_quest_manager)
 	_quest_manager.start(self)
+	# Generate the world's story from the theme (local LLM, offline fallback).
+	if not Story.story_ready.is_connected(_on_story_ready):
+		Story.story_ready.connect(_on_story_ready)
+	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
+	sfacs.append(Game.RAIDER_FACTION)
+	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10))})
+
+func _on_story_ready(s: Dictionary) -> void:
+	_sync_story.rpc(s)
+	var briefing := String(s.get("briefing", ""))
+	if briefing != "":
+		set_objective_text.rpc(briefing)
+
+@rpc("authority", "call_local", "reliable")
+func _sync_story(s: Dictionary) -> void:
+	Game.story = s
 
 ## World height at (x, z) via a downward ray; falls back to `approx`.
 func _ground_y(x: float, z: float, approx: float) -> float:

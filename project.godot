@@ -7,7 +7,7 @@ config_version=5
 
 config/name="OpenFire"
 config/description="Cross-platform coop & deathmatch FPS with bots and configurable missions."
-config/version="0.1.37"
+config/version="0.1.38"
 run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
@@ -20,6 +20,7 @@ Missions="*res://scripts/autoload/missions.gd"
 WeaponDB="*res://scripts/autoload/weapon_db.gd"
 ItemDB="*res://scripts/autoload/item_db.gd"
 NameGen="*res://scripts/autoload/name_gen.gd"
+Story="*res://scripts/autoload/story.gd"
 Audio="*res://scripts/autoload/audio.gd"
 Settings="*res://scripts/autoload/settings.gd"
 

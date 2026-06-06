@@ -10,6 +10,10 @@ var mouse_sensitivity: float = 1.0   # multiplier (0.2 .. 3.0)
 var master_volume: float = 0.8       # linear 0 .. 1
 var fov: float = 75.0                # degrees (60 .. 110)
 var inventory_keycode: int = KEY_TAB # Survival: key that opens the backpack
+# Local LLM (Survival story). Defaults to LM Studio's OpenAI-compatible server.
+var llm_endpoint: String = "http://localhost:1234/v1/chat/completions"
+var llm_model: String = "local-model"
+var llm_api_key: String = ""
 
 func _ready() -> void:
 	load_settings()
@@ -22,11 +26,17 @@ func load_settings() -> void:
 		master_volume = clampf(cfg.get_value("audio", "master_volume", master_volume), 0.0, 1.0)
 		fov = clampf(cfg.get_value("video", "fov", fov), 60.0, 110.0)
 		inventory_keycode = int(cfg.get_value("input", "inventory_key", inventory_keycode))
+		llm_endpoint = String(cfg.get_value("ai", "endpoint", llm_endpoint))
+		llm_model = String(cfg.get_value("ai", "model", llm_model))
+		llm_api_key = String(cfg.get_value("ai", "api_key", llm_api_key))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("input", "mouse_sensitivity", mouse_sensitivity)
 	cfg.set_value("input", "inventory_key", inventory_keycode)
+	cfg.set_value("ai", "endpoint", llm_endpoint)
+	cfg.set_value("ai", "model", llm_model)
+	cfg.set_value("ai", "api_key", llm_api_key)
 	cfg.set_value("audio", "master_volume", master_volume)
 	cfg.set_value("video", "fov", fov)
 	cfg.save(PATH)

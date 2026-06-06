@@ -581,6 +581,10 @@ func _talk_to(npc: Node) -> void:
 		"faction": String(npc.get("faction")),
 		"greeting": _npc_greeting(npc),
 	}
+	# Generated faction backstory (from the story), shown as lore in the dialog.
+	var facs = Game.story.get("factions", {})
+	if typeof(facs) == TYPE_DICTIONARY and facs.has(info["faction"]):
+		info["lore"] = String(facs[info["faction"]])
 	var qm := get_tree().get_first_node_in_group("quest_manager")
 	if qm != null:
 		var offer: Dictionary = qm.offer_for(int(npc.get("combatant_id")))
@@ -593,6 +597,10 @@ func _talk_to(npc: Node) -> void:
 func _npc_greeting(npc: Node) -> String:
 	var fac := String(npc.get("faction"))
 	var role := String(npc.get("role"))
+	# Prefer the generated, on-theme greeting for this faction if we have one.
+	var greetings = Game.story.get("greetings", {})
+	if typeof(greetings) == TYPE_DICTIONARY and greetings.has(fac):
+		return String(greetings[fac])
 	var stance := String(Game.survival_stance.get(fac, "neutral"))
 	if stance == "friendly":
 		if role == "Elder":

@@ -152,6 +152,21 @@ max_value = 100.0
 step = 1.0
 value = 10.0
 
+[node name="ThemeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/ThemeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Story theme"
+
+[node name="ThemeEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/ThemeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+placeholder_text = "e.g. zombie apocalypse"
+
 [node name="SeedRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -421,6 +436,34 @@ text = "Inventory key (Survival)"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(180, 0)
+
+[node name="LlmEndpointRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmEndpointRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "AI story endpoint"
+
+[node name="LlmEndpointEdit" type="LineEdit" parent="OptionsPanel/Center/Box/VBox/LlmEndpointRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(240, 0)
+placeholder_text = "http://localhost:1234/v1/chat/completions"
+
+[node name="LlmModelRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmModelRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "AI model"
+
+[node name="LlmModelEdit" type="LineEdit" parent="OptionsPanel/Center/Box/VBox/LlmModelRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(240, 0)
+placeholder_text = "local-model"
 
 [node name="OptionsBackButton" type="Button" parent="OptionsPanel/Center/Box/VBox"]
 unique_name_in_owner = true

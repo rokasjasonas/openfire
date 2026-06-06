@@ -101,6 +101,8 @@ func _on_talk(info: Dictionary) -> void:
 	npc_name.text = String(info.get("name", "?"))
 	npc_role.text = "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
 	var body := String(info.get("greeting", ""))
+	if info.has("lore"):
+		body += "\n\n" + String(info["lore"])
 	if info.has("quest_id"):
 		body += "\n\nTASK: %s\n%s" % [String(info.get("quest_title", "")), String(info.get("quest_desc", ""))]
 		_offer_quest_id = int(info["quest_id"])
@@ -422,7 +424,10 @@ func show_result(result: Dictionary) -> void:
 				var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
 				txt = "%s wins!" % wname
 		"survival_win":
-			txt = "YOU SURVIVED\nReached the goal with %d points" % int(result.get("points", 0))
+			var outro := String(Game.story.get("outro", ""))
+			if outro == "":
+				outro = "Reached the goal with %d points." % int(result.get("points", 0))
+			txt = "YOU SURVIVED\n%s" % outro
 		"last_standing":
 			var wid: int = int(result.get("winner", 0))
 			if wid == 0:

@@ -43,6 +43,8 @@ const SURVIVAL_MAP := "res://maps/terrain.tscn"
 @onready var mission_points_spin: SpinBox = %MissionPointsSpin
 @onready var seed_row: Control = %SeedRow
 @onready var seed_edit: LineEdit = %SeedEdit
+@onready var theme_row: Control = %ThemeRow
+@onready var theme_edit: LineEdit = %ThemeEdit
 @onready var map_size_row: Control = %MapSizeRow
 @onready var map_size_option: OptionButton = %MapSizeOption
 @onready var inv_key_option: OptionButton = %InvKeyOption
@@ -120,8 +122,20 @@ func _setup_options() -> void:
 	%VolSlider.value_changed.connect(_on_vol_changed)
 	%FovSlider.value_changed.connect(_on_fov_changed)
 	inv_key_option.item_selected.connect(_on_inv_key_changed)
+	%LlmEndpointEdit.text = Settings.llm_endpoint
+	%LlmModelEdit.text = Settings.llm_model
+	%LlmEndpointEdit.text_changed.connect(_on_llm_endpoint_changed)
+	%LlmModelEdit.text_changed.connect(_on_llm_model_changed)
 	%OptionsButton.pressed.connect(_show_options)
 	%OptionsBackButton.pressed.connect(_show_setup)
+
+func _on_llm_endpoint_changed(t: String) -> void:
+	Settings.llm_endpoint = t.strip_edges()
+	Settings.save()
+
+func _on_llm_model_changed(t: String) -> void:
+	Settings.llm_model = t.strip_edges()
+	Settings.save()
 
 func _on_inv_key_changed(idx: int) -> void:
 	Settings.inventory_keycode = int(INV_KEYS[clampi(idx, 0, INV_KEYS.size() - 1)]["code"])
@@ -164,6 +178,7 @@ func _on_mode_changed(_idx: int) -> void:
 	mission_points_row.visible = survival
 	seed_row.visible = survival
 	map_size_row.visible = survival
+	theme_row.visible = survival
 	# Survival has no manual bot selection — NPC count/difficulty are auto for now.
 	bots_spin.get_parent().visible = not survival
 	skill_option.get_parent().visible = not survival
@@ -192,6 +207,7 @@ func _capture_config() -> void:
 		Game.config["map"] = SURVIVAL_MAP   # terrain.gd reads map_size + seed
 		Game.config["frag_limit"] = 0
 		Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
+		Game.config["theme"] = theme_edit.text.strip_edges()
 		# No manual bot selection in Survival — fixed placeholder count/difficulty
 		# until the NPC population system (Survival #5) replaces this.
 		Game.config["bot_count"] = 12

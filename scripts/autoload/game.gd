@@ -39,10 +39,14 @@ var config: Dictionary = {
 	"frag_limit": 25,          # deathmatch
 	"time_limit": 600,         # seconds, 0 = unlimited
 	# Survival mode (most take effect in later chunks).
-	"mission_points": 10,      # number of story mission points (2-100)
+	"mission_points": 10,      # survival point target (2-100)
 	"seed": 0,                 # world generation seed (0 = random at host time)
 	"map_size": 1,             # 0 = small, 1 = medium, 2 = large
+	"theme": "",               # survival story theme (drives LLM/offline generation)
 }
+
+# Survival narrative (host generates via Story; replicated to clients).
+var story: Dictionary = {}
 
 # Live per-combatant scoreboard: id -> { name, kills, deaths, is_bot, team }
 var scores: Dictionary = {}

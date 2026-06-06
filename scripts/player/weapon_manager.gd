@@ -69,12 +69,19 @@ func give_weapon(id: String) -> void:
 	if not WeaponDB.has_weapon(id):
 		return
 	var w: Dictionary = WeaponDB.get_weapon(id)
-	if not loadout.has(id):
-		loadout[current_index] = id
-		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
-		_equip(current_index)
+	var full := {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
+	if loadout.has(id):
+		ammo[id] = full
+	elif loadout.size() < 3:
+		# Equip into a free slot (Survival starts with empty slots).
+		loadout.append(id)
+		ammo[id] = full
+		_equip(loadout.size() - 1)
 	else:
-		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
+		# Slots full: replace the current weapon.
+		loadout[current_index] = id
+		ammo[id] = full
+		_equip(current_index)
 	emit_state()
 
 func _current() -> Dictionary:
@@ -124,6 +131,8 @@ func set_aiming(v: bool) -> void:
 	_aiming = v
 
 func reload() -> void:
+	if loadout.is_empty():
+		return
 	var w := _current()
 	var a: Dictionary = ammo[loadout[current_index]]
 	if _reloading or a["mag"] >= int(w["mag_size"]) or a["reserve"] <= 0:
@@ -173,6 +182,8 @@ func _finish_reload() -> void:
 	emit_state()
 
 func _fire() -> void:
+	if loadout.is_empty():
+		return  # unarmed (Survival start) — nothing to fire
 	var w := _current()
 	var a: Dictionary = ammo[loadout[current_index]]
 	if int(a["mag"]) <= 0:
@@ -414,4 +425,4 @@ func emit_state() -> void:
 	var w := _current()
 	var a: Dictionary = ammo.get(id, {"mag": 0, "reserve": 0})
 	player.ammo_changed.emit(int(a["mag"]), int(a["reserve"]))
-	player.weapon_changed.emit(String(w["name"]))
+	player.weapon_changed.emit("Unarmed" if loadout.is_empty() else String(w["name"]))

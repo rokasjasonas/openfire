@@ -119,7 +119,13 @@ func _ready() -> void:
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
 	# local player can actually fire). Runs before set_local/_emit_hud below.
-	weapons.set_loadout(WeaponDB.default_loadout())
+	# In Survival you spawn unarmed — your starting gear goes into the backpack
+	# instead (see _fill_survival_start), and you equip a gun from there.
+	if Game.is_survival():
+		weapons.set_loadout([])
+		_fill_survival_start()
+	else:
+		weapons.set_loadout(WeaponDB.default_loadout())
 	# Only the owning peer drives input and owns the camera.
 	if is_multiplayer_authority():
 		camera.current = true
@@ -326,6 +332,17 @@ func _update_needs(delta: float) -> void:
 			receive_damage(NEED_DAMAGE, combatant_id)  # starvation/dehydration
 	else:
 		_need_dmg_accum = 0.0
+
+## Survival: spawn unarmed with the default guns + grenades stowed in the backpack.
+func _fill_survival_start() -> void:
+	if not is_multiplayer_authority():
+		return
+	for wid in WeaponDB.default_loadout():
+		inv_add(ItemDB.make_weapon(wid))
+	for i in MAX_GRENADES:
+		inv_add(ItemDB.make("grenade"))
+	grenades = 0
+	grenades_changed.emit(grenades)
 
 ## Consumables (Survival #3) call these to restore the needs.
 func eat(amount: float) -> void:

@@ -616,8 +616,21 @@ func _ready() -> void:
 	Game.config["map_size"] = prev_ms
 	Game.config["seed"] = prev_sd
 
+	# Survival start: an empty loadout fires safely (unarmed) and equipping a weapon
+	# from the backpack fills a free slot (rather than replacing slot 0).
+	var survival_start_ok := false
+	if me:
+		var wm2 = me.weapons
+		wm2.set_loadout([])
+		var empty_ok: bool = wm2.loadout.is_empty()
+		wm2._fire()   # must be a safe no-op while unarmed
+		wm2.give_weapon("rifle")
+		var equip_ok: bool = wm2.loadout.size() == 1 and wm2.loadout[0] == "rifle"
+		survival_start_ok = empty_ok and equip_ok
+		print("SMOKE: survival_start_ok=", survival_start_ok, " empty=", empty_ok, " equip=", equip_ok)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

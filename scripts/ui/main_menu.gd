@@ -18,10 +18,8 @@ const SKILLS := [
 	{ "name": "Normal", "value": 1.0 },
 	{ "name": "Hard", "value": 1.4 },
 ]
-# Survival placeholder maps by size (small/medium/large) until terrain gen lands.
-const SURVIVAL_MAPS := [
-	"res://maps/outpost.tscn", "res://maps/badlands.tscn", "res://maps/wasteland.tscn",
-]
+# Survival uses one procedurally-generated terrain map, sized by map_size + seed.
+const SURVIVAL_MAP := "res://maps/terrain.tscn"
 
 @onready var setup_panel: Control = %SetupPanel
 @onready var lobby_panel: Control = %LobbyPanel
@@ -191,7 +189,7 @@ func _capture_config() -> void:
 	elif survival:
 		Game.config["mission_points"] = int(mission_points_spin.value)
 		Game.config["map_size"] = map_size_option.selected
-		Game.config["map"] = SURVIVAL_MAPS[clampi(map_size_option.selected, 0, SURVIVAL_MAPS.size() - 1)]
+		Game.config["map"] = SURVIVAL_MAP   # terrain.gd reads map_size + seed
 		Game.config["frag_limit"] = 0
 		Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
 		# No manual bot selection in Survival — fixed placeholder count/difficulty

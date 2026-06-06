@@ -587,8 +587,37 @@ func _ready() -> void:
 		inventory_ok = add_ok and cap_ok and use_ok and drop_ok
 		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
 
+	# Procedural Survival terrain: seeded heightmap mesh + collision + biome navmesh,
+	# water plane, scattered props, flattened POI/village sites and spawns.
+	var terrain_ok := false
+	var prev_ms = Game.config.get("map_size", 1)
+	var prev_sd = Game.config.get("seed", 0)
+	Game.config["map_size"] = 1   # medium (~640 m)
+	Game.config["seed"] = 12345
+	var tt0 := Time.get_ticks_msec()
+	var terr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(terr)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var treg = terr.get_node_or_null("NavRegion")
+	var tpolys: int = treg.navigation_mesh.get_polygon_count() if treg and treg.navigation_mesh else 0
+	var tspawns := 0
+	for m in terr.get_children():
+		if m is Marker3D and (m.is_in_group("spawn_player") or m.is_in_group("spawn_enemy")):
+			tspawns += 1
+	var tpoi := get_tree().get_nodes_in_group("poi_site").size()
+	var twater := get_tree().get_nodes_in_group("water").size()
+	var rq := PhysicsRayQueryParameters3D.create(Vector3(0, 300, 0), Vector3(0, -300, 0))
+	rq.collision_mask = 1
+	var tcol: bool = not terr.get_world_3d().direct_space_state.intersect_ray(rq).is_empty()
+	terrain_ok = tpolys > 0 and tspawns >= 8 and tpoi >= 5 and twater >= 1 and tcol
+	print("SMOKE: terrain_ok=", terrain_ok, " bake_ms=", Time.get_ticks_msec() - tt0, " polys=", tpolys, " spawns=", tspawns, " poi=", tpoi, " water=", twater, " collision=", tcol)
+	terr.queue_free()
+	Game.config["map_size"] = prev_ms
+	Game.config["seed"] = prev_sd
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

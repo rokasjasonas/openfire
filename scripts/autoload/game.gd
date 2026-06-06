@@ -31,7 +31,7 @@ var player_name: String = "Player"
 
 # Default match configuration; overwritten by the lobby / host.
 var config: Dictionary = {
-	"mode": Mode.DEATHMATCH,
+	"mode": Mode.SURVIVAL,
 	"map": "res://maps/arena.tscn",
 	"mission_id": "",          # used only in coop
 	"bot_count": 6,

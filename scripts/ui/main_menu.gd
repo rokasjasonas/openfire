@@ -74,6 +74,7 @@ func _ready() -> void:
 	mode_option.add_item("Domination")
 	mode_option.add_item("Battle Royale")
 	mode_option.add_item("Survival")
+	mode_option.selected = Game.Mode.SURVIVAL  # Survival is the default mode
 	map_size_option.clear()
 	for size_name in ["Small", "Medium", "Large"]:
 		map_size_option.add_item(size_name)
@@ -102,7 +103,7 @@ func _ready() -> void:
 		b.pressed.connect(func(): Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0))
 
 	_setup_options()
-	_on_mode_changed(0)
+	_on_mode_changed(mode_option.selected)
 	_show_setup()
 
 func _setup_options() -> void:

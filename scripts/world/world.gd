@@ -117,7 +117,7 @@ func _spawn_player(peer_id: int) -> void:
 		"pos": xform.origin,
 	})
 
-func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "", team_override: int = -999, faction: String = "") -> int:
+func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "", team_override: int = -999, faction: String = "", extra: Dictionary = {}) -> int:
 	_bot_counter += 1
 	var id := -1000 - _bot_counter
 	var team: int
@@ -132,17 +132,19 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 		pos = get_spawn_transform(true).origin
 	if etype == "":
 		etype = _random_enemy_type()
-	Game.register_combatant(id, "Bot %d" % _bot_counter, true, team)
+	var nm: String = String(extra.get("name", "Bot %d" % _bot_counter))
+	Game.register_combatant(id, nm, true, team)
 	spawner.spawn({
 		"type": "bot",
 		"id": id,
 		"team": team,
-		"name": "Bot %d" % _bot_counter,
+		"name": nm,
 		"skill": skill,
 		"respawns": respawns,
 		"pos": pos,
 		"etype": etype,
 		"faction": faction,
+		"role": String(extra.get("role", "")),
 	})
 	return id
 
@@ -193,6 +195,7 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			b.position = data["pos"]
 			# Authority stays with the host (default), which drives the AI.
 			b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")), String(data.get("faction", "")))
+			b.role = String(data.get("role", ""))
 			if Net.is_host():
 				b.died.connect(_on_bot_died)
 			return b
@@ -225,6 +228,7 @@ var _surv_act_t := 0.0
 func _start_survival() -> void:
 	set_objective_text.rpc("Survive the wilds \u2014 villages, raiders and the storm await.")
 	Game.survival_setup(int(Game.config.get("seed", 0)))
+	NameGen.reseed(int(Game.config.get("seed", 0)))
 	_survival_rng.seed = int(Game.config.get("seed", 0))
 	var pois := get_tree().get_nodes_in_group("poi_site")
 	var skill := float(Game.config["bot_skill"])
@@ -246,7 +250,8 @@ func _start_survival() -> void:
 			var ang := _survival_rng.randf() * TAU
 			var rr := _survival_rng.randf_range(2.0, radius)
 			var pos := poi.global_position + Vector3(cos(ang) * rr, 1.0, sin(ang) * rr)
-			spawn_enemy(skill, false, pos, "", team, fac)
+			var drole := "Elder" if d == 0 else ("Quartermaster" if d == 1 else "Guard")
+			spawn_enemy(skill, false, pos, "", team, fac, {"name": NameGen.npc_name(fac), "role": drole})
 	# Roaming raiders scattered around the settlements (emergent clashes).
 	for r in pois.size() * 10:
 		if pois.is_empty():
@@ -258,7 +263,8 @@ func _start_survival() -> void:
 		var x := poi.global_position.x + cos(ang) * rr
 		var z := poi.global_position.z + sin(ang) * rr
 		var y := _ground_y(x, z, poi.global_position.y) + 1.0
-		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION)
+		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
+		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": NameGen.npc_name(Game.RAIDER_FACTION), "role": rrole})
 	set_process(true)
 
 ## World height at (x, z) via a downward ray; falls back to `approx`.

@@ -88,6 +88,7 @@ signal grenades_changed(count: int)
 signal hunger_changed(value: float, maximum: float)
 signal thirst_changed(value: float, maximum: float)
 signal inventory_changed
+signal talk_to(info: Dictionary)
 signal damaged_from(angle: float)
 signal downed_changed(is_downed: bool, bleed_frac: float, revive_frac: float, spectator: bool)
 signal died(attacker_id: int)
@@ -98,8 +99,10 @@ const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 var grenades: int = MAX_GRENADES
 
 const ENTER_RANGE := 3.5
+const NPC_TALK_RANGE := 4.5
 var driving: Node = null       # the vehicle we're in, or null
 var near_vehicle: bool = false
+var near_npc: Node = null      # Survival: nearest talkable (non-hostile) NPC, or null
 var _cam_yaw: float = 0.0      # drive-camera orbit (relative to car)
 var _cam_pitch: float = 0.0
 var _cam_idle: float = 0.0
@@ -242,9 +245,13 @@ func _physics_process(delta: float) -> void:
 			_drive_vehicle(delta)
 		return
 	near_vehicle = _nearest_vehicle() != null
-	if Input.is_action_just_pressed("interact") and near_vehicle:
-		_enter_vehicle(_nearest_vehicle())
-		return
+	near_npc = _nearest_talkable_npc() if Game.is_survival() else null
+	if Input.is_action_just_pressed("interact"):
+		if near_vehicle:
+			_enter_vehicle(_nearest_vehicle())
+			return
+		elif near_npc != null:
+			_talk_to(near_npc)
 
 	# Crouch (hold). Can't stand back up if something is overhead.
 	var want_crouch := Input.is_action_pressed("crouch")
@@ -551,6 +558,41 @@ func _nearest_vehicle() -> Node:
 			bd = d
 			best = v
 	return best
+
+## Survival: nearest living NPC within talk range that isn't hostile to us.
+func _nearest_talkable_npc() -> Node:
+	var best: Node = null
+	var bd := NPC_TALK_RANGE
+	for b in get_tree().get_nodes_in_group("bot"):
+		if b.get("dead"):
+			continue
+		if Game.survival_hostile("player", String(b.get("faction"))):
+			continue  # can't chat with someone trying to kill you
+		var d: float = global_position.distance_to(b.global_position)
+		if d < bd:
+			bd = d
+			best = b
+	return best
+
+func _talk_to(npc: Node) -> void:
+	talk_to.emit({
+		"name": String(npc.get("display_name")),
+		"role": String(npc.get("role")),
+		"faction": String(npc.get("faction")),
+		"greeting": _npc_greeting(npc),
+	})
+
+func _npc_greeting(npc: Node) -> String:
+	var fac := String(npc.get("faction"))
+	var role := String(npc.get("role"))
+	var stance := String(Game.survival_stance.get(fac, "neutral"))
+	if stance == "friendly":
+		if role == "Elder":
+			return "Welcome, traveler. The %s could use a steady hand." % fac
+		if role == "Quartermaster":
+			return "Need supplies? Keep your wits about you out there."
+		return "Good to see a friendly face in these wilds."
+	return "We don't know you, stranger. Mind your step."
 
 func _enter_vehicle(v: Node) -> void:
 	if v == null:

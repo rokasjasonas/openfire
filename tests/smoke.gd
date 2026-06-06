@@ -687,8 +687,31 @@ func _ready() -> void:
 	factions_ok = raider_ok and self_ok and provoke_ok and vv_ok and faction_spawn_ok and activation_ok
 	print("SMOKE: factions_ok=", factions_ok, " raider=", raider_ok, " self=", self_ok, " provoke=", provoke_ok, " vv=", vv_ok, " spawn=", faction_spawn_ok, " activation=", activation_ok)
 
+	# Survival NPC identities: NameGen, name/role plumbing through spawn, greeting.
+	var npc_ident_ok := false
+	if world and me:
+		var prev_m4 = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.SURVIVAL
+		Game.survival_setup(7)
+		NameGen.reseed(7)
+		var fac2: String = String(Game.SURVIVAL_VILLAGE_FACTIONS[0])
+		var nm: String = NameGen.npc_name(fac2)
+		var name_ok: bool = nm.contains(" ")
+		var nid2: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(2, 0, 0), "soldier", 7, fac2, {"name": "Test Elder", "role": "Elder"})
+		await get_tree().process_frame
+		var npc: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == nid2:
+				npc = b
+		var role_ok: bool = npc != null and npc.role == "Elder" and npc.display_name == "Test Elder" and npc.faction == fac2
+		Game.survival_stance[fac2] = "friendly"
+		var greet_ok: bool = npc != null and me._npc_greeting(npc) != ""
+		Game.config["mode"] = prev_m4
+		npc_ident_ok = name_ok and role_ok and greet_ok
+		print("SMOKE: npc_ident_ok=", npc_ident_ok, " name=", name_ok, " role=", role_ok, " greet=", greet_ok)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

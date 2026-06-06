@@ -30,6 +30,11 @@ extends CanvasLayer
 @onready var inventory_panel: Panel = %InventoryPanel
 @onready var backpack_grid: Control = %InvGrid
 @onready var inv_capacity: Label = %InvCapacity
+@onready var npc_prompt: Label = %NpcPrompt
+@onready var npc_dialog: Panel = %NpcDialog
+@onready var npc_name: Label = %NpcName
+@onready var npc_role: Label = %NpcRole
+@onready var npc_body: Label = %NpcBody
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -56,6 +61,9 @@ func _ready() -> void:
 	thirst_bar.visible = false
 	thirst_label.visible = false
 	inventory_panel.visible = false
+	npc_dialog.visible = false
+	npc_prompt.text = ""
+	%NpcClose.pressed.connect(_close_npc_dialog)
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -72,9 +80,30 @@ func _process(delta: float) -> void:
 	elif not pause_panel.visible:
 		_update_status_label()
 		_update_vehicle_prompt()
+		_update_npc_prompt()
 		_update_health_display()
 		crosshair.visible = _player.driving == null or \
 			(is_instance_valid(_player.driving) and _player.driving.is_in_group("aircraft"))
+
+func _update_npc_prompt() -> void:
+	var n = _player.near_npc
+	if Game.is_survival() and n != null and is_instance_valid(n) and _player.driving == null and not npc_dialog.visible:
+		npc_prompt.text = "%s — %s (%s)    [E] Talk" % [String(n.display_name), String(n.role), String(n.faction)]
+	else:
+		npc_prompt.text = ""
+
+func _on_talk(info: Dictionary) -> void:
+	npc_name.text = String(info.get("name", "?"))
+	npc_role.text = "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
+	npc_body.text = String(info.get("greeting", ""))
+	npc_dialog.visible = true
+	npc_prompt.text = ""
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _close_npc_dialog() -> void:
+	npc_dialog.visible = false
+	if not pause_panel.visible and not inventory_panel.visible and not result_panel.visible:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _update_health_display() -> void:
 	# Player health is always shown on the main bar (driven by _on_health). The car
@@ -133,6 +162,7 @@ func _try_bind() -> void:
 			p.hunger_changed.connect(_on_hunger)
 			p.thirst_changed.connect(_on_thirst)
 			p.inventory_changed.connect(_refresh_inventory)
+			p.talk_to.connect(_on_talk)
 			backpack_grid.set_player(p)
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)

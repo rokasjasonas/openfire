@@ -327,6 +327,57 @@ modulate = Color(1, 1, 1, 0.55)
 text = "Drag to arrange • drag out to drop • double-click to use/equip • inventory key to close"
 horizontal_alignment = 1
 
+[node name="NpcPrompt" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 116.0
+modulate = Color(0.8, 1, 0.85, 1)
+horizontal_alignment = 1
+text = ""
+
+[node name="NpcDialog" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -120.0
+offset_right = 260.0
+offset_bottom = 120.0
+
+[node name="VBox" type="VBoxContainer" parent="NpcDialog"]
+offset_left = 18.0
+offset_top = 16.0
+offset_right = 502.0
+offset_bottom = 224.0
+theme_override_constants/separation = 10
+
+[node name="NpcName" type="Label" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+horizontal_alignment = 1
+text = "Name"
+
+[node name="NpcRole" type="Label" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0.7)
+horizontal_alignment = 1
+text = "Role"
+
+[node name="NpcBody" type="Label" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+autowrap_mode = 3
+horizontal_alignment = 1
+text = "..."
+
+[node name="NpcClose" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Close"
+
 [node name="PausePanel" type="Panel" parent="."]
 unique_name_in_owner = true
 anchor_left = 0.5

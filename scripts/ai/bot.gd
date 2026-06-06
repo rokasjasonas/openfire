@@ -39,6 +39,7 @@ var combatant_id: int = -1
 var team: int = 1
 var display_name: String = "Bot"
 var faction: String = ""        # Survival faction (drives hostility); "" elsewhere
+var role: String = ""           # Survival role (Leader / Guard / Raider / ...)
 var _active: bool = true         # Survival: false when far from all players (frozen)
 
 # Stats resolved from the profile.

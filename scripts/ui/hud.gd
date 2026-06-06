@@ -36,6 +36,7 @@ extends CanvasLayer
 @onready var npc_role: Label = %NpcRole
 @onready var npc_body: Label = %NpcBody
 @onready var quest_tracker: Label = %QuestTracker
+@onready var generating_panel: Panel = %GeneratingPanel
 var _offer_quest_id: int = -1
 
 var _player: Node = null
@@ -67,6 +68,7 @@ func _ready() -> void:
 	npc_prompt.text = ""
 	quest_tracker.text = ""
 	quest_tracker.visible = false
+	generating_panel.visible = false
 	%NpcClose.pressed.connect(_close_npc_dialog)
 	%NpcAccept.pressed.connect(_on_accept_quest)
 	_refresh_team_score()
@@ -80,6 +82,10 @@ func _process(delta: float) -> void:
 	if result_panel.visible and _result_left > 0.0:
 		_result_left = maxf(0.0, _result_left - delta)
 		_update_result_label()
+	# Survival shows a loading overlay until the world is generated and you spawn in.
+	var loading := Game.is_survival() and Game.match_active and (_player == null or not is_instance_valid(_player))
+	if generating_panel.visible != loading:
+		generating_panel.visible = loading
 	if _player == null or not is_instance_valid(_player):
 		_try_bind()
 	elif not pause_panel.visible:

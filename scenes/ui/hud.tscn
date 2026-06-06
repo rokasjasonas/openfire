@@ -336,6 +336,24 @@ modulate = Color(1, 1, 1, 0.55)
 text = "Drag to arrange • drag out to drop • double-click to use/equip • inventory key to close"
 horizontal_alignment = 1
 
+[node name="GeneratingPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -60.0
+offset_right = 260.0
+offset_bottom = 60.0
+
+[node name="GenLabel" type="Label" parent="GeneratingPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Generating world & story…"
+
 [node name="NpcPrompt" type="Label" parent="."]
 unique_name_in_owner = true
 anchor_left = 0.5

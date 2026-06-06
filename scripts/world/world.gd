@@ -17,6 +17,7 @@ var _bot_counter: int = 0
 var _expected_peers: Array = []
 var _ready_peers: Dictionary = {}
 var _begun: bool = false
+var _story_done: bool = false
 var _objective_runner: Node = null
 var _quest_manager: Node = null
 var _player_team: Dictionary = {}
@@ -34,8 +35,12 @@ func _ready() -> void:
 		Game.match_over.connect(_host_on_match_over)
 		_expected_peers = Net.players.keys()
 		_ready_peers[1] = true
-		# Fallback: begin anyway after a short grace period.
-		get_tree().create_timer(5.0).timeout.connect(_begin)
+		# Survival: generate the story during a loading phase before gameplay starts.
+		if Game.is_survival():
+			_begin_survival_story()
+		# Grace fallback (waits for the story in Survival); hard cap regardless.
+		get_tree().create_timer(5.0).timeout.connect(_grace_begin)
+		get_tree().create_timer(35.0).timeout.connect(_begin)
 		_try_begin()
 	else:
 		_report_ready.rpc_id(1)
@@ -68,7 +73,23 @@ func _try_begin() -> void:
 	for pid in _expected_peers:
 		if not _ready_peers.has(pid):
 			return
+	if Game.is_survival() and not _story_done:
+		return  # hold gameplay until the story has been generated
 	_begin()
+
+## Grace-timer entry: don't start Survival until its story is ready.
+func _grace_begin() -> void:
+	if Game.is_survival() and not _story_done:
+		return
+	_begin()
+
+## Survival loading phase: generate the world's story (local LLM, offline fallback).
+func _begin_survival_story() -> void:
+	if not Story.story_ready.is_connected(_on_story_ready):
+		Story.story_ready.connect(_on_story_ready)
+	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
+	sfacs.append(Game.RAIDER_FACTION)
+	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10))})
 
 func _begin() -> void:
 	if _begun:
@@ -275,18 +296,14 @@ func _start_survival() -> void:
 	_quest_manager.name = "QuestManager"
 	add_child(_quest_manager)
 	_quest_manager.start(self)
-	# Generate the world's story from the theme (local LLM, offline fallback).
-	if not Story.story_ready.is_connected(_on_story_ready):
-		Story.story_ready.connect(_on_story_ready)
-	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
-	sfacs.append(Game.RAIDER_FACTION)
-	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10))})
 
 func _on_story_ready(s: Dictionary) -> void:
 	_sync_story.rpc(s)
 	var briefing := String(s.get("briefing", ""))
 	if briefing != "":
 		set_objective_text.rpc(briefing)
+	_story_done = true
+	_try_begin()
 
 @rpc("authority", "call_local", "reliable")
 func _sync_story(s: Dictionary) -> void:

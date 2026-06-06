@@ -38,6 +38,8 @@ var etype: String = "soldier"
 var combatant_id: int = -1
 var team: int = 1
 var display_name: String = "Bot"
+var faction: String = ""        # Survival faction (drives hostility); "" elsewhere
+var _active: bool = true         # Survival: false when far from all players (frozen)
 
 # Stats resolved from the profile.
 var max_health: float = 100.0
@@ -131,15 +133,24 @@ func _process(delta: float) -> void:
 		global_position = global_position.lerp(sync_pos, t)
 	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 
-func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String, type_id: String = "soldier") -> void:
+func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String, type_id: String = "soldier", faction_id: String = "") -> void:
 	combatant_id = id
 	team = t
 	skill = sk
 	respawns = respawn_on_death
 	display_name = label
 	etype = type_id if PROFILES.has(type_id) else "soldier"
+	faction = faction_id
 	if is_node_ready():
 		_apply_profile()
+
+## Survival: the world freezes bots far from every player (no AI / physics).
+func set_active(on: bool) -> void:
+	if on == _active:
+		return
+	_active = on
+	if is_multiplayer_authority():
+		set_physics_process(on)
 
 func _physics_process(delta: float) -> void:
 	if dead:
@@ -212,7 +223,10 @@ func _acquire_target() -> void:
 			continue
 		if c.get("dead") or c.get("downed") or c.get("fully_dead"):
 			continue
-		if c.get("team") == team:
+		if Game.is_survival():
+			if not Game.survival_hostile(faction, String(c.get("faction"))):
+				continue
+		elif c.get("team") == team:
 			continue
 		var d := global_position.distance_to(c.global_position)
 		if d < best_d and d < sight_range and _can_see(c):
@@ -472,6 +486,9 @@ func hit(amount: float, attacker_id: int) -> void:
 func receive_damage(amount: float, attacker_id: int) -> void:
 	if dead:
 		return
+	# Survival: being shot by a player provokes this NPC's faction (neutral -> hostile).
+	if Game.is_survival() and is_multiplayer_authority() and attacker_id > 0:
+		Game.survival_provoke(faction)
 	sync_health = max(0.0, sync_health - amount)
 	if sync_health <= 0.0:
 		_die(attacker_id)

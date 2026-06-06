@@ -653,8 +653,42 @@ func _ready() -> void:
 		inv_ui_ok = blocked and move_ok and bound
 		print("SMOKE: inv_ui_ok=", inv_ui_ok, " blocked=", blocked, " moved=", move_ok, " bound=", bound)
 
+	# Survival factions: hostility rules + provocation, NPC faction plumbing, and
+	# distance-activation toggling a bot's physics.
+	var factions_ok := false
+	var prev_mode3 = Game.config["mode"]
+	Game.config["mode"] = Game.Mode.SURVIVAL
+	Game.survival_setup(42)
+	var fa: String = String(Game.SURVIVAL_VILLAGE_FACTIONS[0])
+	var raider_ok: bool = Game.survival_hostile("raiders", fa) and Game.survival_hostile(fa, "raiders") and Game.survival_hostile("raiders", "player")
+	var self_ok: bool = not Game.survival_hostile("player", "player") and not Game.survival_hostile(fa, fa)
+	Game.survival_stance[fa] = "neutral"
+	var was_neutral: bool = not Game.survival_hostile("player", fa)
+	Game.survival_provoke(fa)
+	var provoke_ok: bool = was_neutral and Game.survival_hostile("player", fa)
+	var vv_ok := true
+	if Game.SURVIVAL_VILLAGE_FACTIONS.size() >= 2:
+		vv_ok = not Game.survival_hostile(String(Game.SURVIVAL_VILLAGE_FACTIONS[0]), String(Game.SURVIVAL_VILLAGE_FACTIONS[1]))
+	var faction_spawn_ok := false
+	if world and me:
+		var fid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(6, 0, 0), "soldier", 5, "raiders")
+		await get_tree().process_frame
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == fid:
+				faction_spawn_ok = b.faction == "raiders" and b.team == 5
+	var activation_ok := false
+	var sb3 := get_tree().get_nodes_in_group("bot")
+	if not sb3.is_empty():
+		sb3[0].set_active(false)
+		var off: bool = not sb3[0].is_physics_processing()
+		sb3[0].set_active(true)
+		activation_ok = off and sb3[0].is_physics_processing()
+	Game.config["mode"] = prev_mode3
+	factions_ok = raider_ok and self_ok and provoke_ok and vv_ok and faction_spawn_ok and activation_ok
+	print("SMOKE: factions_ok=", factions_ok, " raider=", raider_ok, " self=", self_ok, " provoke=", provoke_ok, " vv=", vv_ok, " spawn=", faction_spawn_ok, " activation=", activation_ok)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

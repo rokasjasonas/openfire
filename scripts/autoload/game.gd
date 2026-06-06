@@ -154,6 +154,42 @@ func mode_name() -> String:
 		Mode.SURVIVAL: return "Survival"
 		_: return "Deathmatch"
 
+# ---------------------------------------------------------------- survival factions
+# Each village belongs to a faction with a per-world stance toward the player
+# (friendly / neutral / hostile). Raiders are hostile to everyone. Factions fight
+# each other (so raiders attack villages, etc.). Stances live host-side (the AI runs
+# on the host); provoking a neutral village flips it hostile.
+
+const SURVIVAL_VILLAGE_FACTIONS := ["Ridgeback Clan", "Verdant Pact", "Ashfall Brotherhood"]
+const RAIDER_FACTION := "raiders"
+var survival_stance: Dictionary = {}   # faction -> "friendly" | "neutral" | "hostile"
+
+func survival_setup(seed_val: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_val
+	survival_stance.clear()
+	for f in SURVIVAL_VILLAGE_FACTIONS:
+		var r := rng.randf()
+		survival_stance[f] = "friendly" if r < 0.34 else ("neutral" if r < 0.67 else "hostile")
+	survival_stance[RAIDER_FACTION] = "hostile"
+
+## True if faction `a` will fight faction `b`. Same faction / co-op players never.
+func survival_hostile(a: String, b: String) -> bool:
+	if a == "" or b == "" or a == b:
+		return false
+	if a == RAIDER_FACTION or b == RAIDER_FACTION:
+		return true
+	if a == "player":
+		return survival_stance.get(b, "neutral") == "hostile"
+	if b == "player":
+		return survival_stance.get(a, "neutral") == "hostile"
+	return false  # village vs village: neutral by default
+
+## A village turns hostile to the player once provoked (e.g. you shot one of them).
+func survival_provoke(faction: String) -> void:
+	if faction != "" and faction != "player" and faction != RAIDER_FACTION:
+		survival_stance[faction] = "hostile"
+
 func end_match(result: Dictionary) -> void:
 	if not match_active:
 		return

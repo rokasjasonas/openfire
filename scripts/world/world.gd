@@ -117,7 +117,7 @@ func _spawn_player(peer_id: int) -> void:
 		"pos": xform.origin,
 	})
 
-func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "", team_override: int = -999) -> int:
+func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype: String = "", team_override: int = -999, faction: String = "") -> int:
 	_bot_counter += 1
 	var id := -1000 - _bot_counter
 	var team: int
@@ -142,6 +142,7 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 		"respawns": respawns,
 		"pos": pos,
 		"etype": etype,
+		"faction": faction,
 	})
 	return id
 
@@ -191,7 +192,7 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			b.name = "B%d" % absi(int(data["id"]))
 			b.position = data["pos"]
 			# Authority stays with the host (default), which drives the AI.
-			b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")))
+			b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")), String(data.get("faction", "")))
 			if Net.is_host():
 				b.died.connect(_on_bot_died)
 			return b
@@ -215,14 +216,76 @@ func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 
 # ---------------------------------------------------------------- modes
 
+# ---------------------------------------------------------------- survival
+
+const SURVIVAL_ACT_DIST := 110.0   # NPCs beyond this from every player freeze (no AI)
+var _survival_rng := RandomNumberGenerator.new()
+var _surv_act_t := 0.0
+
 func _start_survival() -> void:
-	# Chunk 1 skeleton: boot the world with some hostile NPCs on a placeholder map
-	# (Outpost/Badlands/Wasteland by size). Terrain gen, villages, NPC names and
-	# quests land in later Survival chunks.
-	set_objective_text.rpc("Survive \u2014 %d mission point(s) ahead. Mind your hunger and thirst." % int(Game.config.get("mission_points", 10)))
-	var n: int = int(Game.config["bot_count"])
-	for i in n:
-		spawn_enemy(float(Game.config["bot_skill"]), true)
+	set_objective_text.rpc("Survive the wilds \u2014 villages, raiders and the storm await.")
+	Game.survival_setup(int(Game.config.get("seed", 0)))
+	_survival_rng.seed = int(Game.config.get("seed", 0))
+	var pois := get_tree().get_nodes_in_group("poi_site")
+	var skill := float(Game.config["bot_skill"])
+	var faction_team := {Game.RAIDER_FACTION: 1}
+	var next_team := 2
+	var factions: Array = Game.SURVIVAL_VILLAGE_FACTIONS
+	# Populate each village (POI) with defenders of its faction.
+	for i in pois.size():
+		var poi: Node3D = pois[i]
+		var fac: String = String(factions[i % factions.size()])
+		if i == 0:
+			Game.survival_stance[fac] = "friendly"   # the start village is safe
+		if not faction_team.has(fac):
+			faction_team[fac] = next_team
+			next_team += 1
+		var team: int = int(faction_team[fac])
+		var radius: float = float(poi.get_meta("radius", 24.0))
+		for d in _survival_rng.randi_range(10, 16):
+			var ang := _survival_rng.randf() * TAU
+			var rr := _survival_rng.randf_range(2.0, radius)
+			var pos := poi.global_position + Vector3(cos(ang) * rr, 1.0, sin(ang) * rr)
+			spawn_enemy(skill, false, pos, "", team, fac)
+	# Roaming raiders scattered around the settlements (emergent clashes).
+	for r in pois.size() * 10:
+		if pois.is_empty():
+			break
+		var poi: Node3D = pois[_survival_rng.randi() % pois.size()]
+		var radius: float = float(poi.get_meta("radius", 24.0))
+		var ang := _survival_rng.randf() * TAU
+		var rr := radius * _survival_rng.randf_range(2.5, 5.0)
+		var x := poi.global_position.x + cos(ang) * rr
+		var z := poi.global_position.z + sin(ang) * rr
+		var y := _ground_y(x, z, poi.global_position.y) + 1.0
+		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION)
+	set_process(true)
+
+## World height at (x, z) via a downward ray; falls back to `approx`.
+func _ground_y(x: float, z: float, approx: float) -> float:
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(Vector3(x, approx + 80.0, z), Vector3(x, approx - 200.0, z))
+	q.collision_mask = 1
+	var r := space.intersect_ray(q)
+	return r.position.y if r else approx
+
+## Freeze NPCs that are far from every living player so only nearby ones think.
+func _process_survival(delta: float) -> void:
+	_surv_act_t += delta
+	if _surv_act_t < 0.5:
+		return
+	_surv_act_t = 0.0
+	var pps: Array = []
+	for p in get_tree().get_nodes_in_group("player"):
+		if not p.get("dead") and not p.get("fully_dead"):
+			pps.append(p.global_position)
+	for b in get_tree().get_nodes_in_group("bot"):
+		var near := false
+		for pp in pps:
+			if b.global_position.distance_to(pp) < SURVIVAL_ACT_DIST:
+				near = true
+				break
+		b.set_active(near)
 
 func _start_deathmatch() -> void:
 	set_objective_text.rpc("Deathmatch — first to %d frags" % int(Game.config["frag_limit"]))
@@ -258,6 +321,8 @@ func _process(delta: float) -> void:
 		_process_domination(delta)
 	elif Game.is_battle_royale():
 		_process_storm(delta)
+	elif Game.is_survival():
+		_process_survival(delta)
 
 func _process_domination(delta: float) -> void:
 	_dom_sync_t += delta

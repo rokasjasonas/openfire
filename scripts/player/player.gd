@@ -37,6 +37,7 @@ const NEED_DAMAGE := 2.0         # health/sec while starving or dehydrated
 var combatant_id: int = 1
 var team: int = -1
 var display_name: String = "Player"
+var faction: String = "player"   # Survival faction (used for NPC hostility)
 
 # Replicated state (see SceneReplicationConfig in player.tscn).
 var sync_health: float = MAX_HEALTH

@@ -28,7 +28,7 @@ extends CanvasLayer
 @onready var thirst_bar: ProgressBar = %ThirstBar
 @onready var thirst_label: Label = %ThirstLabel
 @onready var inventory_panel: Panel = %InventoryPanel
-@onready var inv_rows: VBoxContainer = %InvRows
+@onready var inv_rows: GridContainer = %InvRows
 @onready var inv_capacity: Label = %InvCapacity
 
 var _player: Node = null
@@ -244,21 +244,38 @@ func _refresh_inventory() -> void:
 		inv_rows.add_child(empty)
 		return
 	for i in _player.inventory.size():
-		var item: Dictionary = _player.inventory[i]
-		var row := HBoxContainer.new()
-		var lbl := Label.new()
-		lbl.text = "%s  (size %.0f)" % [String(item.get("name", "Item")), float(item.get("size", 1.0))]
-		lbl.custom_minimum_size.x = 300
-		var use_btn := Button.new()
-		use_btn.text = _use_verb(String(item.get("kind", "")))
-		use_btn.pressed.connect(_player.inv_use.bind(i))
-		var drop_btn := Button.new()
-		drop_btn.text = "Drop"
-		drop_btn.pressed.connect(_player.inv_drop.bind(i))
-		row.add_child(lbl)
-		row.add_child(use_btn)
-		row.add_child(drop_btn)
-		inv_rows.add_child(row)
+		inv_rows.add_child(_make_item_cell(_player.inventory[i], i))
+
+## Build one grid cell for an item: name + size, with Use and Drop buttons.
+func _make_item_cell(item: Dictionary, index: int) -> Control:
+	var cell := PanelContainer.new()
+	cell.custom_minimum_size = Vector2(150, 96)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 2)
+	cell.add_child(vb)
+	var name_lbl := Label.new()
+	name_lbl.text = String(item.get("name", "Item"))
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.modulate = ItemDB.color_for(String(item.get("kind", "")))
+	var size_lbl := Label.new()
+	size_lbl.text = "size %.0f" % float(item.get("size", 1.0))
+	size_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	size_lbl.modulate = Color(1, 1, 1, 0.6)
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	var use_btn := Button.new()
+	use_btn.text = _use_verb(String(item.get("kind", "")))
+	use_btn.pressed.connect(_player.inv_use.bind(index))
+	var drop_btn := Button.new()
+	drop_btn.text = "Drop"
+	drop_btn.pressed.connect(_player.inv_drop.bind(index))
+	btns.add_child(use_btn)
+	btns.add_child(drop_btn)
+	vb.add_child(name_lbl)
+	vb.add_child(size_lbl)
+	vb.add_child(btns)
+	return cell
 
 func _use_verb(kind: String) -> String:
 	match kind:

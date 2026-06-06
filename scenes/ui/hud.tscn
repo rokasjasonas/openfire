@@ -315,9 +315,11 @@ unique_name_in_owner = true
 text = "Space  0 / 16"
 horizontal_alignment = 1
 
-[node name="InvRows" type="VBoxContainer" parent="InventoryPanel/VBox"]
+[node name="InvRows" type="GridContainer" parent="InventoryPanel/VBox"]
 unique_name_in_owner = true
-theme_override_constants/separation = 4
+columns = 3
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
 
 [node name="InvHint" type="Label" parent="InventoryPanel/VBox"]
 modulate = Color(1, 1, 1, 0.55)

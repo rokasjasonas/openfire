@@ -275,22 +275,27 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_update_footsteps(delta)
 
-	# Weapon actions
-	weapons.set_trigger(Input.is_action_pressed("fire"))
-	if Input.is_action_just_pressed("reload"):
-		weapons.reload()
-	if Input.is_action_just_pressed("aim"):
-		weapons.set_aiming(true)
-	if Input.is_action_just_released("aim"):
+	# Weapon actions only while actively playing (cursor captured). When a menu or
+	# the backpack is open the cursor is free, so clicking UI must not fire/act.
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		weapons.set_trigger(Input.is_action_pressed("fire"))
+		if Input.is_action_just_pressed("reload"):
+			weapons.reload()
+		if Input.is_action_just_pressed("aim"):
+			weapons.set_aiming(true)
+		if Input.is_action_just_released("aim"):
+			weapons.set_aiming(false)
+		if Input.is_action_just_pressed("grenade") and grenades > 0:
+			_throw_grenade()
+		if Input.is_action_just_pressed("weapon_1"):
+			weapons.switch_to(0)
+		if Input.is_action_just_pressed("weapon_2"):
+			weapons.switch_to(1)
+		if Input.is_action_just_pressed("weapon_3"):
+			weapons.switch_to(2)
+	else:
+		weapons.set_trigger(false)
 		weapons.set_aiming(false)
-	if Input.is_action_just_pressed("grenade") and grenades > 0:
-		_throw_grenade()
-	if Input.is_action_just_pressed("weapon_1"):
-		weapons.switch_to(0)
-	if Input.is_action_just_pressed("weapon_2"):
-		weapons.switch_to(1)
-	if Input.is_action_just_pressed("weapon_3"):
-		weapons.switch_to(2)
 	sync_weapon_index = weapons.current_index
 	sync_pos = global_position
 	sync_yaw = rotation.y

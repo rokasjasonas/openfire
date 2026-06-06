@@ -9,6 +9,7 @@ signal changed
 var mouse_sensitivity: float = 1.0   # multiplier (0.2 .. 3.0)
 var master_volume: float = 0.8       # linear 0 .. 1
 var fov: float = 75.0                # degrees (60 .. 110)
+var inventory_keycode: int = KEY_TAB # Survival: key that opens the backpack
 
 func _ready() -> void:
 	load_settings()
@@ -20,10 +21,12 @@ func load_settings() -> void:
 		mouse_sensitivity = clampf(cfg.get_value("input", "mouse_sensitivity", mouse_sensitivity), 0.2, 3.0)
 		master_volume = clampf(cfg.get_value("audio", "master_volume", master_volume), 0.0, 1.0)
 		fov = clampf(cfg.get_value("video", "fov", fov), 60.0, 110.0)
+		inventory_keycode = int(cfg.get_value("input", "inventory_key", inventory_keycode))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("input", "mouse_sensitivity", mouse_sensitivity)
+	cfg.set_value("input", "inventory_key", inventory_keycode)
 	cfg.set_value("audio", "master_volume", master_volume)
 	cfg.set_value("video", "fov", fov)
 	cfg.save(PATH)

@@ -57,6 +57,11 @@ var hunger: float = MAX_NEED
 var thirst: float = MAX_NEED
 var _need_dmg_accum: float = 0.0
 
+# Survival backpack: non-stacking items, each with a `size`; pack has a `capacity`.
+var backpack_capacity: float = ItemDB.DEFAULT_CAPACITY
+var inventory: Array = []
+var _drop_counter: int = 0
+
 var _yaw: float = 0.0
 var _pitch: float = 0.0
 var _crouch: float = 0.0
@@ -79,12 +84,14 @@ signal dealt_damage(amount: float)
 signal grenades_changed(count: int)
 signal hunger_changed(value: float, maximum: float)
 signal thirst_changed(value: float, maximum: float)
+signal inventory_changed
 signal damaged_from(angle: float)
 signal downed_changed(is_downed: bool, bleed_frac: float, revive_frac: float, spectator: bool)
 signal died(attacker_id: int)
 
 const MAX_GRENADES := 2
 const GRENADE_SCENE := preload("res://scenes/grenade.tscn")
+const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 var grenades: int = MAX_GRENADES
 
 const ENTER_RANGE := 3.5
@@ -332,6 +339,82 @@ func drink(amount: float) -> void:
 		return
 	thirst = minf(MAX_NEED, thirst + amount)
 	thirst_changed.emit(thirst, MAX_NEED)
+
+# ---------------------------------------------------------------- survival backpack
+
+## Total space the carried items occupy.
+func inv_used() -> float:
+	var u := 0.0
+	for it in inventory:
+		u += float(it.get("size", 1.0))
+	return u
+
+func inv_can_fit(item: Dictionary) -> bool:
+	return inv_used() + float(item.get("size", 1.0)) <= backpack_capacity + 0.001
+
+## Try to add an item to the backpack. Returns false if it doesn't fit.
+func inv_add(item: Dictionary) -> bool:
+	if not is_multiplayer_authority() or item.is_empty() or not inv_can_fit(item):
+		return false
+	inventory.append(item)
+	inventory_changed.emit()
+	return true
+
+## Use/equip the item at `index`, applying its effect; consumed items are removed.
+func inv_use(index: int) -> void:
+	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
+		return
+	var item: Dictionary = inventory[index]
+	var consumed := true
+	match String(item.get("kind", "")):
+		"food":
+			eat(float(item.get("amount", 40)))
+		"water":
+			drink(float(item.get("amount", 50)))
+		"health":
+			if sync_health >= MAX_HEALTH:
+				return  # don't waste a medkit at full health
+			heal(int(item.get("amount", 40)))
+		"ammo":
+			weapons.refill()
+		"grenade":
+			if grenades >= MAX_GRENADES:
+				return
+			add_grenades(int(item.get("amount", 1)))
+		"weapon":
+			weapons.give_weapon(String(item.get("weapon_id", "")))
+		"backpack":
+			var cap := float(item.get("capacity", backpack_capacity))
+			if cap < inv_used():
+				return  # a smaller pack can't hold what you're already carrying
+			backpack_capacity = cap
+		_:
+			consumed = false
+	if consumed:
+		inventory.remove_at(index)
+		inventory_changed.emit()
+
+## Drop the item at `index` into the world as a pickup (replicated for co-op).
+func inv_drop(index: int) -> void:
+	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
+		return
+	var item: Dictionary = inventory[index]
+	inventory.remove_at(index)
+	inventory_changed.emit()
+	var pos := global_position + (-global_transform.basis.z) * 1.6 + Vector3.UP * 0.4
+	_spawn_dropped_item.rpc(combatant_id, _drop_counter, item, pos)
+	_drop_counter += 1
+
+@rpc("any_peer", "call_local", "reliable")
+func _spawn_dropped_item(owner_id: int, idx: int, item: Dictionary, pos: Vector3) -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.name = "Drop_%d_%d" % [owner_id, idx]   # deterministic across peers for RPC paths
+	p.kind = String(item.get("kind", "misc"))
+	p.weapon_id = String(item.get("weapon_id", "shotgun"))
+	p.item_data = item
+	p.respawn_time = 999999.0
+	get_tree().current_scene.add_child(p)
+	p.global_position = pos
 
 # ---------------------------------------------------------------- vehicles
 

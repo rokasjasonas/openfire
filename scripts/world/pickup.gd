@@ -9,6 +9,7 @@ extends Area3D
 @export var respawn_time: float = 18.0
 
 var available: bool = true
+var item_data: Dictionary = {}   # set when this pickup is a dropped survival item
 var _visual: Node3D
 var _t: float = 0.0
 
@@ -61,12 +62,7 @@ func _build_visual() -> void:
 	_visual.add_child(glow)
 
 func _color() -> Color:
-	match kind:
-		"health": return Color(0.3, 1.0, 0.4)
-		"ammo": return Color(1.0, 0.7, 0.2)
-		"grenade": return Color(0.9, 0.9, 0.35)
-		"weapon": return Color(0.7, 0.8, 1.0)
-		_: return Color(1, 1, 1)
+	return ItemDB.color_for(kind)
 
 func _process(delta: float) -> void:
 	if not available or _visual == null:
@@ -80,6 +76,14 @@ func _on_body_entered(body: Node) -> void:
 		return
 	if not body.is_multiplayer_authority() or body.get("dead"):
 		return
+	# Survival: everything goes into the backpack instead of applying instantly, and
+	# collected pickups are gone for good (no respawn).
+	if Game.is_survival():
+		var item: Dictionary = item_data if not item_data.is_empty() else ItemDB.from_pickup(kind, amount, weapon_id)
+		if body.has_method("inv_add") and body.inv_add(item):
+			Audio.play_3d("res://assets/audio/reload.ogg", global_position, 0.0, 0.05)
+			_take.rpc()
+		return
 	# Skip if it would be wasted, so you don't burn a respawn for nothing.
 	if kind == "health" and body.sync_health >= body.MAX_HEALTH:
 		return
@@ -88,6 +92,13 @@ func _on_body_entered(body: Node) -> void:
 	_apply(body)
 	Audio.play_3d("res://assets/audio/reload.ogg", global_position, 0.0, 0.05)
 	_set_available.rpc(false)
+
+## Survival: a collected/used pickup is removed for good (no respawn).
+@rpc("any_peer", "call_local", "reliable")
+func _take() -> void:
+	available = false
+	visible = false
+	monitoring = false
 
 func _apply(body: Node) -> void:
 	match kind:

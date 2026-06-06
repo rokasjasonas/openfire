@@ -47,6 +47,15 @@ const SURVIVAL_MAPS := [
 @onready var seed_edit: LineEdit = %SeedEdit
 @onready var map_size_row: Control = %MapSizeRow
 @onready var map_size_option: OptionButton = %MapSizeOption
+@onready var inv_key_option: OptionButton = %InvKeyOption
+
+# Selectable inventory keys for Survival (label + keycode).
+const INV_KEYS := [
+	{ "name": "Tab", "code": KEY_TAB },
+	{ "name": "I", "code": KEY_I },
+	{ "name": "B", "code": KEY_B },
+	{ "name": "C", "code": KEY_C },
+]
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -100,12 +109,24 @@ func _setup_options() -> void:
 	%SensSlider.value = Settings.mouse_sensitivity
 	%VolSlider.value = Settings.master_volume
 	%FovSlider.value = Settings.fov
+	inv_key_option.clear()
+	var sel := 0
+	for i in INV_KEYS.size():
+		inv_key_option.add_item(INV_KEYS[i]["name"])
+		if int(INV_KEYS[i]["code"]) == Settings.inventory_keycode:
+			sel = i
+	inv_key_option.selected = sel
 	_update_option_labels()
 	%SensSlider.value_changed.connect(_on_sens_changed)
 	%VolSlider.value_changed.connect(_on_vol_changed)
 	%FovSlider.value_changed.connect(_on_fov_changed)
+	inv_key_option.item_selected.connect(_on_inv_key_changed)
 	%OptionsButton.pressed.connect(_show_options)
 	%OptionsBackButton.pressed.connect(_show_setup)
+
+func _on_inv_key_changed(idx: int) -> void:
+	Settings.inventory_keycode = int(INV_KEYS[clampi(idx, 0, INV_KEYS.size() - 1)]["code"])
+	Settings.save()
 
 func _on_sens_changed(v: float) -> void:
 	Settings.mouse_sensitivity = v

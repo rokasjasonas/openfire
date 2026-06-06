@@ -27,6 +27,9 @@ extends CanvasLayer
 @onready var hunger_label: Label = %HungerLabel
 @onready var thirst_bar: ProgressBar = %ThirstBar
 @onready var thirst_label: Label = %ThirstLabel
+@onready var inventory_panel: Panel = %InventoryPanel
+@onready var inv_rows: VBoxContainer = %InvRows
+@onready var inv_capacity: Label = %InvCapacity
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -52,6 +55,7 @@ func _ready() -> void:
 	hunger_label.visible = false
 	thirst_bar.visible = false
 	thirst_label.visible = false
+	inventory_panel.visible = false
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -128,6 +132,7 @@ func _try_bind() -> void:
 			p.damaged_from.connect(_on_damaged_from)
 			p.hunger_changed.connect(_on_hunger)
 			p.thirst_changed.connect(_on_thirst)
+			p.inventory_changed.connect(_refresh_inventory)
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
 			# Hunger/thirst bars are only shown in Survival mode.
@@ -210,6 +215,59 @@ func _on_thirst(value: float, maximum: float) -> void:
 	thirst_bar.value = value
 	thirst_label.text = "Thirst %d" % int(value)
 
+# ---------------------------------------------------------------- survival backpack
+
+func _is_inventory_key(event: InputEvent) -> bool:
+	return event is InputEventKey and event.pressed and not event.echo \
+		and (event as InputEventKey).keycode == Settings.inventory_keycode
+
+func _toggle_inventory() -> void:
+	if result_panel.visible or pause_panel.visible:
+		return
+	inventory_panel.visible = not inventory_panel.visible
+	if inventory_panel.visible:
+		_refresh_inventory()
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _refresh_inventory() -> void:
+	if _player == null or not is_instance_valid(_player) or not inventory_panel.visible:
+		return
+	for c in inv_rows.get_children():
+		c.queue_free()
+	inv_capacity.text = "Space  %.0f / %.0f" % [_player.inv_used(), _player.backpack_capacity]
+	if _player.inventory.is_empty():
+		var empty := Label.new()
+		empty.text = "(empty — pick items up)"
+		empty.modulate = Color(1, 1, 1, 0.5)
+		inv_rows.add_child(empty)
+		return
+	for i in _player.inventory.size():
+		var item: Dictionary = _player.inventory[i]
+		var row := HBoxContainer.new()
+		var lbl := Label.new()
+		lbl.text = "%s  (size %.0f)" % [String(item.get("name", "Item")), float(item.get("size", 1.0))]
+		lbl.custom_minimum_size.x = 300
+		var use_btn := Button.new()
+		use_btn.text = _use_verb(String(item.get("kind", "")))
+		use_btn.pressed.connect(_player.inv_use.bind(i))
+		var drop_btn := Button.new()
+		drop_btn.text = "Drop"
+		drop_btn.pressed.connect(_player.inv_drop.bind(i))
+		row.add_child(lbl)
+		row.add_child(use_btn)
+		row.add_child(drop_btn)
+		inv_rows.add_child(row)
+
+func _use_verb(kind: String) -> String:
+	match kind:
+		"food": return "Eat"
+		"water": return "Drink"
+		"weapon": return "Equip"
+		"backpack": return "Wear"
+		_: return "Use"
+
 func _on_dealt_damage(_amount: float) -> void:
 	if crosshair and crosshair.has_method("hit"):
 		crosshair.hit()
@@ -245,6 +303,12 @@ func set_objective(t: String) -> void:
 # ---------------------------------------------------------------- scoreboard
 
 func _input(event: InputEvent) -> void:
+	# Survival: the configurable inventory key opens/closes the backpack (and, when
+	# it is Tab, takes precedence over the scoreboard).
+	if Game.is_survival() and _is_inventory_key(event):
+		_toggle_inventory()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("scoreboard"):
 		scoreboard.visible = true
 		_refresh_scoreboard()
@@ -356,6 +420,7 @@ func _update_result_label() -> void:
 func _toggle_pause() -> void:
 	if result_panel.visible:
 		return
+	inventory_panel.visible = false  # don't overlap the pause menu
 	pause_panel.visible = not pause_panel.visible
 	if pause_panel.visible:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

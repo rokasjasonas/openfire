@@ -556,8 +556,39 @@ func _ready() -> void:
 		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok and tag_hidden_ok
 		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok, " tag_hidden=", tag_hidden_ok)
 
+	# Survival backpack: ItemDB factory, add, capacity guard, use, drop-to-world.
+	var inventory_ok := false
+	if me:
+		me.inventory.clear()
+		me.backpack_capacity = ItemDB.DEFAULT_CAPACITY
+		var add_ok: bool = me.inv_add(ItemDB.make("food")) and me.inventory.size() == 1 and me.inv_used() >= 1.0
+		me.inventory.clear()
+		me.backpack_capacity = 2.0
+		me.inv_add(ItemDB.make("food"))      # size 1
+		var big := ItemDB.make("medkit")      # size 2 -> would exceed the 2.0 cap
+		var cap_ok: bool = not me.inv_can_fit(big) and not me.inv_add(big)
+		me.backpack_capacity = ItemDB.DEFAULT_CAPACITY
+		me.inventory.clear()
+		me.hunger = 10.0
+		me.inv_add(ItemDB.make("food"))
+		me.inv_use(0)
+		var use_ok: bool = me.hunger > 10.0 and me.inventory.is_empty()
+		me.inventory.clear()
+		me.inv_add(ItemDB.make_weapon("shotgun"))
+		me.inv_drop(0)
+		await get_tree().process_frame
+		# A dropped item is a pickup carrying item_data (map pickups have none).
+		var found_drop := false
+		for n in get_tree().current_scene.get_children():
+			if n.is_in_group("pickup") and not (n.get("item_data") as Dictionary).is_empty():
+				found_drop = true
+		var drop_ok: bool = me.inventory.is_empty() and found_drop
+		me.inventory.clear()
+		inventory_ok = add_ok and cap_ok and use_ok and drop_ok
+		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

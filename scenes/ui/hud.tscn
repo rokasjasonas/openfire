@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3 uid="uid://chud00000001"]
+[gd_scene load_steps=6 format=3 uid="uid://chud00000001"]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/ui/crosshair.gd" id="2_cross"]
 [ext_resource type="Script" path="res://scripts/ui/damage_direction.gd" id="3_dmgdir"]
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="4_minimap"]
+[ext_resource type="Script" path="res://scripts/ui/backpack_grid.gd" id="5_bgrid"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -315,15 +316,15 @@ unique_name_in_owner = true
 text = "Space  0 / 16"
 horizontal_alignment = 1
 
-[node name="InvRows" type="GridContainer" parent="InventoryPanel/VBox"]
+[node name="InvGrid" type="Control" parent="InventoryPanel/VBox"]
 unique_name_in_owner = true
-columns = 3
-theme_override_constants/h_separation = 8
-theme_override_constants/v_separation = 8
+custom_minimum_size = Vector2(200, 200)
+size_flags_horizontal = 4
+script = ExtResource("5_bgrid")
 
 [node name="InvHint" type="Label" parent="InventoryPanel/VBox"]
 modulate = Color(1, 1, 1, 0.55)
-text = "Use / equip or drop items. Press the inventory key again to close."
+text = "Drag to arrange • drag out to drop • double-click to use/equip • inventory key to close"
 horizontal_alignment = 1
 
 [node name="PausePanel" type="Panel" parent="."]

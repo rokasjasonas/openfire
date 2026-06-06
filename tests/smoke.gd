@@ -556,36 +556,38 @@ func _ready() -> void:
 		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok and tag_hidden_ok
 		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok, " tag_hidden=", tag_hidden_ok)
 
-	# Survival backpack: ItemDB factory, add, capacity guard, use, drop-to-world.
+	# Survival backpack: spatial grid placement, no-overlap, capacity, use, drop.
 	var inventory_ok := false
 	if me:
 		me.inventory.clear()
-		me.backpack_capacity = ItemDB.DEFAULT_CAPACITY
-		var add_ok: bool = me.inv_add(ItemDB.make("food")) and me.inventory.size() == 1 and me.inv_used() >= 1.0
+		me.backpack_w = 4
+		me.backpack_h = 4
+		var add_ok: bool = me.inv_add(ItemDB.make_weapon("rifle")) and int(me.inventory[0]["gx"]) == 0 and int(me.inventory[0]["gy"]) == 0
+		me.inv_add(ItemDB.make_weapon("smg"))  # second 2x2 auto-places elsewhere
+		var a: Dictionary = me.inventory[0]
+		var b: Dictionary = me.inventory[1]
+		var overlap_ok: bool = not (int(a["gx"]) == int(b["gx"]) and int(a["gy"]) == int(b["gy"])) and me.inv_used() == 8 and me.inv_cell_count() == 16
+		# Fill the 4x4 grid with four 2x2 items; a fifth must not fit.
 		me.inventory.clear()
-		me.backpack_capacity = 2.0
-		me.inv_add(ItemDB.make("food"))      # size 1
-		var big := ItemDB.make("medkit")      # size 2 -> would exceed the 2.0 cap
-		var cap_ok: bool = not me.inv_can_fit(big) and not me.inv_add(big)
-		me.backpack_capacity = ItemDB.DEFAULT_CAPACITY
+		for i in 4:
+			me.inv_add(ItemDB.make_weapon("rifle"))
+		var cap_ok: bool = me.inventory.size() == 4 and not me.inv_add(ItemDB.make_weapon("rifle"))
 		me.inventory.clear()
 		me.hunger = 10.0
 		me.inv_add(ItemDB.make("food"))
 		me.inv_use(0)
 		var use_ok: bool = me.hunger > 10.0 and me.inventory.is_empty()
-		me.inventory.clear()
 		me.inv_add(ItemDB.make_weapon("shotgun"))
 		me.inv_drop(0)
 		await get_tree().process_frame
-		# A dropped item is a pickup carrying item_data (map pickups have none).
 		var found_drop := false
 		for n in get_tree().current_scene.get_children():
 			if n.is_in_group("pickup") and not (n.get("item_data") as Dictionary).is_empty():
 				found_drop = true
 		var drop_ok: bool = me.inventory.is_empty() and found_drop
 		me.inventory.clear()
-		inventory_ok = add_ok and cap_ok and use_ok and drop_ok
-		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
+		inventory_ok = add_ok and overlap_ok and cap_ok and use_ok and drop_ok
+		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
 
 	# Procedural Survival terrain: seeded heightmap mesh + collision + biome navmesh,
 	# water plane, scattered props, flattened POI/village sites and spawns.
@@ -629,23 +631,27 @@ func _ready() -> void:
 		survival_start_ok = empty_ok and equip_ok
 		print("SMOKE: survival_start_ok=", survival_start_ok, " empty=", empty_ok, " equip=", equip_ok)
 
-	# Backpack UI builds a grid of item cells (one PanelContainer per item).
+	# Backpack grid: move validation (onto an item fails, to a free cell ok) + the
+	# UI binds the grid to the player and redraws without error.
 	var inv_ui_ok := false
 	if me and hud:
 		me.inventory.clear()
-		me.inv_add(ItemDB.make("food"))
-		me.inv_add(ItemDB.make_weapon("rifle"))
+		me.backpack_w = 4
+		me.backpack_h = 4
+		me.inv_add(ItemDB.make_weapon("rifle"))  # 2x2 at (0,0)
+		me.inv_add(ItemDB.make("food"))           # 1x1 elsewhere
+		var blocked: bool = not me.inv_move(1, 0, 0)   # onto the weapon -> rejected
+		var move_ok: bool = me.inv_move(1, 3, 3)       # to a free cell -> ok
 		hud._player = me
 		hud.inventory_panel.visible = true
 		hud._refresh_inventory()
-		var cells := 0
-		for c in hud.inv_rows.get_children():
-			if c is PanelContainer:
-				cells += 1
+		var bound: bool = hud.backpack_grid.player == me
+		hud.backpack_grid.queue_redraw()
+		await get_tree().process_frame
 		hud.inventory_panel.visible = false
 		me.inventory.clear()
-		inv_ui_ok = cells == 2
-		print("SMOKE: inv_ui_ok=", inv_ui_ok, " cells=", cells)
+		inv_ui_ok = blocked and move_ok and bound
+		print("SMOKE: inv_ui_ok=", inv_ui_ok, " blocked=", blocked, " moved=", move_ok, " bound=", bound)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
 	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok)

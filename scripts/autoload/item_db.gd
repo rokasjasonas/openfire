@@ -1,27 +1,32 @@
 extends Node
 ## Survival item definitions + factory (autoload "ItemDB").
 ##
-## Items do NOT stack — each carried item is a self-contained Dictionary instance.
-## A backpack has a `capacity`; each item has a `size` (the space it occupies); some
-## items are bulkier than others. Effects are applied by Player.inv_use().
+## Items do NOT stack and occupy a rectangular footprint (w x h cells) in a spatial
+## grid backpack (a la Tarkov). The backpack itself is a grid (grid_w x grid_h);
+## items keep a fixed orientation. Effects are applied by Player.inv_use().
 ##
-## Item dict shape: { id, name, kind, size, ...effect fields }
+## Item dict shape: { id, name, kind, w, h, size, ...effect fields, gx, gy }
 ##   kind: food | water | health | ammo | grenade | weapon | backpack
-##   effect fields: amount (food/water/health/grenade), weapon_id (weapon),
-##                  capacity (backpack)
+##   size = w * h (cells). gx/gy are the placed grid position (set when stored).
 
-const DEFAULT_CAPACITY := 16.0
-const WEAPON_SIZE := 4.0
+const DEFAULT_GRID_W := 4
+const DEFAULT_GRID_H := 4   # default backpack = 4x4 = 16 cells
 
 const DEFS := {
-	"food":           {"name": "Rations",    "kind": "food",     "size": 1.0, "amount": 40},
-	"water":          {"name": "Water",      "kind": "water",    "size": 1.0, "amount": 50},
-	"medkit":         {"name": "Medkit",     "kind": "health",   "size": 2.0, "amount": 50},
-	"ammo":           {"name": "Ammo Box",   "kind": "ammo",     "size": 1.0},
-	"grenade":        {"name": "Grenade",    "kind": "grenade",  "size": 1.0, "amount": 1},
-	"backpack_small": {"name": "Small Pack", "kind": "backpack", "size": 0.0, "capacity": 12.0},
-	"backpack_large": {"name": "Large Pack", "kind": "backpack", "size": 0.0, "capacity": 28.0},
+	"food":           {"name": "Rations",    "kind": "food",     "w": 1, "h": 1, "amount": 40},
+	"water":          {"name": "Water",      "kind": "water",    "w": 1, "h": 1, "amount": 50},
+	"medkit":         {"name": "Medkit",     "kind": "health",   "w": 1, "h": 2, "amount": 50},
+	"ammo":           {"name": "Ammo Box",   "kind": "ammo",     "w": 1, "h": 1},
+	"grenade":        {"name": "Grenade",    "kind": "grenade",  "w": 1, "h": 1, "amount": 1},
+	"backpack_small": {"name": "Small Pack", "kind": "backpack", "w": 2, "h": 2, "grid_w": 3, "grid_h": 4},
+	"backpack_large": {"name": "Large Pack", "kind": "backpack", "w": 2, "h": 3, "grid_w": 4, "grid_h": 7},
 }
+
+func _finalize(d: Dictionary) -> Dictionary:
+	d["w"] = int(d.get("w", 1))
+	d["h"] = int(d.get("h", 1))
+	d["size"] = d["w"] * d["h"]
+	return d
 
 ## Build an item instance from a definition id.
 func make(id: String) -> Dictionary:
@@ -29,13 +34,13 @@ func make(id: String) -> Dictionary:
 		return {}
 	var d: Dictionary = (DEFS[id] as Dictionary).duplicate()
 	d["id"] = id
-	return d
+	return _finalize(d)
 
 func make_weapon(weapon_id: String) -> Dictionary:
 	var wname := weapon_id.capitalize()
 	if WeaponDB.has_weapon(weapon_id):
 		wname = String(WeaponDB.get_weapon(weapon_id)["name"])
-	return {"id": "weapon", "name": wname, "kind": "weapon", "size": WEAPON_SIZE, "weapon_id": weapon_id}
+	return _finalize({"id": "weapon", "name": wname, "kind": "weapon", "w": 2, "h": 2, "weapon_id": weapon_id})
 
 ## Convert a world pickup (kind + amount + weapon_id) into a carried item.
 func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
@@ -62,7 +67,7 @@ func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
 				w["amount"] = amount
 			return w
 		_:
-			return {"id": kind, "name": kind.capitalize(), "kind": kind, "size": 1.0}
+			return _finalize({"id": kind, "name": kind.capitalize(), "kind": kind, "w": 1, "h": 1})
 
 func color_for(kind: String) -> Color:
 	match kind:

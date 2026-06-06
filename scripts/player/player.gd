@@ -57,8 +57,10 @@ var hunger: float = MAX_NEED
 var thirst: float = MAX_NEED
 var _need_dmg_accum: float = 0.0
 
-# Survival backpack: non-stacking items, each with a `size`; pack has a `capacity`.
-var backpack_capacity: float = ItemDB.DEFAULT_CAPACITY
+# Survival backpack: a spatial grid (backpack_w x backpack_h). Items are non-stacking
+# and occupy a w x h footprint at a placed (gx, gy); fixed orientation.
+var backpack_w: int = ItemDB.DEFAULT_GRID_W
+var backpack_h: int = ItemDB.DEFAULT_GRID_H
 var inventory: Array = []
 var _drop_counter: int = 0
 
@@ -364,22 +366,117 @@ func drink(amount: float) -> void:
 
 # ---------------------------------------------------------------- survival backpack
 
-## Total space the carried items occupy.
-func inv_used() -> float:
-	var u := 0.0
+func inv_cell_count() -> int:
+	return backpack_w * backpack_h
+
+## Cells the carried items occupy (sum of footprints).
+func inv_used() -> int:
+	var u := 0
 	for it in inventory:
-		u += float(it.get("size", 1.0))
+		u += int(it.get("w", 1)) * int(it.get("h", 1))
 	return u
 
-func inv_can_fit(item: Dictionary) -> bool:
-	return inv_used() + float(item.get("size", 1.0)) <= backpack_capacity + 0.001
+## Occupancy grid (rows of bools), optionally ignoring the item at `exclude`.
+func _occupancy(gw: int, gh: int, exclude: int) -> Array:
+	var grid: Array = []
+	for y in gh:
+		var row: Array = []
+		for x in gw:
+			row.append(false)
+		grid.append(row)
+	for i in inventory.size():
+		if i == exclude:
+			continue
+		var it: Dictionary = inventory[i]
+		for dy in int(it.get("h", 1)):
+			for dx in int(it.get("w", 1)):
+				var gx: int = int(it.get("gx", 0)) + dx
+				var gy: int = int(it.get("gy", 0)) + dy
+				if gx >= 0 and gx < gw and gy >= 0 and gy < gh:
+					grid[gy][gx] = true
+	return grid
 
-## Try to add an item to the backpack. Returns false if it doesn't fit.
-func inv_add(item: Dictionary) -> bool:
-	if not is_multiplayer_authority() or item.is_empty() or not inv_can_fit(item):
+func _fits(gx: int, gy: int, w: int, h: int, grid: Array, gw: int, gh: int) -> bool:
+	if gx < 0 or gy < 0 or gx + w > gw or gy + h > gh:
 		return false
-	inventory.append(item)
+	for dy in h:
+		for dx in w:
+			if grid[gy + dy][gx + dx]:
+				return false
+	return true
+
+## First free (gx, gy) for a w x h item, or [-1, -1].
+func _find_free(w: int, h: int) -> Array:
+	var grid := _occupancy(backpack_w, backpack_h, -1)
+	for gy in backpack_h:
+		for gx in backpack_w:
+			if _fits(gx, gy, w, h, grid, backpack_w, backpack_h):
+				return [gx, gy]
+	return [-1, -1]
+
+func inv_can_fit(item: Dictionary) -> bool:
+	return _find_free(int(item.get("w", 1)), int(item.get("h", 1)))[0] >= 0
+
+## Add an item, auto-placing it in the first free spot. False if it doesn't fit.
+func inv_add(item: Dictionary) -> bool:
+	if not is_multiplayer_authority() or item.is_empty():
+		return false
+	var spot := _find_free(int(item.get("w", 1)), int(item.get("h", 1)))
+	if spot[0] < 0:
+		return false
+	var it: Dictionary = item.duplicate()
+	it["gx"] = spot[0]
+	it["gy"] = spot[1]
+	inventory.append(it)
 	inventory_changed.emit()
+	return true
+
+## Move the item at `index` to grid cell (gx, gy). False if it doesn't fit there.
+func inv_move(index: int, gx: int, gy: int) -> bool:
+	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
+		return false
+	var it: Dictionary = inventory[index]
+	var grid := _occupancy(backpack_w, backpack_h, index)
+	if not _fits(gx, gy, int(it.get("w", 1)), int(it.get("h", 1)), grid, backpack_w, backpack_h):
+		return false
+	it["gx"] = gx
+	it["gy"] = gy
+	inventory_changed.emit()
+	return true
+
+## Try to re-pack every item (except `exclude`) into a fresh gw x gh grid. On
+## success, updates their placements and returns true; otherwise leaves them be.
+func _repack(gw: int, gh: int, exclude: int) -> bool:
+	var grid: Array = []
+	for y in gh:
+		var row: Array = []
+		for x in gw:
+			row.append(false)
+		grid.append(row)
+	var placements: Array = []
+	for i in inventory.size():
+		if i == exclude:
+			continue
+		var it: Dictionary = inventory[i]
+		var w := int(it.get("w", 1))
+		var h := int(it.get("h", 1))
+		var placed := false
+		for gy in gh:
+			for gx in gw:
+				if _fits(gx, gy, w, h, grid, gw, gh):
+					for dy in h:
+						for dx in w:
+							grid[gy + dy][gx + dx] = true
+					placements.append([it, gx, gy])
+					placed = true
+					break
+			if placed:
+				break
+		if not placed:
+			return false
+	for pl in placements:
+		pl[0]["gx"] = pl[1]
+		pl[0]["gy"] = pl[2]
 	return true
 
 ## Use/equip the item at `index`, applying its effect; consumed items are removed.
@@ -406,10 +503,12 @@ func inv_use(index: int) -> void:
 		"weapon":
 			weapons.give_weapon(String(item.get("weapon_id", "")))
 		"backpack":
-			var cap := float(item.get("capacity", backpack_capacity))
-			if cap < inv_used():
-				return  # a smaller pack can't hold what you're already carrying
-			backpack_capacity = cap
+			var gw := int(item.get("grid_w", backpack_w))
+			var gh := int(item.get("grid_h", backpack_h))
+			if not _repack(gw, gh, index):
+				return  # the new pack can't hold what you're already carrying
+			backpack_w = gw
+			backpack_h = gh
 		_:
 			consumed = false
 	if consumed:

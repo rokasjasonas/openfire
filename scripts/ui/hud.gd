@@ -28,7 +28,7 @@ extends CanvasLayer
 @onready var thirst_bar: ProgressBar = %ThirstBar
 @onready var thirst_label: Label = %ThirstLabel
 @onready var inventory_panel: Panel = %InventoryPanel
-@onready var inv_rows: GridContainer = %InvRows
+@onready var backpack_grid: Control = %InvGrid
 @onready var inv_capacity: Label = %InvCapacity
 
 var _player: Node = null
@@ -133,6 +133,7 @@ func _try_bind() -> void:
 			p.hunger_changed.connect(_on_hunger)
 			p.thirst_changed.connect(_on_thirst)
 			p.inventory_changed.connect(_refresh_inventory)
+			backpack_grid.set_player(p)
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
 			# Hunger/thirst bars are only shown in Survival mode.
@@ -232,58 +233,10 @@ func _toggle_inventory() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _refresh_inventory() -> void:
-	if _player == null or not is_instance_valid(_player) or not inventory_panel.visible:
+	if _player == null or not is_instance_valid(_player):
 		return
-	for c in inv_rows.get_children():
-		c.queue_free()
-	inv_capacity.text = "Space  %.0f / %.0f" % [_player.inv_used(), _player.backpack_capacity]
-	if _player.inventory.is_empty():
-		var empty := Label.new()
-		empty.text = "(empty — pick items up)"
-		empty.modulate = Color(1, 1, 1, 0.5)
-		inv_rows.add_child(empty)
-		return
-	for i in _player.inventory.size():
-		inv_rows.add_child(_make_item_cell(_player.inventory[i], i))
-
-## Build one grid cell for an item: name + size, with Use and Drop buttons.
-func _make_item_cell(item: Dictionary, index: int) -> Control:
-	var cell := PanelContainer.new()
-	cell.custom_minimum_size = Vector2(150, 96)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 2)
-	cell.add_child(vb)
-	var name_lbl := Label.new()
-	name_lbl.text = String(item.get("name", "Item"))
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_lbl.modulate = ItemDB.color_for(String(item.get("kind", "")))
-	var size_lbl := Label.new()
-	size_lbl.text = "size %.0f" % float(item.get("size", 1.0))
-	size_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	size_lbl.modulate = Color(1, 1, 1, 0.6)
-	var btns := HBoxContainer.new()
-	btns.alignment = BoxContainer.ALIGNMENT_CENTER
-	var use_btn := Button.new()
-	use_btn.text = _use_verb(String(item.get("kind", "")))
-	use_btn.pressed.connect(_player.inv_use.bind(index))
-	var drop_btn := Button.new()
-	drop_btn.text = "Drop"
-	drop_btn.pressed.connect(_player.inv_drop.bind(index))
-	btns.add_child(use_btn)
-	btns.add_child(drop_btn)
-	vb.add_child(name_lbl)
-	vb.add_child(size_lbl)
-	vb.add_child(btns)
-	return cell
-
-func _use_verb(kind: String) -> String:
-	match kind:
-		"food": return "Eat"
-		"water": return "Drink"
-		"weapon": return "Equip"
-		"backpack": return "Wear"
-		_: return "Use"
+	backpack_grid.set_player(_player)
+	inv_capacity.text = "Space  %d / %d" % [_player.inv_used(), _player.inv_cell_count()]
 
 func _on_dealt_damage(_amount: float) -> void:
 	if crosshair and crosshair.has_method("hit"):

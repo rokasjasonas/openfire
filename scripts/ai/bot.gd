@@ -118,6 +118,9 @@ func _apply_profile() -> void:
 	# Hide bot/NPC name tags in Battle Royale (stealthy FFA) and in Survival.
 	name_label.visible = not Game.is_battle_royale() and not Game.is_survival()
 	body_model.scale = Vector3.ONE * float(p["scale"])
+	# The bot's forward is -Z (look_at + the muzzle), but the character mesh faces
+	# +Z, so flip the model 180° or it appears to walk backwards.
+	body_model.rotation.y = PI
 	# Swap the body model to the archetype's character.
 	for c in body_model.get_children():
 		c.queue_free()

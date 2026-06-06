@@ -533,6 +533,11 @@ func _ready() -> void:
 		var prev_mode2 = Game.config["mode"]
 		Game.config["mode"] = Game.Mode.SURVIVAL
 		var helpers_ok: bool = Game.is_survival() and Game.mode_name() == "Survival" and Game.is_team_mode()
+		var tag_hidden_ok := true
+		var sbz := get_tree().get_nodes_in_group("bot")
+		if not sbz.is_empty():
+			sbz[0]._apply_profile()  # re-resolve under Survival -> tag should hide
+			tag_hidden_ok = not sbz[0].name_label.visible
 		me.velocity = Vector3.ZERO
 		me.hunger = 50.0
 		me.thirst = 50.0
@@ -548,8 +553,8 @@ func _ready() -> void:
 		me.drink(60.0)
 		var restore_ok: bool = me.hunger >= 39.0 and me.thirst >= 59.0
 		Game.config["mode"] = prev_mode2
-		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok
-		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok)
+		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok and tag_hidden_ok
+		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok, " tag_hidden=", tag_hidden_ok)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
 	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok)

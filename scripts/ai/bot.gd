@@ -40,6 +40,7 @@ var team: int = 1
 var display_name: String = "Bot"
 var faction: String = ""        # Survival faction (drives hostility); "" elsewhere
 var role: String = ""           # Survival role (Leader / Guard / Raider / ...)
+var persona: String = ""        # Survival: short LLM-written persona trait
 var _active: bool = true         # Survival: false when far from all players (frozen)
 
 # Stats resolved from the profile.

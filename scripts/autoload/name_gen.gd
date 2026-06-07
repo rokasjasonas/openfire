@@ -5,6 +5,10 @@ extends Node
 ## replicates them, so clients see identical names.
 
 var _rng := RandomNumberGenerator.new()
+# LLM-generated people, per faction: Array of { "name": String, "trait": String }.
+# Drawn in order so each NPC is unique; falls back to the built-in pools when empty.
+var _pools: Dictionary = {}
+var _idx: Dictionary = {}
 
 const POOLS := {
 	"Ridgeback Clan": {
@@ -27,6 +31,33 @@ const POOLS := {
 
 func reseed(s: int) -> void:
 	_rng.seed = s
+
+## Install LLM-generated people pools: { faction: [ {name, trait}, ... ] }.
+func set_pools(pools: Dictionary) -> void:
+	_pools = {}
+	_idx = {}
+	for fac in pools:
+		var arr: Array = []
+		if typeof(pools[fac]) == TYPE_ARRAY:
+			for e in pools[fac]:
+				if typeof(e) == TYPE_DICTIONARY and e.has("name"):
+					arr.append({"name": String(e["name"]), "trait": String(e.get("trait", ""))})
+		if not arr.is_empty():
+			_pools[fac] = arr
+
+func clear_pools() -> void:
+	_pools = {}
+	_idx = {}
+
+## A unique person for a faction: LLM-generated if a pool entry remains, else a
+## procedurally-built name with no persona.
+func npc_person(faction: String) -> Dictionary:
+	var pool: Array = _pools.get(faction, [])
+	var i: int = int(_idx.get(faction, 0))
+	if i < pool.size():
+		_idx[faction] = i + 1
+		return pool[i]
+	return {"name": npc_name(faction), "trait": ""}
 
 func npc_name(faction: String) -> String:
 	var pool: Dictionary = POOLS.get(faction, POOLS["raiders"])

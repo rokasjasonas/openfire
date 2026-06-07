@@ -17,7 +17,7 @@ var _facts: Dictionary = {}
 
 func _ready() -> void:
 	_http = HTTPRequest.new()
-	_http.timeout = 25.0
+	_http.timeout = 60.0  # local models can be slow when also naming every NPC
 	add_child(_http)
 	_http.request_completed.connect(_on_request_completed)
 
@@ -34,7 +34,7 @@ func generate(theme: String, facts: Dictionary) -> void:
 			{"role": "user", "content": _build_prompt()},
 		],
 		"temperature": 0.9,
-		"max_tokens": 800,
+		"max_tokens": 3500,
 		"stream": false,
 	})
 	var headers := ["Content-Type: application/json"]
@@ -48,11 +48,13 @@ func _build_prompt() -> String:
 	var fac_lines := ""
 	for f in _facts.get("factions", []):
 		fac_lines += "- %s\n" % String(f)
+	var per := int(_facts.get("names_per_faction", 30))
 	return ("Theme: %s\nFactions in this world:\n%sThe player earns points by completing survival quests (target %d).\n"
 		+ "Write a JSON object with keys: \"briefing\" (2-3 vivid sentences setting the scene on this theme), "
 		+ "\"factions\" (object mapping each faction name above to a one-sentence backstory), "
 		+ "\"greetings\" (object mapping each faction name to a short in-character line an NPC of that faction says to the player), "
-		+ "\"outro\" (one sentence shown when the player wins). Stay on theme.") % [_theme, fac_lines, int(_facts.get("points", 10))]
+		+ "\"names\" (object mapping each faction name to an array of %d distinct people as objects {\"name\": on-theme person name, \"trait\": 2-4 word persona}), "
+		+ "\"outro\" (one sentence shown when the player wins). Stay on theme. Output only JSON.") % [_theme, fac_lines, int(_facts.get("points", 10)), per]
 
 func _on_request_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
@@ -81,6 +83,7 @@ func _parse(txt: String) -> Dictionary:
 		"briefing": String(inner.get("briefing", "")),
 		"factions": inner.get("factions", {}),
 		"greetings": inner.get("greetings", {}),
+		"names": inner.get("names", {}),
 		"outro": String(inner.get("outro", "")),
 	}
 

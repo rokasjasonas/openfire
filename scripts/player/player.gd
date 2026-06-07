@@ -579,6 +579,7 @@ func _talk_to(npc: Node) -> void:
 		"name": String(npc.get("display_name")),
 		"role": String(npc.get("role")),
 		"faction": String(npc.get("faction")),
+		"persona": String(npc.get("persona")),
 		"greeting": _npc_greeting(npc),
 	}
 	# Generated faction backstory (from the story), shown as lore in the dialog.

@@ -105,7 +105,10 @@ func _update_npc_prompt() -> void:
 
 func _on_talk(info: Dictionary) -> void:
 	npc_name.text = String(info.get("name", "?"))
-	npc_role.text = "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
+	var role_line := "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
+	if String(info.get("persona", "")) != "":
+		role_line += "  ·  " + String(info["persona"])
+	npc_role.text = role_line
 	var body := String(info.get("greeting", ""))
 	if info.has("lore"):
 		body += "\n\n" + String(info["lore"])

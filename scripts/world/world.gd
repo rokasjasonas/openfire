@@ -40,7 +40,7 @@ func _ready() -> void:
 			_begin_survival_story()
 		# Grace fallback (waits for the story in Survival); hard cap regardless.
 		get_tree().create_timer(5.0).timeout.connect(_grace_begin)
-		get_tree().create_timer(35.0).timeout.connect(_begin)
+		get_tree().create_timer(70.0).timeout.connect(_begin)
 		_try_begin()
 	else:
 		_report_ready.rpc_id(1)
@@ -89,7 +89,7 @@ func _begin_survival_story() -> void:
 		Story.story_ready.connect(_on_story_ready)
 	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
 	sfacs.append(Game.RAIDER_FACTION)
-	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10))})
+	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10)), "names_per_faction": 40})
 
 func _begin() -> void:
 	if _begun:
@@ -168,6 +168,7 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 		"etype": etype,
 		"faction": faction,
 		"role": String(extra.get("role", "")),
+		"persona": String(extra.get("persona", "")),
 	})
 	return id
 
@@ -219,6 +220,7 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			# Authority stays with the host (default), which drives the AI.
 			b.configure(int(data["id"]), int(data["team"]), float(data["skill"]), bool(data["respawns"]), String(data["name"]), String(data.get("etype", "soldier")), String(data.get("faction", "")))
 			b.role = String(data.get("role", ""))
+			b.persona = String(data.get("persona", ""))
 			if Net.is_host():
 				b.died.connect(_on_bot_died)
 			return b
@@ -276,7 +278,8 @@ func _start_survival() -> void:
 			var rr := _survival_rng.randf_range(2.0, radius)
 			var pos := poi.global_position + Vector3(cos(ang) * rr, 1.0, sin(ang) * rr)
 			var drole := "Elder" if d == 0 else ("Quartermaster" if d == 1 else "Guard")
-			spawn_enemy(skill, false, pos, "", team, fac, {"name": NameGen.npc_name(fac), "role": drole})
+			var dperson := NameGen.npc_person(fac)
+			spawn_enemy(skill, false, pos, "", team, fac, {"name": dperson["name"], "role": drole, "persona": dperson["trait"]})
 	# Roaming raiders scattered around the settlements (emergent clashes).
 	for r in pois.size() * 10:
 		if pois.is_empty():
@@ -289,7 +292,8 @@ func _start_survival() -> void:
 		var z := poi.global_position.z + sin(ang) * rr
 		var y := _ground_y(x, z, poi.global_position.y) + 1.0
 		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
-		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": NameGen.npc_name(Game.RAIDER_FACTION), "role": rrole})
+		var rperson := NameGen.npc_person(Game.RAIDER_FACTION)
+		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": rperson["name"], "role": rrole, "persona": rperson["trait"]})
 	set_process(true)
 	# Quests reference the villages/NPCs we just spawned, so build them last.
 	_quest_manager = QUEST_MANAGER.new()
@@ -298,6 +302,7 @@ func _start_survival() -> void:
 	_quest_manager.start(self)
 
 func _on_story_ready(s: Dictionary) -> void:
+	NameGen.set_pools(s.get("names", {}))
 	_sync_story.rpc(s)
 	var briefing := String(s.get("briefing", ""))
 	if briefing != "":

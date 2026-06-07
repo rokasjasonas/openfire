@@ -756,8 +756,14 @@ func _ready() -> void:
 	var sample := '{"choices":[{"message":{"content":"{\\"briefing\\":\\"Dark days.\\",\\"factions\\":{\\"X\\":\\"lore\\"},\\"greetings\\":{\\"X\\":\\"hi\\"},\\"outro\\":\\"win\\"}"}}]}'
 	var parsed: Dictionary = Story._parse(sample)
 	var parse_ok: bool = String(parsed.get("briefing", "")) == "Dark days." and String(parsed.get("outro", "")) == "win"
-	story_ok = fb_ok and parse_ok
-	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok)
+	# LLM name pools: NameGen draws unique people from a pool, then falls back.
+	NameGen.set_pools({"raiders": [{"name": "Vex Skullsplitter", "trait": "ruthless"}]})
+	var p1: Dictionary = NameGen.npc_person("raiders")
+	var p2: Dictionary = NameGen.npc_person("raiders")  # pool exhausted -> built-in
+	NameGen.clear_pools()
+	var names_ok: bool = p1["name"] == "Vex Skullsplitter" and p1["trait"] == "ruthless" and p2["name"] != "Vex Skullsplitter"
+	story_ok = fb_ok and parse_ok and names_ok
+	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names=", names_ok)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
 	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok)

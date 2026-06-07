@@ -7,9 +7,17 @@ const RANGE := 60.0   # world metres shown from centre to edge
 var _radius := 88.0
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	custom_minimum_size = Vector2(190, 190)
-	position = Vector2(-206, 16)
+	# Anchor a concrete 190x190 box in the top-right corner. A free Control isn't
+	# sized by custom_minimum_size, so set explicit anchors + offsets or _draw gets
+	# a zero size and the minimap is invisible.
+	anchor_left = 1.0
+	anchor_top = 0.0
+	anchor_right = 1.0
+	anchor_bottom = 0.0
+	offset_left = -206.0
+	offset_top = 16.0
+	offset_right = -16.0
+	offset_bottom = 206.0
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_process(true)
 

@@ -80,6 +80,13 @@ func _ready() -> void:
 	for w in get_tree().get_nodes_in_group("world"):
 		if w.has_node("HUD"):
 			hud = w.get_node("HUD")
+	# Minimap must have a real (non-zero) size or it draws nothing.
+	var minimap_ok := false
+	if hud:
+		var mm = hud.get_node_or_null("Minimap")
+		await get_tree().process_frame
+		minimap_ok = mm != null and mm.size.x > 100.0 and mm.size.y > 100.0
+		print("SMOKE: minimap_ok=", minimap_ok, " size=", (mm.size if mm else Vector2.ZERO))
 	if me and hud:
 		# Force a known-alive, full-health state (bots may have downed the dummy)
 		# and prime the HUD's last-health so the drop registers as damage.
@@ -800,7 +807,7 @@ func _ready() -> void:
 		print("SMOKE: equip_ok=", equip_ok, " armor=", armor_equipped, " reduce=", reduce_ok, " dmg=", dmg_ok, " gun=", gun_ok, " unequip=", unequip_ok)
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

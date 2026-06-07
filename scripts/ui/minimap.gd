@@ -44,7 +44,7 @@ func _draw() -> void:
 	var my_team: int = int(me.get("team"))
 	var fwd := -me.global_transform.basis.z
 	fwd = Vector3(fwd.x, 0, fwd.z).normalized()
-	var right := Vector3(fwd.z, 0, -fwd.x)  # screen-right when facing up
+	var right := Vector3(-fwd.z, 0, fwd.x)  # player's right (= basis.x); was mirrored
 	var scale := _radius / RANGE
 
 	# Objective zones (reach/defend/etc.) + control points.

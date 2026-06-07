@@ -7,6 +7,8 @@ const PLAYER_SCENE := preload("res://scenes/player.tscn")
 const BOT_SCENE := preload("res://scenes/bot.tscn")
 const OBJECTIVE_RUNNER := preload("res://scripts/world/objective_runner.gd")
 const QUEST_MANAGER := preload("res://scripts/world/quest_manager.gd")
+const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
+var _loot_counter: int = 0
 
 @onready var map_holder: Node3D = $MapHolder
 @onready var combatants: Node3D = $Combatants
@@ -242,7 +244,46 @@ func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 		_objective_runner.notify_enemy_killed(victim_id)
 	if _quest_manager:
 		_quest_manager.notify_kill(victim_id)
+	if Game.is_survival():
+		_maybe_drop_loot(victim_id)
 	check_last_standing()
+
+## Survival: a killed NPC sometimes drops loot (often armor) where it fell.
+func _maybe_drop_loot(victim_id: int) -> void:
+	if randf() > 0.3:
+		return
+	var b: Node = null
+	for n in get_tree().get_nodes_in_group("bot"):
+		if n.combatant_id == victim_id:
+			b = n
+			break
+	if b == null:
+		return
+	_loot_counter += 1
+	var pos: Vector3 = b.global_position + Vector3(0, 0.6, 0)
+	var kind := "ammo"
+	var subtype := ""
+	var roll := randf()
+	if roll < 0.5:
+		kind = "armor"
+		subtype = String(ItemDB.ARMOR_IDS[randi() % ItemDB.ARMOR_IDS.size()])
+	elif roll < 0.7:
+		kind = "health"
+	elif roll < 0.85:
+		kind = "grenade"
+	_spawn_loot.rpc(_loot_counter, pos, kind, subtype)
+
+@rpc("authority", "call_local", "reliable")
+func _spawn_loot(idx: int, pos: Vector3, kind: String, subtype: String) -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.name = "Loot_%d" % idx
+	p.kind = kind
+	if subtype != "":
+		p.weapon_id = subtype
+	if kind == "health":
+		p.amount = 50
+	get_tree().current_scene.add_child(p)
+	p.global_position = pos
 
 # ---------------------------------------------------------------- modes
 

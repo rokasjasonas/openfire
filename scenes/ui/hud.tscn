@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://chud00000001"]
+[gd_scene load_steps=7 format=3 uid="uid://chud00000001"]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/ui/crosshair.gd" id="2_cross"]
 [ext_resource type="Script" path="res://scripts/ui/damage_direction.gd" id="3_dmgdir"]
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="4_minimap"]
 [ext_resource type="Script" path="res://scripts/ui/backpack_grid.gd" id="5_bgrid"]
+[ext_resource type="Script" path="res://scripts/ui/equip_panel.gd" id="6_equip"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -304,16 +305,16 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -250.0
-offset_top = -230.0
-offset_right = 250.0
-offset_bottom = 230.0
+offset_left = -300.0
+offset_top = -250.0
+offset_right = 300.0
+offset_bottom = 250.0
 
 [node name="VBox" type="VBoxContainer" parent="InventoryPanel"]
 offset_left = 16.0
 offset_top = 12.0
-offset_right = 484.0
-offset_bottom = 448.0
+offset_right = 584.0
+offset_bottom = 488.0
 theme_override_constants/separation = 6
 
 [node name="InvTitle" type="Label" parent="InventoryPanel/VBox"]
@@ -325,15 +326,23 @@ unique_name_in_owner = true
 text = "Space  0 / 16"
 horizontal_alignment = 1
 
-[node name="InvGrid" type="Control" parent="InventoryPanel/VBox"]
+[node name="InvHBox" type="HBoxContainer" parent="InventoryPanel/VBox"]
+theme_override_constants/separation = 18
+alignment = 1
+
+[node name="EquipPanel" type="Control" parent="InventoryPanel/VBox/InvHBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(178, 350)
+script = ExtResource("6_equip")
+
+[node name="InvGrid" type="Control" parent="InventoryPanel/VBox/InvHBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 200)
-size_flags_horizontal = 4
 script = ExtResource("5_bgrid")
 
 [node name="InvHint" type="Label" parent="InventoryPanel/VBox"]
 modulate = Color(1, 1, 1, 0.55)
-text = "Drag to arrange • drag out to drop • double-click to use/equip • inventory key to close"
+text = "Double-click or drag left to equip • drag out (right) to drop • double-click a slot to unequip"
 horizontal_alignment = 1
 
 [node name="GeneratingPanel" type="Panel" parent="."]

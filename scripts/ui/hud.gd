@@ -29,6 +29,7 @@ extends CanvasLayer
 @onready var thirst_label: Label = %ThirstLabel
 @onready var inventory_panel: Panel = %InventoryPanel
 @onready var backpack_grid: Control = %InvGrid
+@onready var equip_panel: Control = %EquipPanel
 @onready var inv_capacity: Label = %InvCapacity
 @onready var npc_prompt: Label = %NpcPrompt
 @onready var npc_dialog: Panel = %NpcDialog
@@ -197,8 +198,10 @@ func _try_bind() -> void:
 			p.hunger_changed.connect(_on_hunger)
 			p.thirst_changed.connect(_on_thirst)
 			p.inventory_changed.connect(_refresh_inventory)
+			p.equipment_changed.connect(_refresh_equip)
 			p.talk_to.connect(_on_talk)
 			backpack_grid.set_player(p)
+			equip_panel.set_player(p)
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
 			# Hunger/thirst bars are only shown in Survival mode.
@@ -303,6 +306,9 @@ func _refresh_inventory() -> void:
 		return
 	backpack_grid.set_player(_player)
 	inv_capacity.text = "Space  %d / %d" % [_player.inv_used(), _player.inv_cell_count()]
+
+func _refresh_equip() -> void:
+	equip_panel.refresh()
 
 func _on_dealt_damage(_amount: float) -> void:
 	if crosshair and crosshair.has_method("hit"):

@@ -179,7 +179,7 @@ func _set_occupant(peer_id: int, team: int) -> void:
 
 # ---------------------------------------------------------------- damage
 
-func hit(amount: float, attacker_id: int) -> void:
+func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
 	receive_damage.rpc_id(get_multiplayer_authority(), amount, attacker_id)
 
 @rpc("any_peer", "call_local", "reliable")

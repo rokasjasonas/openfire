@@ -58,7 +58,7 @@ func _build_visual() -> void:
 func health_fraction() -> float:
 	return clampf(sync_health / maxf(max_health, 1.0), 0.0, 1.0)
 
-func hit(amount: float, attacker_id: int) -> void:
+func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
 	receive_damage.rpc_id(get_multiplayer_authority(), amount, attacker_id)
 
 @rpc("any_peer", "call_local", "reliable")

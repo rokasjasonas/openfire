@@ -458,7 +458,8 @@ func _shoot_at(target: Node3D) -> void:
 		if victim and victim.has_method("hit"):
 			var vteam: int = victim.driver_team if victim.is_in_group("vehicle") else int(victim.get("team"))
 			if vteam != team:
-				victim.hit(shoot_damage * clampf(skill, 0.6, 1.6) * mult, combatant_id)
+				var zone: String = col.part if col is Hitbox else ""
+				victim.hit(shoot_damage * clampf(skill, 0.6, 1.6) * mult, combatant_id, zone)
 	_fire_fx.rpc(endpoint)
 
 @rpc("any_peer", "call_local", "unreliable")
@@ -484,7 +485,7 @@ func _fire_fx(hit_point: Vector3) -> void:
 
 # ---------------------------------------------------------------- damage / death
 
-func hit(amount: float, attacker_id: int) -> void:
+func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
 	receive_damage.rpc_id(get_multiplayer_authority(), amount, attacker_id)
 
 @rpc("any_peer", "call_local", "reliable")

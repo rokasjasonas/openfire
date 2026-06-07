@@ -84,6 +84,23 @@ func give_weapon(id: String) -> void:
 		_equip(current_index)
 	emit_state()
 
+## Remove the weapon in gun slot `i` (unequip). Leaves you unarmed if it was last.
+func remove_slot(i: int) -> void:
+	if i < 0 or i >= loadout.size():
+		return
+	var id = loadout[i]
+	loadout.remove_at(i)
+	ammo.erase(id)
+	if loadout.is_empty():
+		if _model:
+			_model.queue_free()
+			_model = null
+		current_index = 0
+	else:
+		current_index = clampi(current_index, 0, loadout.size() - 1)
+		_equip(current_index)
+	emit_state()
+
 func _current() -> Dictionary:
 	if loadout.is_empty():
 		return WeaponDB.WEAPONS[0]
@@ -227,7 +244,8 @@ func _fire() -> void:
 				victim = null
 			if victim and victim != player and victim.has_method("hit"):
 				var dealt := base_dmg * mult
-				victim.hit(dealt, player.combatant_id)
+				var zone: String = res.collider.part if res.collider is Hitbox else ""
+				victim.hit(dealt, player.combatant_id, zone)
 				dmg_dealt += dealt
 				last_hit = res.position
 				hit_combatant = true

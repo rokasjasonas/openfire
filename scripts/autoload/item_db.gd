@@ -20,7 +20,14 @@ const DEFS := {
 	"grenade":        {"name": "Grenade",    "kind": "grenade",  "w": 1, "h": 1, "amount": 1},
 	"backpack_small": {"name": "Small Pack", "kind": "backpack", "w": 2, "h": 2, "grid_w": 3, "grid_h": 4},
 	"backpack_large": {"name": "Large Pack", "kind": "backpack", "w": 2, "h": 3, "grid_w": 4, "grid_h": 7},
+	# Armor: "slot" maps to an equip slot; "armor" is the fraction of damage cut on
+	# that body zone (head armor -> head zone, body -> torso, pants -> legs).
+	"helmet":     {"name": "Helmet",     "kind": "armor", "slot": "head",  "armor": 0.35, "w": 1, "h": 1},
+	"vest":       {"name": "Body Armor", "kind": "armor", "slot": "body",  "armor": 0.40, "w": 2, "h": 2},
+	"leg_armor":  {"name": "Leg Guards", "kind": "armor", "slot": "pants", "armor": 0.30, "w": 1, "h": 2},
 }
+
+const ARMOR_IDS := ["helmet", "vest", "leg_armor"]
 
 func _finalize(d: Dictionary) -> Dictionary:
 	d["w"] = int(d.get("w", 1))
@@ -56,6 +63,8 @@ func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
 			return make("grenade")
 		"weapon":
 			return make_weapon(weapon_id)
+		"armor":
+			return make(weapon_id) if DEFS.has(weapon_id) else make("vest")
 		"food":
 			var f := make("food")
 			if amount > 0:
@@ -78,4 +87,5 @@ func color_for(kind: String) -> Color:
 		"grenade": return Color(0.9, 0.9, 0.35)
 		"weapon": return Color(0.7, 0.8, 1.0)
 		"backpack": return Color(0.6, 0.5, 0.35)
+		"armor": return Color(0.55, 0.58, 0.65)
 		_: return Color(1, 1, 1)

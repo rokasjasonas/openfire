@@ -244,7 +244,7 @@ func _scatter_loot(rng: RandomNumberGenerator) -> void:
 			var ang := rng.randf() * TAU
 			var rr := rng.randf_range(2.0, float(s.r))
 			var pos := Vector3(s.x + cos(ang) * rr, float(s.h) + 0.6, s.z + sin(ang) * rr)
-			match rng.randi() % 6:
+			match rng.randi() % 7:
 				0:
 					add_pickup("food", pos, 40)
 				1:
@@ -255,6 +255,8 @@ func _scatter_loot(rng: RandomNumberGenerator) -> void:
 					add_pickup("grenade", pos)
 				4:
 					add_pickup("weapon", pos, 0, weapons[rng.randi() % weapons.size()])
+				5:
+					add_pickup("armor", pos, 0, ItemDB.ARMOR_IDS[rng.randi() % ItemDB.ARMOR_IDS.size()])
 				_:
 					add_pickup("ammo", pos)
 

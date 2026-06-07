@@ -765,8 +765,39 @@ func _ready() -> void:
 	story_ok = fb_ok and parse_ok and names_ok
 	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names=", names_ok)
 
+	# Equipment: equip armor (zone damage reduction), equip/unequip a weapon, and
+	# verify worn armor cuts that zone's incoming damage.
+	var equip_ok := false
+	if me:
+		me.inventory.clear()
+		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+		me.weapons.set_loadout([])
+		# Equip body armor from the backpack -> goes to the body slot, leaves the grid.
+		me.inv_add(ItemDB.make("vest"))
+		me.equip_item(0)
+		var armor_equipped: bool = not (me.equip["body"] as Dictionary).is_empty() and me.inventory.is_empty()
+		var reduce_ok: bool = me.armor_reduction("torso") > 0.0 and is_equal_approx(me.armor_reduction("head"), 0.0)
+		# Zone damage reduction: torso hit is cut, head hit is not.
+		me.sync_health = 100.0
+		me.receive_damage(50.0, -1, "torso")
+		var torso_hp: float = me.sync_health
+		me.sync_health = 100.0
+		me.receive_damage(50.0, -1, "head")
+		var head_hp: float = me.sync_health
+		var dmg_ok: bool = torso_hp > head_hp   # torso took less (armored)
+		# Equip a weapon -> fills a gun slot; unequip -> back to the backpack.
+		me.inv_add(ItemDB.make_weapon("rifle"))
+		me.equip_item(me.inventory.size() - 1)
+		var gun_ok: bool = me.weapons.loadout.has("rifle")
+		me.unequip("gun1")
+		var unequip_ok: bool = not me.weapons.loadout.has("rifle")
+		me.inventory.clear()
+		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+		equip_ok = armor_equipped and reduce_ok and dmg_ok and gun_ok and unequip_ok
+		print("SMOKE: equip_ok=", equip_ok, " armor=", armor_equipped, " reduce=", reduce_ok, " dmg=", dmg_ok, " gun=", gun_ok, " unequip=", unequip_ok)
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

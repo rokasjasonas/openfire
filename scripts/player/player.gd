@@ -65,6 +65,10 @@ var backpack_h: int = ItemDB.DEFAULT_GRID_H
 var inventory: Array = []
 var _drop_counter: int = 0
 
+# Equipment slots: armor (head/body/pants) + a throwable slot. Guns live in the
+# weapon loadout (gun1/2/3 in the UI mirror weapons.loadout).
+var equip: Dictionary = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+
 var _yaw: float = 0.0
 var _pitch: float = 0.0
 var _crouch: float = 0.0
@@ -88,6 +92,7 @@ signal grenades_changed(count: int)
 signal hunger_changed(value: float, maximum: float)
 signal thirst_changed(value: float, maximum: float)
 signal inventory_changed
+signal equipment_changed
 signal talk_to(info: Dictionary)
 signal damaged_from(angle: float)
 signal downed_changed(is_downed: bool, bleed_frac: float, revive_frac: float, spectator: bool)
@@ -487,6 +492,73 @@ func _repack(gw: int, gh: int, exclude: int) -> bool:
 		pl[0]["gy"] = pl[2]
 	return true
 
+# ---------------------------------------------------------------- equipment
+
+## Damage cut for a body zone from worn armor (head/torso/legs -> head/body/pants).
+func armor_reduction(zone: String) -> float:
+	var slot: String = {"head": "head", "torso": "body", "legs": "pants"}.get(zone, "")
+	if slot == "":
+		return 0.0
+	return float((equip.get(slot, {}) as Dictionary).get("armor", 0.0))
+
+## Equip the backpack item at `index` into its natural slot (double-click / drag).
+func equip_item(index: int) -> void:
+	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
+		return
+	var item: Dictionary = inventory[index]
+	match String(item.get("kind", "")):
+		"weapon":
+			if weapons.loadout.size() >= 3 and not weapons.loadout.has(String(item.get("weapon_id", ""))):
+				return  # all gun slots full
+			weapons.give_weapon(String(item.get("weapon_id", "")))
+			inventory.remove_at(index)
+			inventory_changed.emit()
+			equipment_changed.emit()
+		"armor":
+			_equip_slot(String(item.get("slot", "body")), index)
+		"grenade":
+			_equip_slot("extra", index)
+		_:
+			inv_use(index)  # not equippable -> consume it
+
+func _equip_slot(slot: String, index: int) -> void:
+	var item: Dictionary = inventory[index]
+	inventory.remove_at(index)  # frees its cells so the swapped-out piece can fit
+	var old: Dictionary = equip.get(slot, {})
+	if not old.is_empty() and not inv_add(old):
+		inventory.insert(index, item)  # no room to swap — revert
+		inventory_changed.emit()
+		return
+	equip[slot] = item
+	if slot == "extra":
+		grenades = MAX_GRENADES
+		grenades_changed.emit(grenades)
+	inventory_changed.emit()
+	equipment_changed.emit()
+
+## Move an equipped item back into the backpack.
+func unequip(slot: String) -> void:
+	if not is_multiplayer_authority():
+		return
+	if slot.begins_with("gun"):
+		var i := int(slot.substr(3)) - 1
+		if i < 0 or i >= weapons.loadout.size():
+			return
+		var wid := String(weapons.loadout[i])
+		if inv_add(ItemDB.make_weapon(wid)):
+			weapons.remove_slot(i)
+			equipment_changed.emit()
+		return
+	var item: Dictionary = equip.get(slot, {})
+	if item.is_empty():
+		return
+	if inv_add(item):
+		equip[slot] = {}
+		if slot == "extra":
+			grenades = 0
+			grenades_changed.emit(0)
+		equipment_changed.emit()
+
 ## Use/equip the item at `index`, applying its effect; consumed items are removed.
 func inv_use(index: int) -> void:
 	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
@@ -745,14 +817,16 @@ func _spawn_grenade(pos: Vector3, vel: Vector3) -> void:
 
 # ---------------------------------------------------------------- damage / death
 
-## Called by an attacker's hitscan on whatever it hit.
-func hit(amount: float, attacker_id: int) -> void:
-	receive_damage.rpc_id(get_multiplayer_authority(), amount, attacker_id)
+## Called by an attacker's hitscan on whatever it hit. `zone` is the body part hit
+## (head/torso/legs) so the victim can apply its worn armor.
+func hit(amount: float, attacker_id: int, zone: String = "") -> void:
+	receive_damage.rpc_id(get_multiplayer_authority(), amount, attacker_id, zone)
 
 @rpc("any_peer", "call_local", "reliable")
-func receive_damage(amount: float, attacker_id: int) -> void:
+func receive_damage(amount: float, attacker_id: int, zone: String = "") -> void:
 	if dead or downed or fully_dead:
 		return
+	amount *= 1.0 - armor_reduction(zone)  # worn armor cuts this zone's damage
 	sync_health = max(0.0, sync_health - amount)
 	if is_multiplayer_authority():
 		health_changed.emit(sync_health, MAX_HEALTH)

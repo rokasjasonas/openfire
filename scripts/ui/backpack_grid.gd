@@ -52,7 +52,7 @@ func _gui_input(event: InputEvent) -> void:
 			if event.double_click:
 				var di := _item_at(event.position)
 				if di >= 0:
-					player.inv_use(di)
+					player.equip_item(di)  # equip (or use, for consumables)
 				_drag = -1
 				return
 			_drag = _item_at(event.position)
@@ -71,9 +71,12 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 
 func _release(pos: Vector2) -> void:
-	# Released outside the grid -> drop into the world; otherwise move (if it fits).
+	# Inside -> move; dragged left (onto the equipment panel) -> equip; else drop.
 	if not Rect2(Vector2.ZERO, _grid_size()).grow(CELL * 0.5).has_point(pos):
-		player.inv_drop(_drag)
+		if pos.x < 0.0:
+			player.equip_item(_drag)
+		else:
+			player.inv_drop(_drag)
 		return
 	var target := _drop_cell(pos)
 	player.inv_move(_drag, target.x, target.y)

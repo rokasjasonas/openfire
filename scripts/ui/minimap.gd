@@ -57,6 +57,22 @@ func _draw() -> void:
 	for e in get_tree().get_nodes_in_group("escort"):
 		_blip(c, e.global_position - ppos, fwd, right, scale, Color(0.4, 1.0, 0.55), 3.5, false)
 
+	# Survival mission points (village/quest POIs). Those tied to an active quest
+	# glow brighter; the rest are dim. Far ones clamp to the edge as direction cues.
+	var active_pois := {}
+	var qm := get_tree().get_first_node_in_group("quest_manager")
+	if qm != null:
+		for q in qm.quests:
+			if q.get("state", "") == "active":
+				if q.has("poi"):
+					active_pois[q["poi"]] = true
+				if q.has("dest"):
+					active_pois[q["dest"]] = true
+	for poi in get_tree().get_nodes_in_group("poi_site"):
+		var on_quest: bool = active_pois.has(poi)
+		var col := Color(1.0, 0.9, 0.35) if on_quest else Color(0.8, 0.7, 0.3, 0.7)
+		_blip(c, poi.global_position - ppos, fwd, right, scale, col, 5.0 if on_quest else 3.5, true)
+
 	# Combatants.
 	for cm in get_tree().get_nodes_in_group("combatant"):
 		if cm == me or cm.get("dead") or cm.get("fully_dead"):

@@ -332,7 +332,7 @@ alignment = 1
 
 [node name="EquipPanel" type="Control" parent="InventoryPanel/VBox/InvHBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(178, 350)
+custom_minimum_size = Vector2(196, 230)
 script = ExtResource("6_equip")
 
 [node name="InvGrid" type="Control" parent="InventoryPanel/VBox/InvHBox"]

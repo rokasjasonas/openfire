@@ -91,7 +91,7 @@ func _begin_survival_story() -> void:
 		Story.story_ready.connect(_on_story_ready)
 	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
 	sfacs.append(Game.RAIDER_FACTION)
-	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10)), "names_per_faction": 40})
+	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10)), "names_per_faction": 16})
 
 func _begin() -> void:
 	if _begun:

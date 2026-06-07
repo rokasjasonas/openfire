@@ -748,22 +748,25 @@ func _ready() -> void:
 	# Survival story: offline fallback produces all keys, and the LLM-response parser
 	# extracts our story JSON from an OpenAI-style chat reply.
 	var story_ok := false
-	var fb: Dictionary = Story._fallback() if Story.has_method("_fallback") else {}
+	var fb: Dictionary = {}
 	Story._theme = "zombie apocalypse"
 	Story._facts = {"factions": ["Ridgeback Clan", "raiders"], "points": 6}
-	fb = Story._fallback()
+	fb = Story._fallback_story()
 	var fb_ok: bool = fb.has("briefing") and fb.has("factions") and fb.has("greetings") and fb.has("outro") and String(fb["briefing"]).contains("zombie")
 	var sample := '{"choices":[{"message":{"content":"{\\"briefing\\":\\"Dark days.\\",\\"factions\\":{\\"X\\":\\"lore\\"},\\"greetings\\":{\\"X\\":\\"hi\\"},\\"outro\\":\\"win\\"}"}}]}'
-	var parsed: Dictionary = Story._parse(sample)
+	var parsed: Dictionary = Story._parse_story(sample)
 	var parse_ok: bool = String(parsed.get("briefing", "")) == "Dark days." and String(parsed.get("outro", "")) == "win"
+	var names_sample := '{"choices":[{"message":{"content":"prose {\\"raiders\\":[{\\"name\\":\\"Vex\\",\\"trait\\":\\"cruel\\"}]} trailing"}}]}'
+	var pn: Dictionary = Story._parse_names(names_sample)
+	var pn_ok: bool = pn.has("raiders")
 	# LLM name pools: NameGen draws unique people from a pool, then falls back.
 	NameGen.set_pools({"raiders": [{"name": "Vex Skullsplitter", "trait": "ruthless"}]})
 	var p1: Dictionary = NameGen.npc_person("raiders")
 	var p2: Dictionary = NameGen.npc_person("raiders")  # pool exhausted -> built-in
 	NameGen.clear_pools()
 	var names_ok: bool = p1["name"] == "Vex Skullsplitter" and p1["trait"] == "ruthless" and p2["name"] != "Vex Skullsplitter"
-	story_ok = fb_ok and parse_ok and names_ok
-	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names=", names_ok)
+	story_ok = fb_ok and parse_ok and pn_ok and names_ok
+	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names_parse=", pn_ok, " names=", names_ok)
 
 	# Equipment: equip armor (zone damage reduction), equip/unequip a weapon, and
 	# verify worn armor cuts that zone's incoming damage.

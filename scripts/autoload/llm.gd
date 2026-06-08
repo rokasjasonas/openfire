@@ -18,6 +18,9 @@ var _dl: HTTPRequest
 var _model_node: Node = null
 var _chat_node: Node = null
 var _busy: bool = false
+var _started: bool = false
+var _worker_ready: bool = false
+var _pending: String = ""
 
 func _ready() -> void:
 	_dl = HTTPRequest.new()
@@ -81,7 +84,7 @@ func _on_download_done(result: int, code: int, _h: PackedStringArray, _b: Packed
 
 # ---------------------------------------------------------------- embedded chat
 
-func _ensure_nodes() -> bool:
+func _ensure_nodes(system: String) -> bool:
 	if not embedded_ready():
 		return false
 	if _model_node == null:
@@ -91,21 +94,46 @@ func _ensure_nodes() -> bool:
 	if _chat_node == null:
 		_chat_node = ClassDB.instantiate("NobodyWhoChat")
 		_chat_node.set("model_node", _model_node)
+		_chat_node.set("system_prompt", system)
+		_chat_node.set("context_length", 4096)
 		add_child(_chat_node)
-		if _chat_node.has_signal("response_finished"):
-			_chat_node.connect("response_finished", _on_chat_finished)
+		_chat_node.connect("response_finished", _on_chat_finished)
+		if _chat_node.has_signal("worker_failed"):
+			_chat_node.connect("worker_failed", _on_worker_failed)
+		if _chat_node.has_signal("worker_started"):
+			_chat_node.connect("worker_started", _on_worker_started)
+	if not _started:
+		_chat_node.call("start_worker")  # loads the model on a worker thread
+		_started = true
 	return true
 
 ## Start one embedded generation. Returns false if unavailable/busy; otherwise
-## emits chat_done(text) when finished. One request at a time.
+## emits chat_done(text) when finished (or chat_done("") on failure). One at a time.
 func chat(system: String, user: String) -> bool:
-	if _busy or not _ensure_nodes():
+	if _busy or not _ensure_nodes(system):
 		return false
 	_busy = true
-	_chat_node.set("system_prompt", system)
-	_chat_node.call("say", user)
+	if _worker_ready:
+		_chat_node.call("say", user)
+	else:
+		_pending = user  # say once the worker has loaded the model
 	return true
 
+func _on_worker_started() -> void:
+	_worker_ready = true
+	if _pending != "":
+		var u := _pending
+		_pending = ""
+		_chat_node.call("say", u)
+
 func _on_chat_finished(text: String) -> void:
+	if not _busy:
+		return
 	_busy = false
 	chat_done.emit(text)
+
+func _on_worker_failed(_msg: String) -> void:
+	if not _busy:
+		return
+	_busy = false
+	chat_done.emit("")  # let Story fall back

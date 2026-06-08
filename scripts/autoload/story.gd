@@ -11,6 +11,7 @@ extends Node
 ##               names{faction:[{name,trait}]}, outro }
 
 signal story_ready(story: Dictionary)
+signal phase_changed(text: String)   # human-readable loading-screen status
 
 const SYS := "You write game content. Respond with ONLY a compact JSON object, no markdown, no prose."
 
@@ -51,6 +52,7 @@ func generate(theme: String, facts: Dictionary) -> void:
 # ---------------------------------------------------------------- embedded (llama.cpp)
 
 func _generate_embedded() -> void:
+	phase_changed.emit("Writing the world's story…")
 	LLM.chat_done.connect(_on_embed_story, CONNECT_ONE_SHOT)
 	if not LLM.chat(SYS, _story_prompt()):
 		_story_part = _fallback_story()
@@ -61,6 +63,7 @@ func _on_embed_story(text: String) -> void:
 	_story_part = _parse_story_content(text)
 	if _story_part.is_empty():
 		_story_part = _fallback_story()
+	phase_changed.emit("Naming the inhabitants…")
 	LLM.chat_done.connect(_on_embed_names, CONNECT_ONE_SHOT)
 	if not LLM.chat(SYS, _names_prompt()):
 		_names_part = {}
@@ -78,6 +81,7 @@ func _finish_embedded() -> void:
 # ---------------------------------------------------------------- HTTP (LM Studio)
 
 func _generate_http() -> void:
+	phase_changed.emit("Writing the story & naming the world…")
 	_story_pending = true
 	_names_pending = true
 	if _send(_http_story, _story_prompt(), 900) != OK:

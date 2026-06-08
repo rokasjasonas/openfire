@@ -89,6 +89,9 @@ func _grace_begin() -> void:
 func _begin_survival_story() -> void:
 	if not Story.story_ready.is_connected(_on_story_ready):
 		Story.story_ready.connect(_on_story_ready)
+	if not Story.phase_changed.is_connected(_on_story_phase):
+		Story.phase_changed.connect(_on_story_phase)
+	_set_loading_text.rpc(_loading("Preparing the world\u2026"))
 	# First start with an embedded model but no file yet: download it (with progress)
 	# before generating; gameplay waits via _hard_begin while downloading.
 	if LLM.embedded_available() and not LLM.has_model():
@@ -101,11 +104,23 @@ func _begin_survival_story() -> void:
 func _on_model_ready(_ok: bool) -> void:
 	if LLM.download_progress.is_connected(_on_model_progress):
 		LLM.download_progress.disconnect(_on_model_progress)
-	_set_loading_text.rpc("Generating world & story\u2026")
+	_set_loading_text.rpc(_loading("Loading the AI model\u2026"))
 	_kick_story()
 
 func _on_model_progress(frac: float) -> void:
-	_set_loading_text.rpc("Downloading AI model\u2026  %d%%" % int(frac * 100.0))
+	_set_loading_text.rpc(_loading("Downloading AI model\u2026  %d%%" % int(frac * 100.0)))
+
+func _on_story_phase(text: String) -> void:
+	_set_loading_text.rpc(_loading(text))
+
+## Compose a loading-screen message: a context header (world size + theme) + phase.
+func _loading(phase: String) -> String:
+	var sizes := ["Small", "Medium", "Large"]
+	var head := "Survival \u2014 %s world" % sizes[clampi(int(Game.config.get("map_size", 1)), 0, 2)]
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	if theme != "":
+		head += " \u00b7 \"%s\"" % theme
+	return "%s\n%s" % [head, phase]
 
 func _kick_story() -> void:
 	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
@@ -379,6 +394,7 @@ func _on_story_ready(s: Dictionary) -> void:
 	var briefing := String(s.get("briefing", ""))
 	if briefing != "":
 		set_objective_text.rpc(briefing)
+	_set_loading_text.rpc(_loading("Populating the villages\u2026"))
 	_story_done = true
 	_try_begin()
 

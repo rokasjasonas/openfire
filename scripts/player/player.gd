@@ -108,6 +108,7 @@ const NPC_TALK_RANGE := 4.5
 var driving: Node = null       # the vehicle we're in, or null
 var near_vehicle: bool = false
 var near_npc: Node = null      # Survival: nearest talkable (non-hostile) NPC, or null
+var near_pickup: Node = null   # Survival: nearest collectable pickup (press E), or null
 var _cam_yaw: float = 0.0      # drive-camera orbit (relative to car)
 var _cam_pitch: float = 0.0
 var _cam_idle: float = 0.0
@@ -251,10 +252,13 @@ func _physics_process(delta: float) -> void:
 		return
 	near_vehicle = _nearest_vehicle() != null
 	near_npc = _nearest_talkable_npc() if Game.is_survival() else null
+	near_pickup = _nearest_pickup() if Game.is_survival() else null
 	if Input.is_action_just_pressed("interact"):
 		if near_vehicle:
 			_enter_vehicle(_nearest_vehicle())
 			return
+		elif near_pickup != null:
+			near_pickup.collect(self)
 		elif near_npc != null:
 			_talk_to(near_npc)
 
@@ -629,6 +633,19 @@ func _nearest_vehicle() -> Node:
 		if d < bd:
 			bd = d
 			best = v
+	return best
+
+## Survival: nearest collectable pickup within reach (collected on E).
+func _nearest_pickup() -> Node:
+	var best: Node = null
+	var bd := 2.6
+	for p in get_tree().get_nodes_in_group("pickup"):
+		if not p.get("available"):
+			continue
+		var d: float = global_position.distance_to(p.global_position)
+		if d < bd:
+			bd = d
+			best = p
 	return best
 
 ## Survival: nearest living NPC within talk range that isn't hostile to us.

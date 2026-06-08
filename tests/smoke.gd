@@ -570,15 +570,18 @@ func _ready() -> void:
 		me.backpack_w = 4
 		me.backpack_h = 4
 		var add_ok: bool = me.inv_add(ItemDB.make_weapon("rifle")) and int(me.inventory[0]["gx"]) == 0 and int(me.inventory[0]["gy"]) == 0
-		me.inv_add(ItemDB.make_weapon("smg"))  # second 2x2 auto-places elsewhere
+		me.inv_add(ItemDB.make_weapon("smg"))  # second 2x1 long gun auto-places elsewhere
 		var a: Dictionary = me.inventory[0]
 		var b: Dictionary = me.inventory[1]
-		var overlap_ok: bool = not (int(a["gx"]) == int(b["gx"]) and int(a["gy"]) == int(b["gy"])) and me.inv_used() == 8 and me.inv_cell_count() == 16
-		# Fill the 4x4 grid with four 2x2 items; a fifth must not fit.
+		# Long guns are 2x1 (2 cells each) -> 4 used of 16.
+		var overlap_ok: bool = not (int(a["gx"]) == int(b["gx"]) and int(a["gy"]) == int(b["gy"])) and me.inv_used() == 4 and me.inv_cell_count() == 16
+		# Footprints: long guns 2x1, pistol 1x1.
+		var size_ok: bool = ItemDB.make_weapon("rifle")["w"] == 2 and ItemDB.make_weapon("rifle")["h"] == 1 and ItemDB.make_weapon("pistol")["w"] == 1 and ItemDB.make_weapon("pistol")["h"] == 1
+		# Fill the 4x4 grid with 2x1 guns; exactly eight fit, a ninth must not.
 		me.inventory.clear()
-		for i in 4:
+		for i in 10:
 			me.inv_add(ItemDB.make_weapon("rifle"))
-		var cap_ok: bool = me.inventory.size() == 4 and not me.inv_add(ItemDB.make_weapon("rifle"))
+		var cap_ok: bool = me.inventory.size() == 8 and not me.inv_add(ItemDB.make_weapon("rifle"))
 		me.inventory.clear()
 		me.hunger = 10.0
 		me.inv_add(ItemDB.make("food"))
@@ -593,8 +596,8 @@ func _ready() -> void:
 				found_drop = true
 		var drop_ok: bool = me.inventory.is_empty() and found_drop
 		me.inventory.clear()
-		inventory_ok = add_ok and overlap_ok and cap_ok and use_ok and drop_ok
-		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
+		inventory_ok = add_ok and overlap_ok and size_ok and cap_ok and use_ok and drop_ok
+		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " size=", size_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
 
 	# Procedural Survival terrain: seeded heightmap mesh + collision + biome navmesh,
 	# water plane, scattered props, flattened POI/village sites and spawns.
@@ -645,7 +648,7 @@ func _ready() -> void:
 		me.inventory.clear()
 		me.backpack_w = 4
 		me.backpack_h = 4
-		me.inv_add(ItemDB.make_weapon("rifle"))  # 2x2 at (0,0)
+		me.inv_add(ItemDB.make_weapon("rifle"))  # 2x1 at (0,0)
 		me.inv_add(ItemDB.make("food"))           # 1x1 elsewhere
 		var blocked: bool = not me.inv_move(1, 0, 0)   # onto the weapon -> rejected
 		var move_ok: bool = me.inv_move(1, 3, 3)       # to a free cell -> ok

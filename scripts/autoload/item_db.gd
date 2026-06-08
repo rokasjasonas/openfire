@@ -43,11 +43,35 @@ func make(id: String) -> Dictionary:
 	d["id"] = id
 	return _finalize(d)
 
+## Footprint per weapon (w, h). Pistol is compact; long guns are 2x1.
+const WEAPON_FOOTPRINT := {
+	"pistol": Vector2i(1, 1),
+}
+
 func make_weapon(weapon_id: String) -> Dictionary:
 	var wname := weapon_id.capitalize()
 	if WeaponDB.has_weapon(weapon_id):
 		wname = String(WeaponDB.get_weapon(weapon_id)["name"])
-	return _finalize({"id": "weapon", "name": wname, "kind": "weapon", "w": 2, "h": 2, "weapon_id": weapon_id})
+	var fp: Vector2i = WEAPON_FOOTPRINT.get(weapon_id, Vector2i(2, 1))
+	return _finalize({"id": "weapon", "name": wname, "kind": "weapon", "w": fp.x, "h": fp.y, "weapon_id": weapon_id})
+
+var _icon_cache: Dictionary = {}
+
+## A 2D icon image for an item (weapon preview render), or null to draw a glyph.
+func icon_texture(item: Dictionary) -> Texture2D:
+	if String(item.get("kind", "")) != "weapon":
+		return null
+	var wid := String(item.get("weapon_id", ""))
+	if _icon_cache.has(wid):
+		return _icon_cache[wid]
+	var tex: Texture2D = null
+	if WeaponDB.has_weapon(wid):
+		var base := String(WeaponDB.get_weapon(wid)["model"]).get_file().get_basename()
+		var path := "res://assets/kenney/blaster-kit/Previews/%s.png" % base
+		if ResourceLoader.exists(path):
+			tex = load(path)
+	_icon_cache[wid] = tex
+	return tex
 
 ## Convert a world pickup (kind + amount + weapon_id) into a carried item.
 func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:

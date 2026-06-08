@@ -101,6 +101,24 @@ func _ready() -> void:
 	# Only the server thinks. Clients just display + interpolate synced state.
 	set_physics_process(is_multiplayer_authority())
 	set_process(not is_multiplayer_authority())
+	if is_multiplayer_authority():
+		call_deferred("_snap_to_navmesh")  # don't start stuck in water / off-mesh
+
+## Move a freshly-spawned bot onto the nearest walkable navmesh point, so NPCs that
+## landed in a lake or on a steep slope (no swimming) don't stand there glitching.
+func _snap_to_navmesh() -> void:
+	var region := get_tree().get_first_node_in_group("nav_region")
+	if region == null or not (region is NavigationRegion3D):
+		return
+	var nmap: RID = region.get_navigation_map()
+	if not NavigationServer3D.map_is_active(nmap):
+		return
+	var p := NavigationServer3D.map_get_closest_point(nmap, global_position)
+	var d := Vector2(p.x - global_position.x, p.z - global_position.z).length()
+	if d > 0.5 and d < 40.0:
+		global_position = Vector3(p.x, p.y + 1.0, p.z)
+		sync_pos = global_position
+		_spawn_pos = global_position
 
 func _apply_profile() -> void:
 	var p: Dictionary = PROFILES.get(etype, PROFILES["soldier"])

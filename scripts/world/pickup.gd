@@ -76,13 +76,9 @@ func _on_body_entered(body: Node) -> void:
 		return
 	if not body.is_multiplayer_authority() or body.get("dead"):
 		return
-	# Survival: everything goes into the backpack instead of applying instantly, and
-	# collected pickups are gone for good (no respawn).
+	# Survival: nothing is auto-collected — the player picks it up manually with E
+	# (Player calls collect()). Outside Survival, touching still grabs it.
 	if Game.is_survival():
-		var item: Dictionary = item_data if not item_data.is_empty() else ItemDB.from_pickup(kind, amount, weapon_id)
-		if body.has_method("inv_add") and body.inv_add(item):
-			Audio.play_3d("res://assets/audio/reload.ogg", global_position, 0.0, 0.05)
-			_take.rpc()
 		return
 	# Skip if it would be wasted, so you don't burn a respawn for nothing.
 	if kind == "health" and body.sync_health >= body.MAX_HEALTH:
@@ -92,6 +88,29 @@ func _on_body_entered(body: Node) -> void:
 	_apply(body)
 	Audio.play_3d("res://assets/audio/reload.ogg", global_position, 0.0, 0.05)
 	_set_available.rpc(false)
+
+## Survival: collect into the backpack (called by the player pressing E nearby).
+func collect(body: Node) -> bool:
+	if not available or not Game.is_survival():
+		return false
+	if not body.is_multiplayer_authority() or body.get("dead"):
+		return false
+	var item: Dictionary = item_data if not item_data.is_empty() else ItemDB.from_pickup(kind, amount, weapon_id)
+	if body.has_method("inv_add") and body.inv_add(item):
+		Audio.play_3d("res://assets/audio/reload.ogg", global_position, 0.0, 0.05)
+		_take.rpc()
+		return true
+	return false
+
+## Display name for the [E] pick-up prompt.
+func label() -> String:
+	if not item_data.is_empty():
+		return String(item_data.get("name", "Item"))
+	if kind == "weapon" and WeaponDB.has_weapon(weapon_id):
+		return String(WeaponDB.get_weapon(weapon_id)["name"])
+	if kind == "armor" and ItemDB.DEFS.has(weapon_id):
+		return String(ItemDB.DEFS[weapon_id]["name"])
+	return kind.capitalize()
 
 ## Survival: a collected/used pickup is removed for good (no respawn).
 @rpc("any_peer", "call_local", "reliable")

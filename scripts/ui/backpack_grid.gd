@@ -114,16 +114,18 @@ func _draw() -> void:
 			Vector2(int(it.get("w", 1)) * CELL, int(it.get("h", 1)) * CELL)), hl, true)
 		_draw_item(it, _mouse - _grab_off, 0.85, font, fs)
 
-func _draw_item(it: Dictionary, top_left: Vector2, alpha: float, font: Font, fs: int) -> void:
+func _draw_item(it: Dictionary, top_left: Vector2, alpha: float, font: Font, _fs: int) -> void:
 	var w := int(it.get("w", 1))
 	var h := int(it.get("h", 1))
 	var rect := Rect2(top_left + Vector2(2, 2), Vector2(w * CELL - 4, h * CELL - 4))
 	var col: Color = ItemDB.color_for(String(it.get("kind", "")))
-	var fill := col
-	fill.a = 0.5 * alpha
-	draw_rect(rect, fill, true)
+	draw_rect(rect, Color(0.12, 0.13, 0.16, 0.85 * alpha), true)
+	ItemIcon.draw(self, it, rect)
 	col.a = alpha
 	draw_rect(rect, col, false, 2.0)
 	if font:
-		draw_string(font, top_left + Vector2(6, 18), String(it.get("name", "")),
-			HORIZONTAL_ALIGNMENT_LEFT, w * CELL - 8, fs, Color(1, 1, 1, alpha))
+		# name on a dark strip along the bottom so it stays readable over the icon
+		var strip := Rect2(rect.position + Vector2(0, rect.size.y - 14), Vector2(rect.size.x, 14))
+		draw_rect(strip, Color(0, 0, 0, 0.5 * alpha), true)
+		draw_string(font, rect.position + Vector2(3, rect.size.y - 3), String(it.get("name", "")),
+			HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 4, 10, Color(1, 1, 1, 0.9 * alpha))

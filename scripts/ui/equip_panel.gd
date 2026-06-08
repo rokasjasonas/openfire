@@ -14,9 +14,10 @@ const SLOTS := [
 	{"slot": "head", "label": "Head", "x": 4, "y": 4},
 	{"slot": "body", "label": "Body", "x": 4, "y": 58},
 	{"slot": "pants", "label": "Legs", "x": 4, "y": 112},
-	{"slot": "gun1", "label": "Gun 1", "x": 4, "y": 170},
-	{"slot": "gun2", "label": "Gun 2", "x": 68, "y": 170},
-	{"slot": "gun3", "label": "Gun 3", "x": 132, "y": 170},
+	# Gun row sits well below the armor column (bigger gap).
+	{"slot": "gun1", "label": "Gun 1", "x": 4, "y": 204},
+	{"slot": "gun2", "label": "Gun 2", "x": 68, "y": 204},
+	{"slot": "gun3", "label": "Gun 3", "x": 132, "y": 204},
 	{"slot": "extra", "label": "Extra", "x": 132, "y": 4},
 ]
 
@@ -64,11 +65,15 @@ func _draw() -> void:
 		draw_rect(rect, Color(1, 1, 1, 0.16), false, 1.0)
 		if font == null:
 			continue
-		draw_string(font, rect.position + Vector2(6, 14), String(s["label"]),
-			HORIZONTAL_ALIGNMENT_LEFT, SW - 8, 10, Color(1, 1, 1, 0.45))
+		draw_string(font, rect.position + Vector2(5, 11), String(s["label"]),
+			HORIZONTAL_ALIGNMENT_LEFT, SW - 6, 9, Color(1, 1, 1, 0.42))
 		var item := _slot_item(String(s["slot"]))
 		if item.is_empty():
-			draw_string(font, rect.position + Vector2(6, 34), "—", HORIZONTAL_ALIGNMENT_LEFT, SW - 8, 13, Color(1, 1, 1, 0.28))
-		else:
-			draw_string(font, rect.position + Vector2(6, 35), String(item.get("name", "")),
-				HORIZONTAL_ALIGNMENT_LEFT, SW - 8, 12, ItemDB.color_for(String(item.get("kind", ""))))
+			draw_string(font, rect.position + Vector2(0, SH * 0.62), "—",
+				HORIZONTAL_ALIGNMENT_CENTER, SW, 13, Color(1, 1, 1, 0.25))
+			continue
+		ItemIcon.draw(self, item, Rect2(rect.position + Vector2(0, 12), Vector2(SW, SH - 12)), 3.0)
+		var strip := Rect2(rect.position + Vector2(0, SH - 12), Vector2(SW, 12))
+		draw_rect(strip, Color(0, 0, 0, 0.5), true)
+		draw_string(font, rect.position + Vector2(3, SH - 3), String(item.get("name", "")),
+			HORIZONTAL_ALIGNMENT_LEFT, SW - 4, 9, Color(1, 1, 1, 0.9))

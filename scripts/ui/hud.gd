@@ -98,8 +98,13 @@ func _process(delta: float) -> void:
 			(is_instance_valid(_player.driving) and _player.driving.is_in_group("aircraft"))
 
 func _update_npc_prompt() -> void:
+	var busy: bool = _player.driving != null or npc_dialog.visible
+	var pk = _player.near_pickup
+	if Game.is_survival() and pk != null and is_instance_valid(pk) and not busy:
+		npc_prompt.text = "[E] Pick up %s" % pk.label()
+		return
 	var n = _player.near_npc
-	if Game.is_survival() and n != null and is_instance_valid(n) and _player.driving == null and not npc_dialog.visible:
+	if Game.is_survival() and n != null and is_instance_valid(n) and not busy:
 		npc_prompt.text = "%s — %s (%s)    [E] Talk" % [String(n.display_name), String(n.role), String(n.faction)]
 	else:
 		npc_prompt.text = ""

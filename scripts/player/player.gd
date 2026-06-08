@@ -78,6 +78,7 @@ var in_water: bool = false
 var near_ladder: Node = null
 var _water_y: float = -1.0e20    # cached water-surface height (sentinel = unknown)
 var _oxy_dmg_accum: float = 0.0
+var _ladder_detach: float = 0.0  # brief no-grab window after jumping off a ladder
 
 # Run stats (local only) for the Stats tab: distance, shots, accuracy.
 var meters_walked: float = 0.0
@@ -296,9 +297,10 @@ func _physics_process(delta: float) -> void:
 	in_water = global_position.y < _water_y
 	_update_oxygen(delta, head.global_position.y < _water_y)
 
+	_ladder_detach = maxf(0.0, _ladder_detach - delta)
 	if in_water:
 		_swim(delta)
-	elif near_ladder != null and _wants_climb():
+	elif near_ladder != null and _ladder_detach <= 0.0 and _wants_climb():
 		_climb(delta, near_ladder)
 	else:
 		# Crouch (hold). Can't stand back up if something is overhead.
@@ -460,12 +462,15 @@ func _nearest_ladder() -> Node:
 			return l
 	return null
 
-## On a ladder you climb when pressing up/down, or whenever you're off the floor
-## (mid-climb). Standing idle at the base lets you walk away normally.
+## On a ladder you climb with forward/back, or whenever you're off the floor
+## (mid-climb). Standing idle at the base lets you walk away normally. Jump is NOT
+## a climb input — it detaches you from the ladder (see _climb).
 func _wants_climb() -> bool:
-	var up := Input.is_action_pressed("move_forward") or Input.is_action_pressed("jump")
-	var down := Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch")
+	var up := Input.is_action_pressed("move_forward")
+	var down := Input.is_action_pressed("move_back")
 	return up or down or not is_on_floor()
+
+const LADDER_OFFSET := 0.5   # stand this far out in front of the rungs
 
 func _climb(delta: float, l: Node) -> void:
 	_crouch = 0.0
@@ -473,22 +478,34 @@ func _climb(delta: float, l: Node) -> void:
 	_apply_crouch(0.0)
 	var bottom: Vector3 = l.get_meta("bottom")
 	var top: Vector3 = l.get_meta("top")
+	var normal: Vector3 = l.get_meta("normal", Vector3(0, 0, -1))  # outward, toward climber
+
+	# Space jumps OFF the ladder — leap outward and up, with a brief no-regrab window.
+	if Input.is_action_just_pressed("jump"):
+		velocity = normal * 6.0 + Vector3.UP * (JUMP_VELOCITY * 0.8)
+		_ladder_detach = 0.4
+		move_and_slide()
+		return
+
 	var up := 0.0
-	if Input.is_action_pressed("move_forward") or Input.is_action_pressed("jump"):
+	if Input.is_action_pressed("move_forward"):
 		up += 1.0
-	if Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch"):
+	if Input.is_action_pressed("move_back"):
 		up -= 1.0
 	velocity.y = up * CLIMB_SPEED
-	# Hug the ladder centre-line so you don't drift off it.
-	var to_center := Vector3(bottom.x - global_position.x, 0.0, bottom.z - global_position.z)
-	velocity.x = to_center.x * 5.0
-	velocity.z = to_center.z * 5.0
-	# Reaching the top while climbing up: step forward onto the platform.
-	if global_position.y >= top.y - 0.4 and up > 0.0:
-		var fwd := -global_transform.basis.z
-		velocity.x = fwd.x * WALK_SPEED
-		velocity.z = fwd.z * WALK_SPEED
-		velocity.y = CLIMB_SPEED * 0.5
+
+	# Stand a little out in front of the rungs (not embedded in the ladder), hugging
+	# that offset line so you stay aligned while climbing.
+	var stand := Vector3(bottom.x, 0.0, bottom.z) + normal * LADDER_OFFSET
+	velocity.x = (stand.x - global_position.x) * 6.0
+	velocity.z = (stand.z - global_position.z) * 6.0
+
+	# At the top, climbing up steps inward (toward the platform) and over the lip.
+	if global_position.y >= top.y - 0.6 and up > 0.0:
+		var inward := -normal
+		velocity.x = inward.x * WALK_SPEED
+		velocity.z = inward.z * WALK_SPEED
+		velocity.y = CLIMB_SPEED
 	move_and_slide()
 
 ## Survival: spawn unarmed with the default guns + grenades stowed in the backpack.

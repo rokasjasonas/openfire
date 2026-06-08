@@ -167,12 +167,13 @@ func _wall_with_door(axis: String, fixed: float, length: float, height: float, t
 ## A climbable ladder between two world points. Visual rungs only (no collider, so
 ## the player climbs through it); registered in group "ladder" with bottom/top meta
 ## that Player._nearest_ladder() reads.
-func add_ladder(bottom: Vector3, top: Vector3, color: String = "Orange", idx: int = 5) -> void:
+func add_ladder(bottom: Vector3, top: Vector3, normal: Vector3 = Vector3(0, 0, -1), color: String = "Orange", idx: int = 5) -> void:
 	var node := Node3D.new()
 	node.add_to_group("ladder")
 	node.set_meta("bottom", bottom)
 	node.set_meta("top", top)
-	node.set_meta("radius", 1.2)
+	node.set_meta("normal", normal.normalized())   # horizontal dir from wall toward the climber
+	node.set_meta("radius", 1.3)
 	add_child(node)
 	var height := top.y - bottom.y
 	if height <= 0.1:
@@ -207,7 +208,10 @@ func add_watchtower(base: Vector3, height: float = 8.0, color: String = "Light",
 	add_box(Vector3(hw * 2.0, 1.0, 0.2), base + Vector3(0, height + 0.5, hw), color, idx)
 	add_box(Vector3(0.2, 1.0, hw * 2.0), base + Vector3(-hw, height + 0.5, 0), color, idx)
 	add_box(Vector3(0.2, 1.0, hw * 2.0), base + Vector3(hw, height + 0.5, 0), color, idx)
-	add_ladder(base + Vector3(0, 0, -hw - 0.25), base + Vector3(0, height + 0.2, -hw - 0.25))
+	# Ladder sits just clear of the platform's -Z edge and rises a little above the
+	# deck, so climbing doesn't hit the platform underside and you can step on at top.
+	var lz := base.z - hw - 0.6
+	add_ladder(Vector3(base.x, base.y, lz), Vector3(base.x, base.y + height + 0.7, lz), Vector3(0, 0, -1))
 
 ## Decorative crate prop (small collider, not added to navmesh).
 func add_crate(glb: String, pos: Vector3, scale: float = 1.0) -> void:

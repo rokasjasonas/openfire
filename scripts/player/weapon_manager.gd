@@ -11,7 +11,11 @@ var player: CharacterBody3D
 var camera: Camera3D
 var is_local: bool = false
 
-var loadout: Array = []
+const SLOTS := 3                     # three gun slots (gun1/gun2/gun3 in the UI)
+
+# Fixed-size loadout: always SLOTS entries, "" marks an empty slot. This lets a gun
+# sit in slot 2 while slots 1/3 stay empty (slots no longer pack toward index 0).
+var loadout: Array = ["", "", ""]
 var ammo: Dictionary = {}            # id -> { "mag": int, "reserve": int }
 var current_index: int = 0
 
@@ -50,21 +54,42 @@ func set_hidden(v: bool) -> void:
 	holder.visible = not v
 
 func set_loadout(ids: Array) -> void:
-	loadout = ids.duplicate()
+	loadout = ["", "", ""]
+	for i in mini(ids.size(), SLOTS):
+		loadout[i] = String(ids[i])
 	ammo.clear()
 	for id in loadout:
+		if String(id) == "":
+			continue
 		var w: Dictionary = WeaponDB.get_weapon(id)
 		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
-	current_index = 0
-	_equip(0)
+	current_index = maxi(_first_filled(), 0)
+	_equip(current_index)
+
+## True if gun slot `i` holds a weapon (not empty).
+func slot_filled(i: int) -> bool:
+	return i >= 0 and i < loadout.size() and String(loadout[i]) != ""
+
+## Index of the first occupied gun slot, or -1 if all are empty (unarmed).
+func _first_filled() -> int:
+	for i in loadout.size():
+		if String(loadout[i]) != "":
+			return i
+	return -1
+
+func _has_weapon() -> bool:
+	return _first_filled() != -1
 
 func refill() -> void:
 	for id in loadout:
+		if String(id) == "":
+			continue
 		var w: Dictionary = WeaponDB.get_weapon(id)
 		ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
 	emit_state()
 
-## Pickup: grant a weapon (replace the current slot if new), with full ammo.
+## Pickup: grant a weapon into the first empty slot (replace the current one if all
+## three are full), with full ammo.
 func give_weapon(id: String) -> void:
 	if not WeaponDB.has_weapon(id):
 		return
@@ -72,48 +97,79 @@ func give_weapon(id: String) -> void:
 	var full := {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
 	if loadout.has(id):
 		ammo[id] = full
-	elif loadout.size() < 3:
-		# Equip into a free slot (Survival starts with empty slots).
-		loadout.append(id)
-		ammo[id] = full
-		_equip(loadout.size() - 1)
-	else:
-		# Slots full: replace the current weapon.
-		loadout[current_index] = id
-		ammo[id] = full
-		_equip(current_index)
+		return
+	var slot: int = loadout.find("")  # first empty slot
+	if slot == -1:
+		slot = current_index  # all full -> replace the current weapon
+		ammo.erase(String(loadout[slot]))
+	loadout[slot] = id
+	ammo[id] = full
+	_equip(slot)
 	emit_state()
 
-## Remove the weapon in gun slot `i` (unequip). Leaves you unarmed if it was last.
+## Place weapon `id` into a specific gun slot `i`, swapping out whatever was there.
+## Returns the id previously in that slot ("" if it was empty). Ignored if `id` is
+## already equipped in another slot.
+func set_slot(i: int, id: String) -> String:
+	if i < 0 or i >= SLOTS or not WeaponDB.has_weapon(id) or loadout.has(id):
+		return ""
+	var prev := String(loadout[i])
+	if prev != "":
+		ammo.erase(prev)
+	loadout[i] = id
+	var w: Dictionary = WeaponDB.get_weapon(id)
+	ammo[id] = {"mag": int(w["mag_size"]), "reserve": int(w["reserve"])}
+	if not slot_filled(current_index):
+		current_index = i
+	_equip(current_index)
+	emit_state()
+	return prev
+
+## Move/swap the weapon in gun slot `a` with slot `b` (drag between gun slots).
+func move_slot(a: int, b: int) -> void:
+	if a < 0 or a >= SLOTS or b < 0 or b >= SLOTS or a == b:
+		return
+	var tmp = loadout[a]
+	loadout[a] = loadout[b]
+	loadout[b] = tmp
+	if current_index == a:
+		current_index = b
+	elif current_index == b:
+		current_index = a
+	_equip(current_index)
+	emit_state()
+
+## Remove the weapon in gun slot `i` (unequip). Leaves the slot empty.
 func remove_slot(i: int) -> void:
-	if i < 0 or i >= loadout.size():
+	if not slot_filled(i):
 		return
 	var id = loadout[i]
-	loadout.remove_at(i)
+	loadout[i] = ""
 	ammo.erase(id)
-	if loadout.is_empty():
+	if not _has_weapon():
 		if _model:
 			_model.queue_free()
 			_model = null
 		current_index = 0
-	else:
-		current_index = clampi(current_index, 0, loadout.size() - 1)
-		_equip(current_index)
+	elif current_index == i:
+		_equip(_first_filled())
 	emit_state()
 
 func _current() -> Dictionary:
-	if loadout.is_empty():
+	if not slot_filled(current_index):
 		return WeaponDB.WEAPONS[0]
 	return WeaponDB.get_weapon(loadout[current_index])
 
 func _equip(index: int) -> void:
-	if loadout.is_empty():
-		return
-	current_index = clampi(index, 0, loadout.size() - 1)
+	current_index = clampi(index, 0, SLOTS - 1)
 	_reloading = false
 	if _model:
 		_model.queue_free()
 		_model = null
+	if not slot_filled(current_index):
+		if is_local:
+			emit_state()  # empty slot -> show "Unarmed", no model
+		return
 	var w := _current()
 	var packed: PackedScene = load(w["model"])
 	if packed:
@@ -130,13 +186,12 @@ func _equip(index: int) -> void:
 
 ## Remote players: keep the visible weapon matched to the replicated index.
 func ensure_index(index: int) -> void:
-	if index != current_index or _model == null:
-		if index >= 0 and index < loadout.size():
-			_equip(index)
+	if index != current_index or (slot_filled(index) and _model == null):
+		_equip(index)
 
 func switch_to(index: int) -> void:
-	if index < 0 or index >= loadout.size() or index == current_index:
-		return
+	if index < 0 or index >= SLOTS or index == current_index or not slot_filled(index):
+		return  # ignore switches to an empty slot
 	_equip(index)
 
 func set_trigger(pressed: bool) -> void:
@@ -148,7 +203,7 @@ func set_aiming(v: bool) -> void:
 	_aiming = v
 
 func reload() -> void:
-	if loadout.is_empty():
+	if not slot_filled(current_index):
 		return
 	var w := _current()
 	var a: Dictionary = ammo[loadout[current_index]]
@@ -199,8 +254,8 @@ func _finish_reload() -> void:
 	emit_state()
 
 func _fire() -> void:
-	if loadout.is_empty():
-		return  # unarmed (Survival start) — nothing to fire
+	if not slot_filled(current_index):
+		return  # unarmed (Survival start / empty slot) — nothing to fire
 	var w := _current()
 	var a: Dictionary = ammo[loadout[current_index]]
 	if int(a["mag"]) <= 0:
@@ -210,6 +265,8 @@ func _fire() -> void:
 	a["mag"] -= 1
 	_fired_this_press = true
 	_cooldown = 1.0 / float(w["fire_rate"])
+	if is_local:
+		player.shots_fired += 1
 
 	var origin := camera.global_position
 	var fwd := -camera.global_transform.basis.z
@@ -272,6 +329,7 @@ func _fire() -> void:
 	if hit_combatant and is_local:
 		_show_damage_number(last_hit, dmg_dealt, was_headshot)
 		player.dealt_damage.emit(dmg_dealt)
+		player.shots_hit += 1  # any shot that connected with a target (for accuracy)
 	# Local recoil kick.
 	_recoil = 1.0
 	if player.has_node("Head"):
@@ -439,8 +497,9 @@ func _make_tracer(from: Vector3, to: Vector3) -> void:
 func emit_state() -> void:
 	if not is_local or player == null:
 		return
-	var id = loadout[current_index] if not loadout.is_empty() else ""
+	var filled := slot_filled(current_index)
+	var id = loadout[current_index] if filled else ""
 	var w := _current()
 	var a: Dictionary = ammo.get(id, {"mag": 0, "reserve": 0})
 	player.ammo_changed.emit(int(a["mag"]), int(a["reserve"]))
-	player.weapon_changed.emit("Unarmed" if loadout.is_empty() else String(w["name"]))
+	player.weapon_changed.emit("Unarmed" if not filled else String(w["name"]))

@@ -43,6 +43,12 @@ var role: String = ""           # Survival role (Leader / Guard / Raider / ...)
 var persona: String = ""        # Survival: short LLM-written persona trait
 var _active: bool = true         # Survival: false when far from all players (frozen)
 
+# Swimming: bots float in water and can swim straight to a visible target across it.
+const SWIM_CHASE_RANGE := 45.0   # max distance to wade into water after a target
+var _water_y: float = -1.0e20
+var in_water: bool = false
+var _water_ahead: bool = false
+
 # Stats resolved from the profile.
 var max_health: float = 100.0
 var move_speed: float = 5.5
@@ -190,8 +196,14 @@ func _physics_process(delta: float) -> void:
 		_drive_bot_vehicle(delta)
 		return
 
-	# Gravity
-	if not is_on_floor():
+	# Gravity, or buoyancy when in water (bots float instead of sinking/glitching).
+	if _water_y < -1.0e19:
+		_update_water_level()
+	in_water = global_position.y < _water_y
+	if in_water:
+		var depth := _water_y - global_position.y
+		velocity.y = lerp(velocity.y, clampf(depth - 1.3, -1.0, 1.0) * 4.0, 4.0 * delta)
+	elif not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
 
 	_think_cd -= delta
@@ -199,6 +211,7 @@ func _physics_process(delta: float) -> void:
 		_think_cd = 0.25
 		_acquire_target()
 		_maybe_enter_vehicle()
+		_water_ahead = _water_between_me_and(_target)
 
 	if _shoot_cd > 0.0:
 		_shoot_cd -= delta
@@ -374,7 +387,12 @@ func _do_chase() -> void:
 	if _target == null:
 		_state = State.PATROL
 		return
-	_move_toward(_target.global_position, move_speed)
+	# Swim straight at the target when already in water, or wade in if water lies
+	# between us and a target within range (the navmesh stops at the shore).
+	if in_water or _water_ahead:
+		_steer_direct(_target.global_position, move_speed)
+	else:
+		_move_toward(_target.global_position, move_speed)
 
 func _do_attack(delta: float) -> void:
 	if _target == null:
@@ -393,7 +411,9 @@ func _do_attack(delta: float) -> void:
 	# Close to preferred range, otherwise strafe sideways to be harder to hit.
 	var to_target := _target.global_position - global_position
 	to_target.y = 0
-	if to_target.length() > attack_range * 0.7:
+	if in_water or _water_ahead:
+		_steer_direct(_target.global_position, move_speed * 0.9)
+	elif to_target.length() > attack_range * 0.7:
 		_move_toward(_target.global_position, move_speed * 0.85)
 	else:
 		_strafe_timer -= delta
@@ -418,6 +438,44 @@ func _do_search(delta: float) -> void:
 	if global_position.distance_to(_last_seen) < 2.5:
 		_has_last_seen = false  # reached it, nobody here — resume patrol
 		_state = State.PATROL
+
+## Steer straight at a world point (no navmesh) — used while swimming.
+func _steer_direct(world_pos: Vector3, speed: float) -> void:
+	var dir := world_pos - global_position
+	dir.y = 0.0
+	if dir.length() < 0.1:
+		velocity.x = move_toward(velocity.x, 0.0, 20.0 * 0.016)
+		velocity.z = move_toward(velocity.z, 0.0, 20.0 * 0.016)
+		return
+	dir = dir.normalized()
+	velocity.x = dir.x * speed
+	velocity.z = dir.z * speed
+	_face(global_position + dir)
+
+func _update_water_level() -> void:
+	var y := -1.0e20
+	for w in get_tree().get_nodes_in_group("water"):
+		if w is Node3D:
+			y = maxf(y, (w as Node3D).global_position.y)
+	_water_y = y
+
+## True if water lies between this bot and `target` (within swim range), so it
+## should wade in and swim across rather than path around on the navmesh.
+func _water_between_me_and(target: Node) -> bool:
+	if target == null or _water_y < -1.0e19:
+		return false
+	var tp: Vector3 = target.global_position
+	if global_position.distance_to(tp) > SWIM_CHASE_RANGE:
+		return false
+	var mid := (global_position + tp) * 0.5
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(mid + Vector3.UP * 80.0, mid - Vector3.UP * 200.0)
+	q.collision_mask = 1  # world/terrain
+	q.exclude = [get_rid()]
+	var res := space.intersect_ray(q)
+	if res.is_empty():
+		return false
+	return float(res.position.y) < _water_y - 0.5
 
 func _move_toward(world_pos: Vector3, speed: float) -> void:
 	nav.target_position = world_pos

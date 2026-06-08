@@ -7,6 +7,7 @@ extends Control
 const CELL := 50.0
 
 var player: Node = null
+var equip_panel: Control = null        # sibling panel, for slot-targeted weapon drops
 var _drag: int = -1                    # index of the item being dragged, or -1
 var _grab_off: Vector2 = Vector2.ZERO  # cursor offset within the grabbed item
 var _mouse: Vector2 = Vector2.ZERO
@@ -74,7 +75,12 @@ func _release(pos: Vector2) -> void:
 	# Inside -> move; dragged left (onto the equipment panel) -> equip; else drop.
 	if not Rect2(Vector2.ZERO, _grid_size()).grow(CELL * 0.5).has_point(pos):
 		if pos.x < 0.0:
-			player.equip_item(_drag)
+			# Dragged left onto the equipment panel: target a specific gun slot if
+			# the cursor is over one, else equip into the first natural/free slot.
+			var gslot := -1
+			if equip_panel != null and equip_panel.has_method("gun_slot_at_global"):
+				gslot = equip_panel.gun_slot_at_global(get_global_mouse_position())
+			player.equip_item(_drag, gslot)
 		else:
 			player.inv_drop(_drag)
 		return

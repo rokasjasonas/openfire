@@ -36,16 +36,32 @@ anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("3_dmgdir")
 
-[node name="KillFeed" type="VBoxContainer" parent="."]
+[node name="EventLog" type="VBoxContainer" parent="."]
 unique_name_in_owner = true
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -340.0
-offset_top = 36.0
+offset_top = 214.0
 offset_right = -12.0
-offset_bottom = 200.0
+offset_bottom = 430.0
 alignment = 0
 theme_override_constants/separation = 2
+
+[node name="Celebration" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.0
+anchor_right = 0.5
+anchor_bottom = 0.0
+offset_left = -360.0
+offset_top = 84.0
+offset_right = 360.0
+offset_bottom = 150.0
+mouse_filter = 2
+theme_override_font_sizes/font_size = 34
+horizontal_alignment = 1
+vertical_alignment = 1
+text = ""
 
 [node name="ObjectiveLabel" type="Label" parent="."]
 unique_name_in_owner = true
@@ -157,6 +173,26 @@ offset_top = 104.0
 offset_right = 224.0
 offset_bottom = 120.0
 modulate = Color(0.4, 0.7, 1, 1)
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="OxygenLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 124.0
+offset_right = 240.0
+offset_bottom = 146.0
+modulate = Color(0.5, 0.9, 1, 1)
+text = "Oxygen 100"
+
+[node name="OxygenBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 146.0
+offset_right = 224.0
+offset_bottom = 162.0
+modulate = Color(0.5, 0.9, 1, 1)
 max_value = 100.0
 value = 100.0
 show_percentage = false
@@ -317,33 +353,54 @@ offset_right = 584.0
 offset_bottom = 488.0
 theme_override_constants/separation = 6
 
-[node name="InvTitle" type="Label" parent="InventoryPanel/VBox"]
-text = "BACKPACK"
-horizontal_alignment = 1
+[node name="Tabs" type="TabContainer" parent="InventoryPanel/VBox"]
+unique_name_in_owner = true
+size_flags_vertical = 3
 
-[node name="InvCapacity" type="Label" parent="InventoryPanel/VBox"]
+[node name="Inventory" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs"]
+theme_override_constants/separation = 6
+
+[node name="InvCapacity" type="Label" parent="InventoryPanel/VBox/Tabs/Inventory"]
 unique_name_in_owner = true
 text = "Space  0 / 16"
 horizontal_alignment = 1
 
-[node name="InvHBox" type="HBoxContainer" parent="InventoryPanel/VBox"]
+[node name="InvHBox" type="HBoxContainer" parent="InventoryPanel/VBox/Tabs/Inventory"]
 theme_override_constants/separation = 18
 alignment = 1
 
-[node name="EquipPanel" type="Control" parent="InventoryPanel/VBox/InvHBox"]
+[node name="EquipPanel" type="Control" parent="InventoryPanel/VBox/Tabs/Inventory/InvHBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(196, 256)
 script = ExtResource("6_equip")
 
-[node name="InvGrid" type="Control" parent="InventoryPanel/VBox/InvHBox"]
+[node name="InvGrid" type="Control" parent="InventoryPanel/VBox/Tabs/Inventory/InvHBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 200)
 script = ExtResource("5_bgrid")
 
-[node name="InvHint" type="Label" parent="InventoryPanel/VBox"]
+[node name="InvHint" type="Label" parent="InventoryPanel/VBox/Tabs/Inventory"]
 modulate = Color(1, 1, 1, 0.55)
 text = "Double-click or drag left to equip • drag out (right) to drop • double-click a slot to unequip"
 horizontal_alignment = 1
+
+[node name="Skills" type="CenterContainer" parent="InventoryPanel/VBox/Tabs"]
+
+[node name="SkillsLabel" type="Label" parent="InventoryPanel/VBox/Tabs/Skills"]
+modulate = Color(1, 1, 1, 0.6)
+text = "Skills — coming soon
+
+Earn XP from quests and kills to unlock perks
+(faster reload, tougher armor, more carry space…)
+in a future update."
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Stats" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
+
+[node name="StatsList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Stats"]
+unique_name_in_owner = true
+theme_override_constants/separation = 4
 
 [node name="GeneratingPanel" type="Panel" parent="."]
 unique_name_in_owner = true

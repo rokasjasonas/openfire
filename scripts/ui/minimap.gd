@@ -5,6 +5,7 @@ extends Control
 
 const RANGE := 60.0   # world metres shown from centre to edge
 var _radius := 88.0
+var _t := 0.0         # animation clock for the active-objective pulse
 
 func _ready() -> void:
 	# Anchor a concrete 190x190 box in the top-right corner. A free Control isn't
@@ -21,7 +22,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_process(true)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_t += delta
 	queue_redraw()
 
 func _local_player() -> Node3D:
@@ -65,21 +67,25 @@ func _draw() -> void:
 	for e in get_tree().get_nodes_in_group("escort"):
 		_blip(c, e.global_position - ppos, fwd, right, scale, Color(0.4, 1.0, 0.55), 3.5, false)
 
-	# Survival mission points (village/quest POIs). Those tied to an active quest
-	# glow brighter; the rest are dim. Far ones clamp to the edge as direction cues.
-	var active_pois := {}
+	# Survival mission points (village/quest POIs). Those tied to an active quest get
+	# a pulsing ring + label so the objective is unmistakable; the rest are dim. Far
+	# targets clamp to the edge with an arrow pointing the way.
+	var active_pois := {}   # poi -> quest title to show
 	var qm := get_tree().get_first_node_in_group("quest_manager")
 	if qm != null:
 		for q in qm.quests:
 			if q.get("state", "") == "active":
 				if q.has("poi"):
-					active_pois[q["poi"]] = true
-				if q.has("dest"):
-					active_pois[q["dest"]] = true
+					active_pois[q["poi"]] = String(q.get("title", ""))
+				if q.has("dest") and not active_pois.has(q["dest"]):
+					active_pois[q["dest"]] = String(q.get("title", ""))
+	# Dim (non-objective) POIs first, so the active one always draws on top.
 	for poi in get_tree().get_nodes_in_group("poi_site"):
-		var on_quest: bool = active_pois.has(poi)
-		var col := Color(1.0, 0.9, 0.35) if on_quest else Color(0.8, 0.7, 0.3, 0.7)
-		_blip(c, poi.global_position - ppos, fwd, right, scale, col, 5.0 if on_quest else 3.5, true)
+		if not active_pois.has(poi):
+			_blip(c, poi.global_position - ppos, fwd, right, scale, Color(0.8, 0.7, 0.3, 0.7), 3.5, true)
+	for poi in active_pois:
+		if is_instance_valid(poi):
+			_draw_objective(c, poi.global_position - ppos, fwd, right, scale, String(active_pois[poi]))
 
 	# Combatants.
 	for cm in get_tree().get_nodes_in_group("combatant"):
@@ -94,6 +100,44 @@ func _draw() -> void:
 	# Self (arrow pointing up).
 	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -7), c + Vector2(-5, 5), c + Vector2(5, 5)]),
 		Color(1, 1, 1, 0.95))
+
+## The active objective POI: bright square + an expanding "radar ping" ring, a
+## direction arrow when it's off the edge, and a short label.
+func _draw_objective(c: Vector2, rel: Vector3, fwd: Vector3, right: Vector3, scale: float, title: String) -> void:
+	var lx := rel.dot(right)
+	var lz := rel.dot(fwd)
+	var p := Vector2(lx, -lz) * scale
+	var clamped := p.length() > _radius - 2.0
+	if clamped:
+		p = p.normalized() * (_radius - 2.0)
+	var sp := c + p
+	var gold := Color(1.0, 0.85, 0.3)
+
+	# Expanding ping ring (one pulse per second) so the eye is drawn to it.
+	var ph: float = fmod(_t, 1.0)
+	var ring_r: float = 5.0 + ph * 11.0
+	var ring_col := Color(1.0, 0.9, 0.4, (1.0 - ph) * 0.85)
+	draw_arc(sp, ring_r, 0, TAU, 24, ring_col, 2.0)
+
+	# The marker itself.
+	draw_rect(Rect2(sp - Vector2(5, 5), Vector2(10, 10)), gold, true)
+	draw_rect(Rect2(sp - Vector2(5, 5), Vector2(10, 10)), Color(0.2, 0.15, 0, 0.9), false, 1.0)
+
+	# Off-map: a triangle at the edge pointing toward the target.
+	if clamped:
+		var dir := p.normalized()
+		var tip := sp + dir * 9.0
+		var side := Vector2(-dir.y, dir.x) * 5.0
+		draw_colored_polygon(PackedVector2Array([tip, sp - dir * 2.0 + side, sp - dir * 2.0 - side]), gold)
+
+	# Short label, kept inside the minmap box.
+	var font := get_theme_default_font()
+	if font != null and title != "":
+		var lbl := title if title.length() <= 16 else title.substr(0, 15) + "…"
+		var w := font.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+		var lp := Vector2(clampf(sp.x - w * 0.5, 2.0, size.x - w - 2.0), clampf(sp.y - 9.0, 11.0, size.y - 2.0))
+		draw_string(font, lp + Vector2(1, 1), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0, 0, 0, 0.8))
+		draw_string(font, lp, lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, gold)
 
 func _blip(c: Vector2, rel: Vector3, fwd: Vector3, right: Vector3, scale: float, col: Color, r: float, square: bool) -> void:
 	var lx := rel.dot(right)

@@ -33,6 +33,20 @@ const THIRST_RATE := 0.7         # points/sec (thirst drains a bit faster)
 const NEED_SPRINT_MULT := 1.8
 const NEED_DAMAGE := 2.0         # health/sec while starving or dehydrated
 
+# Swimming + oxygen. You swim when your body drops below the water surface; oxygen
+# drains while your head is submerged and refills at the surface, then you drown.
+const SWIM_SPEED := 4.5
+const SWIM_ACCEL := 6.0
+const SWIM_VERT_SPEED := 5.0
+const SWIM_FLOAT_DEPTH := 1.3    # idle: body floats this far below the surface (head out)
+const MAX_OXYGEN := 100.0
+const OXYGEN_DRAIN := 9.0        # points/sec underwater (~11 s of air)
+const OXYGEN_REGEN := 45.0       # points/sec at the surface (~2 s to refill)
+const DROWN_DAMAGE := 6.0        # health/sec once out of air
+
+# Ladders
+const CLIMB_SPEED := 4.0
+
 # combatant_id == peer id for players (always positive). Used for scoring.
 var combatant_id: int = 1
 var team: int = -1
@@ -57,6 +71,18 @@ var _awaiting_life: bool = false
 var hunger: float = MAX_NEED
 var thirst: float = MAX_NEED
 var _need_dmg_accum: float = 0.0
+
+# Swimming / oxygen / ladders (authority-owned).
+var oxygen: float = MAX_OXYGEN
+var in_water: bool = false
+var near_ladder: Node = null
+var _water_y: float = -1.0e20    # cached water-surface height (sentinel = unknown)
+var _oxy_dmg_accum: float = 0.0
+
+# Run stats (local only) for the Stats tab: distance, shots, accuracy.
+var meters_walked: float = 0.0
+var shots_fired: int = 0
+var shots_hit: int = 0
 
 # Survival backpack: a spatial grid (backpack_w x backpack_h). Items are non-stacking
 # and occupy a w x h footprint at a placed (gx, gy); fixed orientation.
@@ -91,6 +117,7 @@ signal dealt_damage(amount: float)
 signal grenades_changed(count: int)
 signal hunger_changed(value: float, maximum: float)
 signal thirst_changed(value: float, maximum: float)
+signal oxygen_changed(value: float, maximum: float)
 signal inventory_changed
 signal equipment_changed
 signal talk_to(info: Dictionary)
@@ -131,10 +158,10 @@ func _ready() -> void:
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
 	# local player can actually fire). Runs before set_local/_emit_hud below.
-	# In Survival you spawn unarmed — your starting gear goes into the backpack
-	# instead (see _fill_survival_start), and you equip a gun from there.
+	# In Survival you spawn with just a pistol already equipped (slot 1); the
+	# backpack starts empty (see _fill_survival_start).
 	if Game.is_survival():
-		weapons.set_loadout([])
+		weapons.set_loadout(["pistol"])
 		_fill_survival_start()
 	else:
 		weapons.set_loadout(WeaponDB.default_loadout())
@@ -253,6 +280,7 @@ func _physics_process(delta: float) -> void:
 	near_vehicle = _nearest_vehicle() != null
 	near_npc = _nearest_talkable_npc() if Game.is_survival() else null
 	near_pickup = _nearest_pickup() if Game.is_survival() else null
+	near_ladder = _nearest_ladder()
 	if Input.is_action_just_pressed("interact"):
 		if near_vehicle:
 			_enter_vehicle(_nearest_vehicle())
@@ -262,36 +290,49 @@ func _physics_process(delta: float) -> void:
 		elif near_npc != null:
 			_talk_to(near_npc)
 
-	# Crouch (hold). Can't stand back up if something is overhead.
-	var want_crouch := Input.is_action_pressed("crouch")
-	if not want_crouch and _crouch > 0.05 and not _has_headroom():
-		want_crouch = true
-	_crouch = move_toward(_crouch, 1.0 if want_crouch else 0.0, CROUCH_SPEED_FACTOR * delta)
-	sync_crouch = _crouch
-	_apply_crouch(_crouch)
+	# Swimming + oxygen: switch to swim physics when the body is below the surface.
+	if _water_y < -1.0e19:
+		_update_water_level()
+	in_water = global_position.y < _water_y
+	_update_oxygen(delta, head.global_position.y < _water_y)
 
-	# Gravity
-	if not is_on_floor():
-		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
+	if in_water:
+		_swim(delta)
+	elif near_ladder != null and _wants_climb():
+		_climb(delta, near_ladder)
+	else:
+		# Crouch (hold). Can't stand back up if something is overhead.
+		var want_crouch := Input.is_action_pressed("crouch")
+		if not want_crouch and _crouch > 0.05 and not _has_headroom():
+			want_crouch = true
+		_crouch = move_toward(_crouch, 1.0 if want_crouch else 0.0, CROUCH_SPEED_FACTOR * delta)
+		sync_crouch = _crouch
+		_apply_crouch(_crouch)
 
-	if Input.is_action_just_pressed("jump") and is_on_floor() and _crouch < 0.5:
-		velocity.y = JUMP_VELOCITY
+		# Gravity
+		if not is_on_floor():
+			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
 
-	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+		if Input.is_action_just_pressed("jump") and is_on_floor() and _crouch < 0.5:
+			velocity.y = JUMP_VELOCITY
 
-	var speed := WALK_SPEED
-	if _crouch > 0.3:
-		speed = CROUCH_SPEED
-	elif Input.is_action_pressed("sprint"):
-		speed = SPRINT_SPEED
+		var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 
-	var accel := ACCEL_GROUND if is_on_floor() else ACCEL_AIR
-	var target := dir * speed
-	velocity.x = lerp(velocity.x, target.x, accel * delta)
-	velocity.z = lerp(velocity.z, target.z, accel * delta)
+		var speed := WALK_SPEED
+		if _crouch > 0.3:
+			speed = CROUCH_SPEED
+		elif Input.is_action_pressed("sprint"):
+			speed = SPRINT_SPEED
 
-	move_and_slide()
+		var accel := ACCEL_GROUND if is_on_floor() else ACCEL_AIR
+		var target := dir * speed
+		velocity.x = lerp(velocity.x, target.x, accel * delta)
+		velocity.z = lerp(velocity.z, target.z, accel * delta)
+
+		move_and_slide()
+	if is_multiplayer_authority():
+		meters_walked += Vector2(velocity.x, velocity.z).length() * delta
 	_update_footsteps(delta)
 
 	# Weapon actions only while actively playing (cursor captured). When a menu or
@@ -357,14 +398,104 @@ func _update_needs(delta: float) -> void:
 	else:
 		_need_dmg_accum = 0.0
 
+# ---------------------------------------------------------------- swimming / oxygen
+
+## Cache the water surface height from the map's water plane (sentinel if no water).
+func _update_water_level() -> void:
+	var y := -1.0e20
+	for w in get_tree().get_nodes_in_group("water"):
+		if w is Node3D:
+			y = maxf(y, (w as Node3D).global_position.y)
+	_water_y = y
+
+func _update_oxygen(delta: float, head_under: bool) -> void:
+	var o0 := oxygen
+	if head_under:
+		oxygen = maxf(0.0, oxygen - OXYGEN_DRAIN * delta)
+		if oxygen <= 0.0:
+			_oxy_dmg_accum += delta
+			if _oxy_dmg_accum >= 1.0:
+				_oxy_dmg_accum = 0.0
+				receive_damage(DROWN_DAMAGE, combatant_id)  # drowning
+	else:
+		oxygen = minf(MAX_OXYGEN, oxygen + OXYGEN_REGEN * delta)
+		_oxy_dmg_accum = 0.0
+	if not is_equal_approx(oxygen, o0):
+		oxygen_changed.emit(oxygen, MAX_OXYGEN)
+
+## Swim physics: horizontal from look-yaw input, vertical from jump/dive + buoyancy
+## that floats you to the surface when you're not actively diving/ascending.
+func _swim(delta: float) -> void:
+	_crouch = 0.0
+	sync_crouch = 0.0
+	_apply_crouch(0.0)
+	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y))
+	velocity.x = lerp(velocity.x, dir.x * SWIM_SPEED, SWIM_ACCEL * delta)
+	velocity.z = lerp(velocity.z, dir.z * SWIM_SPEED, SWIM_ACCEL * delta)
+	var vy := 0.0
+	if Input.is_action_pressed("jump"):
+		vy += 1.0
+	if Input.is_action_pressed("crouch"):
+		vy -= 1.0
+	var target_vy := vy * SWIM_VERT_SPEED
+	if absf(vy) < 0.01:
+		# Buoyancy: settle so the head rests just above the surface.
+		var depth := _water_y - global_position.y
+		target_vy = clampf(depth - SWIM_FLOAT_DEPTH, -1.0, 1.0) * SWIM_VERT_SPEED
+	velocity.y = lerp(velocity.y, target_vy, SWIM_ACCEL * delta)
+	move_and_slide()
+
+# ---------------------------------------------------------------- ladders
+
+## The ladder volume the player is currently within (horizontally close + in its
+## height span), or null. Ladders are Node3Ds in group "ladder" with bottom/top meta.
+func _nearest_ladder() -> Node:
+	for l in get_tree().get_nodes_in_group("ladder"):
+		var bottom: Vector3 = l.get_meta("bottom")
+		var top: Vector3 = l.get_meta("top")
+		var r: float = float(l.get_meta("radius", 1.1))
+		var horiz := Vector2(global_position.x - bottom.x, global_position.z - bottom.z).length()
+		if horiz < r and global_position.y > bottom.y - 1.0 and global_position.y < top.y + 1.0:
+			return l
+	return null
+
+## On a ladder you climb when pressing up/down, or whenever you're off the floor
+## (mid-climb). Standing idle at the base lets you walk away normally.
+func _wants_climb() -> bool:
+	var up := Input.is_action_pressed("move_forward") or Input.is_action_pressed("jump")
+	var down := Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch")
+	return up or down or not is_on_floor()
+
+func _climb(delta: float, l: Node) -> void:
+	_crouch = 0.0
+	sync_crouch = 0.0
+	_apply_crouch(0.0)
+	var bottom: Vector3 = l.get_meta("bottom")
+	var top: Vector3 = l.get_meta("top")
+	var up := 0.0
+	if Input.is_action_pressed("move_forward") or Input.is_action_pressed("jump"):
+		up += 1.0
+	if Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch"):
+		up -= 1.0
+	velocity.y = up * CLIMB_SPEED
+	# Hug the ladder centre-line so you don't drift off it.
+	var to_center := Vector3(bottom.x - global_position.x, 0.0, bottom.z - global_position.z)
+	velocity.x = to_center.x * 5.0
+	velocity.z = to_center.z * 5.0
+	# Reaching the top while climbing up: step forward onto the platform.
+	if global_position.y >= top.y - 0.4 and up > 0.0:
+		var fwd := -global_transform.basis.z
+		velocity.x = fwd.x * WALK_SPEED
+		velocity.z = fwd.z * WALK_SPEED
+		velocity.y = CLIMB_SPEED * 0.5
+	move_and_slide()
+
 ## Survival: spawn unarmed with the default guns + grenades stowed in the backpack.
 func _fill_survival_start() -> void:
 	if not is_multiplayer_authority():
 		return
-	for wid in WeaponDB.default_loadout():
-		inv_add(ItemDB.make_weapon(wid))
-	for i in MAX_GRENADES:
-		inv_add(ItemDB.make("grenade"))
+	# Start with only the equipped pistol — empty backpack, no grenades.
 	grenades = 0
 	grenades_changed.emit(grenades)
 
@@ -506,16 +637,31 @@ func armor_reduction(zone: String) -> float:
 	return float((equip.get(slot, {}) as Dictionary).get("armor", 0.0))
 
 ## Equip the backpack item at `index` into its natural slot (double-click / drag).
-func equip_item(index: int) -> void:
+## `gun_slot` (0-2) targets a specific gun slot when dragging a weapon onto it;
+## -1 means "first free slot" (double-click / drop onto the panel generally).
+func equip_item(index: int, gun_slot: int = -1) -> void:
 	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
 		return
 	var item: Dictionary = inventory[index]
 	match String(item.get("kind", "")):
 		"weapon":
-			if weapons.loadout.size() >= 3 and not weapons.loadout.has(String(item.get("weapon_id", ""))):
-				return  # all gun slots full
-			weapons.give_weapon(String(item.get("weapon_id", "")))
-			inventory.remove_at(index)
+			var wid := String(item.get("weapon_id", ""))
+			if weapons.loadout.has(wid):
+				return  # already equipped in some slot
+			if gun_slot >= 0 and gun_slot < weapons.SLOTS:
+				# Drop into the chosen slot, swapping any existing gun back to the pack.
+				var prev_id := String(weapons.loadout[gun_slot])
+				inventory.remove_at(index)  # free its cells so the swapped-out gun fits
+				if prev_id != "" and not inv_add(ItemDB.make_weapon(prev_id)):
+					inventory.insert(index, item)  # no room to swap — revert
+					inventory_changed.emit()
+					return
+				weapons.set_slot(gun_slot, wid)
+			else:
+				if not weapons.loadout.has(""):
+					return  # all gun slots full
+				weapons.give_weapon(wid)
+				inventory.remove_at(index)
 			inventory_changed.emit()
 			equipment_changed.emit()
 		"armor":
@@ -540,13 +686,20 @@ func _equip_slot(slot: String, index: int) -> void:
 	inventory_changed.emit()
 	equipment_changed.emit()
 
+## Reorder/swap the weapons between two gun slots (drag between gun slots in the UI).
+func move_gun(from_slot: int, to_slot: int) -> void:
+	if not is_multiplayer_authority():
+		return
+	weapons.move_slot(from_slot, to_slot)
+	equipment_changed.emit()
+
 ## Move an equipped item back into the backpack.
 func unequip(slot: String) -> void:
 	if not is_multiplayer_authority():
 		return
 	if slot.begins_with("gun"):
 		var i := int(slot.substr(3)) - 1
-		if i < 0 or i >= weapons.loadout.size():
+		if not weapons.slot_filled(i):
 			return
 		var wid := String(weapons.loadout[i])
 		if inv_add(ItemDB.make_weapon(wid)):
@@ -992,6 +1145,8 @@ func _request_respawn() -> void:
 func respawn(xform: Transform3D) -> void:
 	dead = false
 	sync_health = MAX_HEALTH
+	oxygen = MAX_OXYGEN
+	oxygen_changed.emit(oxygen, MAX_OXYGEN)
 	body_model.visible = not is_multiplayer_authority()  # body visible only for remotes
 	weapons.set_hidden(false)
 	name_label.visible = not is_multiplayer_authority()

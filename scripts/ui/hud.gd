@@ -17,7 +17,10 @@ extends CanvasLayer
 @onready var damage_flash: ColorRect = %DamageFlash
 @onready var grenade_label: Label = %GrenadeLabel
 @onready var damage_direction: Control = $DamageDirection
-@onready var kill_feed: VBoxContainer = %KillFeed
+@onready var event_log: VBoxContainer = %EventLog
+@onready var celebration: Label = %Celebration
+@onready var tabs: TabContainer = %Tabs
+@onready var stats_list: VBoxContainer = %StatsList
 @onready var team_score_label: Label = %TeamScoreLabel
 @onready var lives_label: Label = %LivesLabel
 @onready var vehicle_prompt: Label = %VehiclePrompt
@@ -27,6 +30,8 @@ extends CanvasLayer
 @onready var hunger_label: Label = %HungerLabel
 @onready var thirst_bar: ProgressBar = %ThirstBar
 @onready var thirst_label: Label = %ThirstLabel
+@onready var oxygen_bar: ProgressBar = %OxygenBar
+@onready var oxygen_label: Label = %OxygenLabel
 @onready var inventory_panel: Panel = %InventoryPanel
 @onready var backpack_grid: Control = %InvGrid
 @onready var equip_panel: Control = %EquipPanel
@@ -43,6 +48,7 @@ var _offer_quest_id: int = -1
 var _player: Node = null
 var _last_health: float = -1.0
 var _flash_tween: Tween = null
+var _spawn_msec: int = 0   # for "time survived" in the Stats tab
 
 const RESULT_COUNTDOWN := 3.0
 var _result_base_text: String = ""
@@ -64,7 +70,11 @@ func _ready() -> void:
 	hunger_label.visible = false
 	thirst_bar.visible = false
 	thirst_label.visible = false
+	oxygen_bar.visible = false
+	oxygen_label.visible = false
 	inventory_panel.visible = false
+	celebration.visible = false
+	tabs.tab_changed.connect(func(_i): _refresh_stats())
 	npc_dialog.visible = false
 	npc_prompt.text = ""
 	quest_tracker.text = ""
@@ -87,6 +97,10 @@ func _process(delta: float) -> void:
 	var loading := Game.is_survival() and Game.match_active and (_player == null or not is_instance_valid(_player))
 	if generating_panel.visible != loading:
 		generating_panel.visible = loading
+	# Keep the Stats tab live (time survived / accuracy tick) while it's open.
+	if inventory_panel.visible and tabs.get_current_tab_control() != null \
+			and tabs.get_current_tab_control().name == "Stats":
+		_refresh_stats()
 	if _player == null or not is_instance_valid(_player):
 		_try_bind()
 	elif not pause_panel.visible:
@@ -199,6 +213,7 @@ func _try_bind() -> void:
 	for p in get_tree().get_nodes_in_group("player"):
 		if p.is_multiplayer_authority():
 			_player = p
+			_spawn_msec = Time.get_ticks_msec()
 			p.health_changed.connect(_on_health)
 			p.ammo_changed.connect(_on_ammo)
 			p.weapon_changed.connect(_on_weapon)
@@ -207,11 +222,13 @@ func _try_bind() -> void:
 			p.damaged_from.connect(_on_damaged_from)
 			p.hunger_changed.connect(_on_hunger)
 			p.thirst_changed.connect(_on_thirst)
+			p.oxygen_changed.connect(_on_oxygen)
 			p.inventory_changed.connect(_refresh_inventory)
 			p.equipment_changed.connect(_refresh_equip)
 			p.talk_to.connect(_on_talk)
 			backpack_grid.set_player(p)
 			equip_panel.set_player(p)
+			backpack_grid.equip_panel = equip_panel
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
 			# Hunger/thirst bars are only shown in Survival mode.
@@ -255,27 +272,52 @@ func _on_damaged_from(angle: float) -> void:
 	if damage_direction and damage_direction.has_method("show_from"):
 		damage_direction.show_from(angle)
 
-## Add a "killer ▸ victim" line (names coloured by team) that fades out.
+## Add a "killer ▸ victim" line (names coloured by team) to the events log.
 func add_kill_feed(killer: String, victim: String, suicide: bool, killer_team: int = -1, victim_team: int = -1) -> void:
+	var kc := _feed_color(killer_team)
+	var vc := _feed_color(victim_team)
+	if suicide:
+		_add_event_line("[color=%s]%s[/color] ☠" % [vc, victim])
+	else:
+		_add_event_line("[color=%s]%s[/color]  ▸  [color=%s]%s[/color]" % [kc, killer, vc, victim])
+
+## Add a non-kill event line (quest accepted/completed, etc.) to the events log.
+func add_event(text: String) -> void:
+	var col := "#7fe0a0" if text.begins_with("✓") else "#d8c070"
+	_add_event_line("[color=%s]%s[/color]" % [col, text])
+
+## Shared: append a right-aligned bbcode line to the events log; oldest fade & drop.
+func _add_event_line(bbcode: String) -> void:
 	var rt := RichTextLabel.new()
 	rt.bbcode_enabled = true
 	rt.fit_content = true
 	rt.scroll_active = false
 	rt.autowrap_mode = TextServer.AUTOWRAP_OFF
 	rt.custom_minimum_size = Vector2(0, 22)
-	var kc := _feed_color(killer_team)
-	var vc := _feed_color(victim_team)
-	if suicide:
-		rt.text = "[right][color=%s]%s[/color] ☠[/right]" % [vc, victim]
-	else:
-		rt.text = "[right][color=%s]%s[/color]  ▸  [color=%s]%s[/color][/right]" % [kc, killer, vc, victim]
-	kill_feed.add_child(rt)
-	while kill_feed.get_child_count() > 5:
-		kill_feed.get_child(0).free()
+	rt.text = "[right]%s[/right]" % bbcode
+	event_log.add_child(rt)
+	while event_log.get_child_count() > 6:
+		event_log.get_child(0).free()
 	var tw := rt.create_tween()
-	tw.tween_interval(4.0)
+	tw.tween_interval(5.0)
 	tw.tween_property(rt, "modulate:a", 0.0, 1.0)
 	tw.tween_callback(rt.queue_free)
+
+## A little top-centre celebration banner when a quest/mission is completed.
+func celebrate(title: String) -> void:
+	celebration.text = "★  MISSION COMPLETE  ★\n%s" % title
+	celebration.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	celebration.visible = true
+	celebration.modulate = Color(1, 1, 1, 0)
+	celebration.pivot_offset = celebration.size * 0.5
+	celebration.scale = Vector2(0.6, 0.6)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(celebration, "modulate:a", 1.0, 0.25)
+	tw.tween_property(celebration, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_interval(1.8)
+	tw.chain().tween_property(celebration, "modulate:a", 0.0, 0.6)
+	tw.chain().tween_callback(func(): celebration.visible = false)
 
 func _feed_color(team: int) -> String:
 	if Game.is_team_mode() and team >= 0:
@@ -295,6 +337,15 @@ func _on_thirst(value: float, maximum: float) -> void:
 	thirst_bar.value = value
 	thirst_label.text = "Thirst %d" % int(value)
 
+## Oxygen bar appears only while you're losing/regaining air (hidden when full).
+func _on_oxygen(value: float, maximum: float) -> void:
+	oxygen_bar.max_value = maximum
+	oxygen_bar.value = value
+	oxygen_label.text = "Oxygen %d" % int(value)
+	var show_ox := value < maximum - 0.5
+	oxygen_bar.visible = show_ox
+	oxygen_label.visible = show_ox
+
 # ---------------------------------------------------------------- survival backpack
 
 func _is_inventory_key(event: InputEvent) -> bool:
@@ -307,6 +358,7 @@ func _toggle_inventory() -> void:
 	inventory_panel.visible = not inventory_panel.visible
 	if inventory_panel.visible:
 		_refresh_inventory()
+		_refresh_stats()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -315,10 +367,66 @@ func _refresh_inventory() -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
 	backpack_grid.set_player(_player)
+	backpack_grid.equip_panel = equip_panel
 	inv_capacity.text = "Space  %d / %d" % [_player.inv_used(), _player.inv_cell_count()]
 
 func _refresh_equip() -> void:
 	equip_panel.refresh()
+
+# ---------------------------------------------------------------- stats tab
+
+func _refresh_stats() -> void:
+	if stats_list == null:
+		return
+	for c in stats_list.get_children():
+		c.queue_free()
+	if _player == null or not is_instance_valid(_player):
+		_stats_header("No data yet")
+		return
+
+	var sc: Dictionary = Game.scores.get(_player.combatant_id, {})
+	var kills := int(sc.get("kills", 0))
+	var deaths := int(sc.get("deaths", 0))
+	var shots := int(_player.shots_fired)
+	_stats_header("Combat")
+	_stat_row("Kills", str(kills))
+	_stat_row("Deaths", str(deaths))
+	_stat_row("K / D", "%.2f" % (float(kills) / float(maxi(1, deaths))))
+	_stat_row("Bullets fired", str(shots))
+	_stat_row("Accuracy", ("%d%%" % int(round(100.0 * float(_player.shots_hit) / float(shots)))) if shots > 0 else "—")
+
+	var qm = get_tree().get_first_node_in_group("quest_manager")
+	if qm != null:
+		var done := 0
+		for q in qm.quests:
+			if q.get("state", "") == "complete":
+				done += 1
+		_stats_header("Mission")
+		_stat_row("Mission points", "%d / %d" % [int(qm.points), int(qm.target_points)])
+		_stat_row("Quests completed", str(done))
+
+	_stats_header("Run")
+	_stat_row("Distance walked", "%d m" % int(_player.meters_walked))
+	var secs := int((Time.get_ticks_msec() - _spawn_msec) / 1000)
+	_stat_row("Time survived", "%d:%02d" % [secs / 60, secs % 60])
+
+func _stats_header(t: String) -> void:
+	var l := Label.new()
+	l.text = t.to_upper()
+	l.add_theme_color_override("font_color", Color(1.0, 0.8, 0.4))
+	stats_list.add_child(l)
+
+func _stat_row(label_text: String, value: String) -> void:
+	var h := HBoxContainer.new()
+	var a := Label.new()
+	a.text = label_text
+	a.custom_minimum_size.x = 240
+	a.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	var b := Label.new()
+	b.text = value
+	h.add_child(a)
+	h.add_child(b)
+	stats_list.add_child(h)
 
 func _on_dealt_damage(_amount: float) -> void:
 	if crosshair and crosshair.has_method("hit"):

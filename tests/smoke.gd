@@ -249,12 +249,14 @@ func _ready() -> void:
 	print("SMOKE: building_interior_navigable=", interior_ok)
 	comp.queue_free()
 
-	# Colored kill feed builds without error.
+	# Events log builds without error for both kills and quest events.
 	var killfeed_ok := false
 	if hud:
-		var kf_before: int = hud.kill_feed.get_child_count()
+		var kf_before: int = hud.event_log.get_child_count()
 		hud.add_kill_feed("Alpha", "Bravo", false, 0, 1)
-		killfeed_ok = hud.kill_feed.get_child_count() > kf_before
+		hud.add_event("✓ Scout the outpost   +1 pt")
+		hud.celebrate("Scout the outpost")
+		killfeed_ok = hud.event_log.get_child_count() >= kf_before + 2
 	print("SMOKE: killfeed_ok=", killfeed_ok)
 
 	# Huge vehicle map bakes a navmesh and places vehicles.
@@ -634,12 +636,19 @@ func _ready() -> void:
 	if me:
 		var wm2 = me.weapons
 		wm2.set_loadout([])
-		var empty_ok: bool = wm2.loadout.is_empty()
+		# Loadout is a fixed 3 slots; empty == all "" (no weapon in any slot).
+		var empty_ok: bool = wm2.loadout.size() == 3 and not wm2.loadout.has("rifle") \
+			and not wm2.slot_filled(0) and not wm2.slot_filled(1) and not wm2.slot_filled(2)
 		wm2._fire()   # must be a safe no-op while unarmed
 		wm2.give_weapon("rifle")
-		var equip_ok: bool = wm2.loadout.size() == 1 and wm2.loadout[0] == "rifle"
-		survival_start_ok = empty_ok and equip_ok
-		print("SMOKE: survival_start_ok=", survival_start_ok, " empty=", empty_ok, " equip=", equip_ok)
+		# Fills the first free slot (slot 0 here), not by growing the array.
+		var equip_ok: bool = wm2.loadout[0] == "rifle"
+		# Slot-targeted equip: a second gun lands in the exact slot requested,
+		# leaving holes (slot 1 stays empty between rifle@0 and shotgun@2).
+		wm2.set_slot(2, "shotgun")
+		var slot_ok: bool = wm2.loadout[2] == "shotgun" and not wm2.slot_filled(1)
+		survival_start_ok = empty_ok and equip_ok and slot_ok
+		print("SMOKE: survival_start_ok=", survival_start_ok, " empty=", empty_ok, " equip=", equip_ok, " slot=", slot_ok)
 
 	# Backpack grid: move validation (onto an item fails, to a free cell ok) + the
 	# UI binds the grid to the player and redraws without error.
@@ -810,8 +819,203 @@ func _ready() -> void:
 		equip_ok = armor_equipped and reduce_ok and dmg_ok and gun_ok and unequip_ok
 		print("SMOKE: equip_ok=", equip_ok, " armor=", armor_equipped, " reduce=", reduce_ok, " dmg=", dmg_ok, " gun=", gun_ok, " unequip=", unequip_ok)
 
+	# Weapon loadout: fixed 3 slots, first-empty fill, slot-targeted equip with holes,
+	# remove leaves a hole, all-full replaces current, move/swap, switch skips empty.
+	var loadout_ok := false
+	if me:
+		var lwm = me.weapons
+		lwm.set_loadout([])
+		lwm.give_weapon("pistol")                       # -> slot 0
+		lwm.give_weapon("rifle")                        # -> slot 1
+		var fill_order_ok: bool = lwm.loadout[0] == "pistol" and lwm.loadout[1] == "rifle" and not lwm.slot_filled(2)
+		lwm.set_slot(2, "shotgun")                      # exact slot 2
+		lwm.remove_slot(1)                              # leaves a hole at slot 1
+		var l_hole_ok: bool = lwm.slot_filled(0) and not lwm.slot_filled(1) and lwm.slot_filled(2) and not lwm.ammo.has("rifle")
+		lwm.give_weapon("smg")                          # fills the hole (first empty)
+		var refill_hole_ok: bool = lwm.loadout[1] == "smg"
+		lwm.current_index = 0
+		lwm.give_weapon("sniper")                       # all full -> replace current (slot 0)
+		var replace_ok: bool = lwm.loadout[0] == "sniper" and not lwm.ammo.has("pistol")
+		var la0 = lwm.loadout[0]
+		var la2 = lwm.loadout[2]
+		lwm.move_slot(0, 2)                             # swap slots 0 and 2
+		var l_move_ok: bool = lwm.loadout[0] == la2 and lwm.loadout[2] == la0
+		lwm.remove_slot(1)
+		lwm.current_index = 0
+		lwm.switch_to(1)                               # empty slot -> ignored
+		var switch_ok: bool = lwm.current_index == 0
+		var ammo_ok: bool = lwm.ammo.has(lwm.loadout[lwm.current_index])
+		# Player-level: equip_item into a chosen slot swaps the displaced gun to the pack.
+		me.inventory.clear()
+		lwm.set_loadout(["rifle", "", ""])
+		me.inv_add(ItemDB.make_weapon("shotgun"))
+		me.equip_item(0, 0)                            # shotgun -> slot 0, rifle -> backpack
+		var rifle_in_pack := false
+		for it in me.inventory:
+			if String((it as Dictionary).get("weapon_id", "")) == "rifle":
+				rifle_in_pack = true
+		var swap_ok: bool = lwm.loadout[0] == "shotgun" and rifle_in_pack
+		me.inventory.clear()
+		lwm.set_loadout([])
+		loadout_ok = fill_order_ok and l_hole_ok and refill_hole_ok and replace_ok and l_move_ok and switch_ok and ammo_ok and swap_ok
+		print("SMOKE: loadout_ok=", loadout_ok, " fill=", fill_order_ok, " hole=", l_hole_ok, " refill=", refill_hole_ok, " replace=", replace_ok, " move=", l_move_ok, " switch=", switch_ok, " ammo=", ammo_ok, " swap=", swap_ok)
+
+	# Pistol-only Survival start: _fill_survival_start adds no extra gear and zeroes
+	# grenades (you spawn with just the equipped pistol).
+	var pistol_start_ok := false
+	if me:
+		me.inventory.clear()
+		me.grenades = 3
+		me._fill_survival_start()
+		pistol_start_ok = me.inventory.is_empty() and me.grenades == 0
+		print("SMOKE: pistol_start_ok=", pistol_start_ok)
+
+	# Run stats + events log: firing tracks shots, the Stats tab builds rows, and a
+	# completed quest broadcasts an event line + pops the celebration banner.
+	var stats_ok := false
+	if me and hud and world:
+		me.weapons.set_loadout(["rifle", "", ""])
+		me.weapons.ammo["rifle"]["mag"] = 10
+		me.shots_fired = 0
+		me.weapons._fire()
+		var shot_count_ok: bool = me.shots_fired == 1
+		me.meters_walked = 123.0
+		me.shots_fired = 10
+		me.shots_hit = 5
+		hud._player = me
+		hud._refresh_stats()
+		var stats_rows_ok: bool = hud.stats_list.get_child_count() > 0
+		# Quest completion -> world.broadcast_event -> events log line + celebration.
+		var qm2 = load("res://scripts/world/quest_manager.gd").new()
+		qm2.name = "QM_event_test"
+		add_child(qm2)
+		qm2.world = world
+		qm2.target_points = 999   # don't trigger the victory scene change
+		var qzid = qm2._make("hunt", "Banner test", "", {"faction": "raiders", "count": 1})
+		var ev0: int = hud.event_log.get_child_count()
+		hud.celebration.visible = false
+		for q in qm2.quests:
+			if int(q["id"]) == qzid:
+				qm2._complete(q)
+		await get_tree().process_frame
+		var quest_event_ok: bool = hud.event_log.get_child_count() > ev0 and hud.celebration.visible
+		qm2.queue_free()
+		me.weapons.set_loadout([])
+		stats_ok = shot_count_ok and stats_rows_ok and quest_event_ok
+		print("SMOKE: stats_ok=", stats_ok, " shots=", shot_count_ok, " rows=", stats_rows_ok, " quest_event=", quest_event_ok)
+
+	# Terrain depth: climate biomes are diverse, vegetation/buildings/caves populate the
+	# nav region, and the same seed rebuilds an identical heightmap (co-op / save safety).
+	var terrain_depth_ok := false
+	var pms2 = Game.config.get("map_size", 1)
+	var psd2 = Game.config.get("seed", 0)
+	Game.config["map_size"] = 1
+	Game.config["seed"] = 2024
+	var terA: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(terA)
+	await get_tree().physics_frame
+	var biomes := {}
+	for gx in range(-5, 6):
+		for gz in range(-5, 6):
+			var wx := float(gx) * 60.0
+			var wz := float(gz) * 60.0
+			biomes[terA._biome_at(wx, wz, terA._sample_height(wx, wz))] = true
+	var biome_variety_ok: bool = biomes.size() >= 3
+	var propc := 0
+	for ch in terA.get_node("NavRegion").get_children():
+		if ch is MeshInstance3D and ch.name != "TerrainMesh":
+			propc += 1
+	var props_ok: bool = propc >= 50
+	var cave_loot := get_tree().get_nodes_in_group("pickup").size()
+	var terB: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(terB)
+	await get_tree().physics_frame
+	var det_ok: bool = terA._heights.size() > 0 and terA._heights == terB._heights
+	terA.queue_free()
+	terB.queue_free()
+	Game.config["map_size"] = pms2
+	Game.config["seed"] = psd2
+	terrain_depth_ok = biome_variety_ok and props_ok and det_ok and cave_loot > 0
+	print("SMOKE: terrain_depth_ok=", terrain_depth_ok, " biomes=", biomes.size(), " props=", propc, " determinism=", det_ok)
+
+	# Swimming + oxygen: air drains underwater, refills at the surface, and you drown
+	# (take damage) once it hits zero.
+	var swim_ok := false
+	if me:
+		me.oxygen = me.MAX_OXYGEN
+		me._update_oxygen(1.0, true)            # head underwater for 1s
+		var drain_ok: bool = me.oxygen < me.MAX_OXYGEN
+		me._update_oxygen(1.0, false)           # surfaced -> refills
+		var regen_ok: bool = me.oxygen > me.MAX_OXYGEN - me.OXYGEN_DRAIN
+		me.oxygen = 0.0
+		me.sync_health = 100.0
+		me._oxy_dmg_accum = 0.0
+		me._update_oxygen(1.0, true)            # out of air -> drowning damage
+		var drown_ok: bool = me.sync_health < 100.0
+		me.oxygen = me.MAX_OXYGEN
+		me.sync_health = 100.0
+		swim_ok = drain_ok and regen_ok and drown_ok
+		print("SMOKE: swim_ok=", swim_ok, " drain=", drain_ok, " regen=", regen_ok, " drown=", drown_ok)
+
+	# Ladders: the terrain places watchtower ladders, and the player detects the one
+	# it's standing in.
+	var ladder_ok := false
+	var pms3 = Game.config.get("map_size", 1)
+	var psd3 = Game.config.get("seed", 0)
+	Game.config["map_size"] = 1
+	Game.config["seed"] = 2024
+	var lterr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(lterr)
+	await get_tree().physics_frame
+	var ladders := get_tree().get_nodes_in_group("ladder")
+	var has_ladder: bool = ladders.size() >= 1
+	var detect_ok := false
+	if me and has_ladder:
+		var lad = ladders[0]
+		var lb: Vector3 = lad.get_meta("bottom")
+		var saved_pos: Vector3 = me.global_position
+		me.global_position = lb + Vector3(0, 0.5, 0)
+		detect_ok = me._nearest_ladder() != null
+		me.global_position = saved_pos
+	lterr.queue_free()
+	Game.config["map_size"] = pms3
+	Game.config["seed"] = psd3
+	ladder_ok = has_ladder and detect_ok
+	print("SMOKE: ladder_ok=", ladder_ok, " ladders=", ladders.size(), " detect=", detect_ok)
+
+	# Bots swim: a bot whose body is below the water surface enters the buoyancy state
+	# (floats / steers across water rather than sinking).
+	var bot_swim_ok := false
+	if world and me:
+		var bsid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 9, "raiders")
+		await get_tree().physics_frame
+		var bsbot: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == bsid:
+				bsbot = b
+		if bsbot:
+			bsbot._water_y = bsbot.global_position.y + 5.0   # pretend submerged
+			await get_tree().physics_frame
+			bot_swim_ok = bsbot.in_water
+		print("SMOKE: bot_swim_ok=", bot_swim_ok)
+
+	# AI model presets: the menu offers a tiny..huge embedded-model lineup, each with a
+	# download URL and a .gguf filename, and selecting one drives Settings.
+	var ai_models_ok := false
+	var mm_script = load("res://scripts/ui/main_menu.gd")
+	var presets: Array = mm_script.AI_MODELS
+	ai_models_ok = presets.size() >= 3
+	for p in presets:
+		var pd: Dictionary = p
+		if not (pd.has("name") and pd.has("url") and pd.has("file") and String(pd["file"]).ends_with(".gguf") and String(pd["url"]).begins_with("http")):
+			ai_models_ok = false
+	# Tiny and Huge are distinct files (the selector actually changes the model).
+	if presets.size() >= 2 and String((presets[0] as Dictionary)["file"]) == String((presets[-1] as Dictionary)["file"]):
+		ai_models_ok = false
+	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
+
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

@@ -57,6 +57,31 @@ const INV_KEYS := [
 	{ "name": "C", "code": KEY_C },
 ]
 
+# Embedded llama.cpp models (Qwen2.5 Instruct, Q4_K_M GGUF). Downloaded on first
+# Survival start into user://models/. Bigger = better stories, larger download.
+const AI_MODELS := [
+	{
+		"name": "Tiny — Qwen2.5 0.5B (~0.4 GB)",
+		"file": "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+		"url": "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+	},
+	{
+		"name": "Small — Qwen2.5 1.5B (~1 GB)",
+		"file": "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+		"url": "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+	},
+	{
+		"name": "Medium — Qwen2.5 3B (~2 GB)",
+		"file": "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+		"url": "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+	},
+	{
+		"name": "Huge — Qwen2.5 7B (~4.7 GB)",
+		"file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+		"url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+	},
+]
+
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	Net.players_changed.connect(_refresh_lobby)
@@ -117,6 +142,15 @@ func _setup_options() -> void:
 		if int(INV_KEYS[i]["code"]) == Settings.inventory_keycode:
 			sel = i
 	inv_key_option.selected = sel
+	# Embedded AI model preset: match the saved file to a preset (default Small).
+	%LlmEmbedOption.clear()
+	var msel := 1
+	for i in AI_MODELS.size():
+		%LlmEmbedOption.add_item(String(AI_MODELS[i]["name"]))
+		if String(AI_MODELS[i]["file"]) == Settings.llm_model_file:
+			msel = i
+	%LlmEmbedOption.selected = msel
+	%LlmEmbedOption.item_selected.connect(_on_llm_embed_changed)
 	_update_option_labels()
 	%SensSlider.value_changed.connect(_on_sens_changed)
 	%VolSlider.value_changed.connect(_on_vol_changed)
@@ -128,6 +162,12 @@ func _setup_options() -> void:
 	%LlmModelEdit.text_changed.connect(_on_llm_model_changed)
 	%OptionsButton.pressed.connect(_show_options)
 	%OptionsBackButton.pressed.connect(_show_setup)
+
+func _on_llm_embed_changed(idx: int) -> void:
+	var m: Dictionary = AI_MODELS[clampi(idx, 0, AI_MODELS.size() - 1)]
+	Settings.llm_model_url = String(m["url"])
+	Settings.llm_model_file = String(m["file"])
+	Settings.save()
 
 func _on_llm_endpoint_changed(t: String) -> void:
 	Settings.llm_endpoint = t.strip_edges()

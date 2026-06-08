@@ -164,6 +164,51 @@ func _wall_with_door(axis: String, fixed: float, length: float, height: float, t
 		add_wall(Vector3(t, height, seg), Vector3(fixed, height * 0.5, center.z + off), color, idx)
 		add_wall(Vector3(t, lintel_h, door_w), Vector3(fixed, door_h + lintel_h * 0.5, center.z), color, idx)
 
+## A climbable ladder between two world points. Visual rungs only (no collider, so
+## the player climbs through it); registered in group "ladder" with bottom/top meta
+## that Player._nearest_ladder() reads.
+func add_ladder(bottom: Vector3, top: Vector3, color: String = "Orange", idx: int = 5) -> void:
+	var node := Node3D.new()
+	node.add_to_group("ladder")
+	node.set_meta("bottom", bottom)
+	node.set_meta("top", top)
+	node.set_meta("radius", 1.2)
+	add_child(node)
+	var height := top.y - bottom.y
+	if height <= 0.1:
+		return
+	var w := 0.7
+	var mat := _material(color, idx)
+	for sx in [-w * 0.5, w * 0.5]:
+		var rail := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.08, height, 0.08)
+		rail.mesh = bm
+		rail.material_override = mat
+		rail.position = Vector3(bottom.x + sx, bottom.y + height * 0.5, bottom.z)
+		node.add_child(rail)
+	var rungs := int(height / 0.5)
+	for r in rungs:
+		var rung := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(w, 0.06, 0.06)
+		rung.mesh = bm
+		rung.material_override = mat
+		rung.position = Vector3(bottom.x, bottom.y + 0.25 + r * 0.5, bottom.z)
+		node.add_child(rung)
+
+## A guard tower: four legs, a railed platform, and a ladder up the south (-Z) side.
+func add_watchtower(base: Vector3, height: float = 8.0, color: String = "Light", idx: int = 13) -> void:
+	var hw := 2.2
+	for c in [Vector2(-hw, -hw), Vector2(hw, -hw), Vector2(-hw, hw), Vector2(hw, hw)]:
+		add_box(Vector3(0.4, height, 0.4), base + Vector3(c.x, height * 0.5, c.y), color, idx)
+	add_box(Vector3(hw * 2.0 + 0.6, 0.4, hw * 2.0 + 0.6), base + Vector3(0, height, 0), color, idx)
+	# Railings on three sides (the ladder side, -Z, stays open).
+	add_box(Vector3(hw * 2.0, 1.0, 0.2), base + Vector3(0, height + 0.5, hw), color, idx)
+	add_box(Vector3(0.2, 1.0, hw * 2.0), base + Vector3(-hw, height + 0.5, 0), color, idx)
+	add_box(Vector3(0.2, 1.0, hw * 2.0), base + Vector3(hw, height + 0.5, 0), color, idx)
+	add_ladder(base + Vector3(0, 0, -hw - 0.25), base + Vector3(0, height + 0.2, -hw - 0.25))
+
 ## Decorative crate prop (small collider, not added to navmesh).
 func add_crate(glb: String, pos: Vector3, scale: float = 1.0) -> void:
 	if not ResourceLoader.exists(glb):

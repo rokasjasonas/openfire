@@ -437,13 +437,32 @@ unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(180, 0)
 
+[node name="LlmEmbedRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmEmbedRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "AI model (on-device)"
+
+[node name="LlmEmbedOption" type="OptionButton" parent="OptionsPanel/Center/Box/VBox/LlmEmbedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(280, 0)
+
+[node name="LlmEmbedHint" type="Label" parent="OptionsPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+modulate = Color(1, 1, 1, 0.55)
+text = "Downloaded on first Survival start. Bigger = better stories, larger download."
+
 [node name="LlmEndpointRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
 layout_mode = 2
 
 [node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmEndpointRow"]
 layout_mode = 2
 custom_minimum_size = Vector2(160, 0)
-text = "AI story endpoint"
+text = "AI server endpoint"
 
 [node name="LlmEndpointEdit" type="LineEdit" parent="OptionsPanel/Center/Box/VBox/LlmEndpointRow"]
 unique_name_in_owner = true
@@ -457,7 +476,7 @@ layout_mode = 2
 [node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmModelRow"]
 layout_mode = 2
 custom_minimum_size = Vector2(160, 0)
-text = "AI model"
+text = "AI server model"
 
 [node name="LlmModelEdit" type="LineEdit" parent="OptionsPanel/Center/Box/VBox/LlmModelRow"]
 unique_name_in_owner = true

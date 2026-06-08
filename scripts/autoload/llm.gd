@@ -31,6 +31,11 @@ func _ready() -> void:
 func model_path() -> String:
 	return MODEL_DIR + Settings.llm_model_file
 
+## Human-readable name of the embedded model (the GGUF filename without extension),
+## e.g. "Qwen2.5-1.5B-Instruct-Q4_K_M". Shown on the loading screen.
+func model_name() -> String:
+	return Settings.llm_model_file.get_basename()
+
 ## NobodyWho (llama.cpp) GDExtension installed?
 func embedded_available() -> bool:
 	return ClassDB.class_exists("NobodyWhoModel")

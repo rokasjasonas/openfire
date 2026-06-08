@@ -1,0 +1,122 @@
+name: Build & Release
+
+# Manual "bump then release": click Run workflow, pick a bump level. The job bumps
+# project.godot's version, runs the smoke test, exports Linux/Windows/macOS, commits
+# the bump + tag, and publishes a GitHub Release with the packaged builds attached.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump level
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+
+permissions:
+  contents: write          # push the bump commit + tag and create the release
+
+env:
+  GODOT_VERSION: 4.6.3     # matches .tools/godot (4.6.3.stable.official)
+  GODOT_RELEASE: stable
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} + export templates
+        run: |
+          set -euo pipefail
+          base="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}"
+          curl -fL -o godot.zip "$base/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64.zip"
+          unzip -q godot.zip
+          sudo mv "Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          curl -fL -o templates.tpz "$base/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_export_templates.tpz"
+          unzip -q templates.tpz                       # -> ./templates/
+          dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_RELEASE}"
+          mkdir -p "$dest"
+          mv templates/* "$dest/"
+          godot --version
+
+      # The NobodyWho GDExtension native libs are gitignored. Set a repo Actions
+      # variable NOBODYWHO_URL (Settings -> Secrets and variables -> Actions ->
+      # Variables) to a zip of the addon libs to ship the embedded LLM in releases.
+      # Without it the build still works — Survival story generation just falls back.
+      - name: Restore NobodyWho addon (optional)
+        continue-on-error: true
+        env:
+          NOBODYWHO_URL: ${{ vars.NOBODYWHO_URL }}
+        run: |
+          set -uo pipefail
+          if [ -n "${NOBODYWHO_URL:-}" ]; then
+            curl -fL -o nw.zip "$NOBODYWHO_URL" && mkdir -p nw_extract && unzip -o -q nw.zip -d nw_extract
+            find nw_extract \( -name 'libnobodywho-*.so' -o -name 'libnobodywho-*.dll' -o -name 'libnobodywho-*.dylib' \) \
+              -exec cp {} addons/nobodywho/ \;
+          fi
+          # If no native libs are present, drop the .gdextension manifest so Godot
+          # doesn't error trying to load a missing library (the LLM just falls back).
+          if ! ls addons/nobodywho/*.so addons/nobodywho/*.dll addons/nobodywho/*.dylib >/dev/null 2>&1; then
+            echo "::warning::No NobodyWho libs — building without the embedded LLM (set NOBODYWHO_URL to include it)."
+            rm -f addons/nobodywho/nobodywho.gdextension addons/nobodywho/nobodywho.gdextension.uid
+          else
+            echo "Embedded LLM libs present:"; ls -1 addons/nobodywho/ | grep -E '\.(so|dll|dylib)$'
+          fi
+
+      - name: Bump version (${{ inputs.bump }})
+        id: bump
+        run: |
+          NEW=$(python3 tools/bump_version.py "${{ inputs.bump }}")
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Releasing OpenFire v$NEW"
+
+      - name: Import project
+        run: godot --headless --path . --import
+
+      - name: Smoke test (release gate)
+        run: |
+          set -uo pipefail
+          godot --headless --path . tests/smoke.tscn 2>&1 | tee smoke.log
+          grep -q "SMOKE: DONE ok=true" smoke.log
+
+      - name: Export builds
+        run: |
+          set -euo pipefail
+          mkdir -p build dist
+          godot --headless --path . --export-release "Linux"   build/openfire.x86_64
+          godot --headless --path . --export-release "Windows" build/openfire.exe
+          godot --headless --path . --export-release "macOS"   build/openfire-macos.zip
+          V="${{ steps.bump.outputs.version }}"
+          # Linux: ship the executable + the LLM lib (if present) so the embedded
+          # model works; the .pck is embedded in the binary by the preset.
+          cp -f addons/nobodywho/*.so build/ 2>/dev/null || true
+          ( cd build && zip -j "../dist/openfire-${V}-linux-x86_64.zip" openfire.x86_64 libnobodywho-*.so 2>/dev/null \
+              || zip -j "../dist/openfire-${V}-linux-x86_64.zip" openfire.x86_64 )
+          ( cd build && zip -j "../dist/openfire-${V}-windows-x64.zip"  openfire.exe libnobodywho-*.dll 2>/dev/null \
+              || zip -j "../dist/openfire-${V}-windows-x64.zip"  openfire.exe )
+          # macOS export is already a zipped .app.
+          cp build/openfire-macos.zip "dist/openfire-${V}-macos.zip"
+          echo "Artifacts:"; ls -lh dist
+
+      - name: Commit version bump & tag
+        run: |
+          set -euo pipefail
+          V="${{ steps.bump.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add project.godot
+          git commit -m "Release v$V"
+          git tag "v$V"
+          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "v$V"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump.outputs.version }}
+          name: OpenFire v${{ steps.bump.outputs.version }}
+          generate_release_notes: true
+          files: dist/*

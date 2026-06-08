@@ -116,6 +116,8 @@ func accept(quest_id: int) -> void:
 	for q in quests:
 		if int(q["id"]) == quest_id and q["state"] == "available":
 			_activate(quest_id)
+			if world and world.has_method("broadcast_event"):
+				world.broadcast_event("◆ Quest accepted: %s" % String(q["title"]))
 			return
 
 func _activate(id: int) -> void:
@@ -191,6 +193,9 @@ func _complete(q: Dictionary) -> bool:
 		return false
 	q["state"] = "complete"
 	points += int(q["points"])
+	# Log it in the events feed and pop a celebration banner with the quest title.
+	if world and world.has_method("broadcast_event"):
+		world.broadcast_event("✓ %s   +%d pt" % [String(q["title"]), int(q["points"])], String(q["title"]))
 	if q["main"]:
 		_advance_main()
 	if points >= target_points and Game.match_active:

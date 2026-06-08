@@ -120,7 +120,17 @@ func _loading(phase: String) -> String:
 	var theme := String(Game.config.get("theme", "")).strip_edges()
 	if theme != "":
 		head += " \u00b7 \"%s\"" % theme
+	var ai := _ai_label()
+	if ai != "":
+		head += "\n" + ai
 	return "%s\n%s" % [head, phase]
+
+## Which AI model is generating the world, for the loading screen. The on-device
+## (llama.cpp) model when embedded; otherwise the local LLM server fallback.
+func _ai_label() -> String:
+	if LLM.embedded_available() and (LLM.has_model() or LLM.downloading):
+		return "AI model: %s (on-device)" % LLM.model_name()
+	return "AI model: local LLM server"
 
 func _kick_story() -> void:
 	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
@@ -744,6 +754,19 @@ func broadcast_quests(t: String) -> void:
 func set_quest_text(t: String) -> void:
 	if hud and hud.has_method("set_quest_tracker"):
 		hud.set_quest_tracker(t)
+
+## Push an event-log line to every HUD. A non-empty `banner` also pops a celebration
+## banner (used for quest completions).
+func broadcast_event(line: String, banner: String = "") -> void:
+	if Net.is_host():
+		_event_feed.rpc(line, banner)
+
+@rpc("authority", "call_local", "reliable")
+func _event_feed(line: String, banner: String) -> void:
+	if hud and hud.has_method("add_event"):
+		hud.add_event(line)
+	if banner != "" and hud and hud.has_method("celebrate"):
+		hud.celebrate(banner)
 
 ## A player accepts an NPC's side quest (routed to the host).
 @rpc("any_peer", "call_local", "reliable")

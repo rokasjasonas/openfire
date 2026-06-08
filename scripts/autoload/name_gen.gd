@@ -32,7 +32,11 @@ const POOLS := {
 func reseed(s: int) -> void:
 	_rng.seed = s
 
-## Install LLM-generated people pools: { faction: [ {name, trait}, ... ] }.
+func _key(s: String) -> String:
+	return s.strip_edges().to_lower()
+
+## Install LLM-generated people pools: { faction: [ {name, trait}, ... ] }. Keys are
+## normalised (case-insensitive) so e.g. "Raiders" still matches the "raiders" faction.
 func set_pools(pools: Dictionary) -> void:
 	_pools = {}
 	_idx = {}
@@ -42,8 +46,10 @@ func set_pools(pools: Dictionary) -> void:
 			for e in pools[fac]:
 				if typeof(e) == TYPE_DICTIONARY and e.has("name"):
 					arr.append({"name": String(e["name"]), "trait": String(e.get("trait", ""))})
+				elif typeof(e) == TYPE_STRING:
+					arr.append({"name": String(e), "trait": ""})
 		if not arr.is_empty():
-			_pools[fac] = arr
+			_pools[_key(String(fac))] = arr
 
 func clear_pools() -> void:
 	_pools = {}
@@ -52,10 +58,11 @@ func clear_pools() -> void:
 ## A unique person for a faction: LLM-generated if a pool entry remains, else a
 ## procedurally-built name with no persona.
 func npc_person(faction: String) -> Dictionary:
-	var pool: Array = _pools.get(faction, [])
-	var i: int = int(_idx.get(faction, 0))
+	var k := _key(faction)
+	var pool: Array = _pools.get(k, [])
+	var i: int = int(_idx.get(k, 0))
 	if i < pool.size():
-		_idx[faction] = i + 1
+		_idx[k] = i + 1
 		return pool[i]
 	return {"name": npc_name(faction), "trait": ""}
 

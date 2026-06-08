@@ -138,9 +138,11 @@ func _story_prompt() -> String:
 
 func _names_prompt() -> String:
 	var per := int(_facts.get("names_per_faction", 16))
-	return ("Theme: %s\nFor each faction below, invent %d distinct on-theme people.\nFactions:\n%s"
-		+ "Respond with ONLY a JSON object mapping each faction name to an array of "
-		+ "objects {\"name\": a person's name fitting the theme, \"trait\": a 2-4 word persona}.") % [_theme, per, _faction_list()]
+	return ("Theme: %s\nInvent %d distinct people for EACH faction below. Every person's "
+		+ "name MUST fit the theme \"%s\" (its language, culture and style) — not generic English.\n"
+		+ "Factions (use these EXACT strings as the keys):\n%s"
+		+ "Respond with ONLY a JSON object mapping each faction name (exactly as written) to an "
+		+ "array of objects {\"name\": a themed personal name, \"trait\": a 2-4 word persona}.") % [_theme, per, _theme, _faction_list()]
 
 # ---------------------------------------------------------------- parsing
 

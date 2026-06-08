@@ -772,8 +772,9 @@ func _ready() -> void:
 	var p2: Dictionary = NameGen.npc_person("raiders")  # pool exhausted -> built-in
 	NameGen.clear_pools()
 	var names_ok: bool = p1["name"] == "Vex Skullsplitter" and p1["trait"] == "ruthless" and p2["name"] != "Vex Skullsplitter"
-	story_ok = fb_ok and parse_ok and pn_ok and names_ok
-	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names_parse=", pn_ok, " names=", names_ok)
+	var llm_ok: bool = (LLM.embedded_available() == false) and (LLM.embedded_ready() == false) and LLM.model_path().ends_with(Settings.llm_model_file)
+	story_ok = fb_ok and parse_ok and pn_ok and names_ok and llm_ok
+	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names_parse=", pn_ok, " names=", names_ok, " llm=", llm_ok)
 
 	# Equipment: equip armor (zone damage reduction), equip/unequip a weapon, and
 	# verify worn armor cuts that zone's incoming damage.

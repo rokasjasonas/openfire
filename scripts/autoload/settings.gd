@@ -14,6 +14,9 @@ var inventory_keycode: int = KEY_TAB # Survival: key that opens the backpack
 var llm_endpoint: String = "http://localhost:1234/v1/chat/completions"
 var llm_model: String = "local-model"
 var llm_api_key: String = ""
+# Embedded llama.cpp model (downloaded on first use into user://models/).
+var llm_model_url: String = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+var llm_model_file: String = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
 
 func _ready() -> void:
 	load_settings()
@@ -29,6 +32,8 @@ func load_settings() -> void:
 		llm_endpoint = String(cfg.get_value("ai", "endpoint", llm_endpoint))
 		llm_model = String(cfg.get_value("ai", "model", llm_model))
 		llm_api_key = String(cfg.get_value("ai", "api_key", llm_api_key))
+		llm_model_url = String(cfg.get_value("ai", "model_url", llm_model_url))
+		llm_model_file = String(cfg.get_value("ai", "model_file", llm_model_file))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
@@ -37,6 +42,8 @@ func save() -> void:
 	cfg.set_value("ai", "endpoint", llm_endpoint)
 	cfg.set_value("ai", "model", llm_model)
 	cfg.set_value("ai", "api_key", llm_api_key)
+	cfg.set_value("ai", "model_url", llm_model_url)
+	cfg.set_value("ai", "model_file", llm_model_file)
 	cfg.set_value("audio", "master_volume", master_volume)
 	cfg.set_value("video", "fov", fov)
 	cfg.save(PATH)

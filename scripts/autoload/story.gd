@@ -1,17 +1,18 @@
 extends Node
-## Survival story generator (autoload "Story"). Calls a LOCAL, OpenAI-compatible
-## chat endpoint (LM Studio / Ollama, default http://localhost:1234) to write the
-## world's narrative AND name the NPCs from a player-entered theme.
+## Survival story generator (autoload "Story"). Produces the world's narrative AND
+## names the NPCs from a player-entered theme.
 ##
-## The story and the (large) name lists are fetched in TWO separate requests, so a
-## truncated/failed names reply can't break the briefing, and neither response is
-## overloaded. Anything unreachable or malformed falls back to a deterministic
-## offline story / the procedural name pools.
+## Backend priority: an EMBEDDED llama.cpp model (LLM autoload, in-process) if ready,
+## else a local OpenAI-compatible HTTP server (LM Studio), else a deterministic
+## offline story. The story and the (large) name list are generated as TWO separate
+## requests so a truncated/failed names reply can't break the briefing.
 ##
 ## Output dict: { briefing, factions{name:lore}, greetings{name:line},
 ##               names{faction:[{name,trait}]}, outro }
 
 signal story_ready(story: Dictionary)
+
+const SYS := "You write game content. Respond with ONLY a compact JSON object, no markdown, no prose."
 
 var story: Dictionary = {}
 var _theme: String = ""
@@ -42,6 +43,41 @@ func generate(theme: String, facts: Dictionary) -> void:
 	_facts = facts
 	_story_part = {}
 	_names_part = {}
+	if LLM.embedded_ready():
+		_generate_embedded()
+	else:
+		_generate_http()
+
+# ---------------------------------------------------------------- embedded (llama.cpp)
+
+func _generate_embedded() -> void:
+	LLM.chat_done.connect(_on_embed_story, CONNECT_ONE_SHOT)
+	if not LLM.chat(SYS, _story_prompt()):
+		_story_part = _fallback_story()
+		_names_part = {}
+		_finish_embedded()
+
+func _on_embed_story(text: String) -> void:
+	_story_part = _parse_story_content(text)
+	if _story_part.is_empty():
+		_story_part = _fallback_story()
+	LLM.chat_done.connect(_on_embed_names, CONNECT_ONE_SHOT)
+	if not LLM.chat(SYS, _names_prompt()):
+		_names_part = {}
+		_finish_embedded()
+
+func _on_embed_names(text: String) -> void:
+	_names_part = _parse_names_content(text)
+	_finish_embedded()
+
+func _finish_embedded() -> void:
+	story = _story_part.duplicate()
+	story["names"] = _names_part
+	story_ready.emit(story)
+
+# ---------------------------------------------------------------- HTTP (LM Studio)
+
+func _generate_http() -> void:
 	_story_pending = true
 	_names_pending = true
 	if _send(_http_story, _story_prompt(), 900) != OK:
@@ -54,10 +90,7 @@ func generate(theme: String, facts: Dictionary) -> void:
 func _send(http: HTTPRequest, prompt: String, max_tokens: int) -> int:
 	var body := JSON.stringify({
 		"model": Settings.llm_model,
-		"messages": [
-			{"role": "system", "content": "You write game content. Respond with ONLY a compact JSON object, no markdown, no prose."},
-			{"role": "user", "content": prompt},
-		],
+		"messages": [{"role": "system", "content": SYS}, {"role": "user", "content": prompt}],
 		"temperature": 0.9,
 		"max_tokens": max_tokens,
 		"stream": false,
@@ -66,25 +99,6 @@ func _send(http: HTTPRequest, prompt: String, max_tokens: int) -> int:
 	if Settings.llm_api_key != "":
 		headers.append("Authorization: Bearer %s" % Settings.llm_api_key)
 	return http.request(Settings.llm_endpoint, headers, HTTPClient.METHOD_POST, body)
-
-func _faction_list() -> String:
-	var s := ""
-	for f in _facts.get("factions", []):
-		s += "- %s\n" % String(f)
-	return s
-
-func _story_prompt() -> String:
-	return ("Theme: %s\nFactions:\n%sThe player completes survival quests for points (target %d).\n"
-		+ "JSON keys: \"briefing\" (2-3 vivid sentences on this theme), "
-		+ "\"factions\" (object: each faction name -> one-sentence backstory), "
-		+ "\"greetings\" (object: each faction name -> a short in-character line an NPC says to the player), "
-		+ "\"outro\" (one victory sentence). Stay on theme.") % [_theme, _faction_list(), int(_facts.get("points", 10))]
-
-func _names_prompt() -> String:
-	var per := int(_facts.get("names_per_faction", 16))
-	return ("Theme: %s\nFor each faction below, invent %d distinct on-theme people.\nFactions:\n%s"
-		+ "Respond with ONLY a JSON object mapping each faction name to an array of "
-		+ "objects {\"name\": a person's name fitting the theme, \"trait\": a 2-4 word persona}.") % [_theme, per, _faction_list()]
 
 func _on_story_done(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 	var d := {}
@@ -107,26 +121,50 @@ func _maybe_emit() -> void:
 	story["names"] = _names_part
 	story_ready.emit(story)
 
+# ---------------------------------------------------------------- prompts
+
+func _faction_list() -> String:
+	var s := ""
+	for f in _facts.get("factions", []):
+		s += "- %s\n" % String(f)
+	return s
+
+func _story_prompt() -> String:
+	return ("Theme: %s\nFactions:\n%sThe player completes survival quests for points (target %d).\n"
+		+ "JSON keys: \"briefing\" (2-3 vivid sentences on this theme), "
+		+ "\"factions\" (object: each faction name -> one-sentence backstory), "
+		+ "\"greetings\" (object: each faction name -> a short in-character line an NPC says to the player), "
+		+ "\"outro\" (one victory sentence). Stay on theme.") % [_theme, _faction_list(), int(_facts.get("points", 10))]
+
+func _names_prompt() -> String:
+	var per := int(_facts.get("names_per_faction", 16))
+	return ("Theme: %s\nFor each faction below, invent %d distinct on-theme people.\nFactions:\n%s"
+		+ "Respond with ONLY a JSON object mapping each faction name to an array of "
+		+ "objects {\"name\": a person's name fitting the theme, \"trait\": a 2-4 word persona}.") % [_theme, per, _faction_list()]
+
 # ---------------------------------------------------------------- parsing
 
-## Pull the message content out of an OpenAI-style reply, then the JSON object/array
-## out of that content (tolerating prose / code fences / truncation noise).
-func _content_json(txt: String, open_ch: String, close_ch: String):
-	var outer = JSON.parse_string(txt)
-	if typeof(outer) != TYPE_DICTIONARY:
-		return null
-	var choices = outer.get("choices", [])
-	if typeof(choices) != TYPE_ARRAY or choices.is_empty():
-		return null
-	var content := String(choices[0].get("message", {}).get("content", "")).strip_edges()
-	var a := content.find(open_ch)
-	var b := content.rfind(close_ch)
+## Extract a JSON object from a raw string (tolerating prose / code fences / junk).
+func _json_obj(content: String):
+	content = content.strip_edges()
+	var a := content.find("{")
+	var b := content.rfind("}")
 	if a < 0 or b <= a:
 		return null
 	return JSON.parse_string(content.substr(a, b - a + 1))
 
-func _parse_story(txt: String) -> Dictionary:
-	var inner = _content_json(txt, "{", "}")
+## Pull the message content out of an OpenAI-style chat reply.
+func _envelope_content(txt: String) -> String:
+	var outer = JSON.parse_string(txt)
+	if typeof(outer) != TYPE_DICTIONARY:
+		return ""
+	var choices = outer.get("choices", [])
+	if typeof(choices) != TYPE_ARRAY or choices.is_empty():
+		return ""
+	return String(choices[0].get("message", {}).get("content", ""))
+
+func _parse_story_content(content: String) -> Dictionary:
+	var inner = _json_obj(content)
 	if typeof(inner) != TYPE_DICTIONARY:
 		return {}
 	return {
@@ -136,9 +174,16 @@ func _parse_story(txt: String) -> Dictionary:
 		"outro": String(inner.get("outro", "")),
 	}
 
-func _parse_names(txt: String) -> Dictionary:
-	var inner = _content_json(txt, "{", "}")
+func _parse_names_content(content: String) -> Dictionary:
+	var inner = _json_obj(content)
 	return inner if typeof(inner) == TYPE_DICTIONARY else {}
+
+# HTTP variants (envelope -> content). Also used by the smoke test.
+func _parse_story(txt: String) -> Dictionary:
+	return _parse_story_content(_envelope_content(txt))
+
+func _parse_names(txt: String) -> Dictionary:
+	return _parse_names_content(_envelope_content(txt))
 
 func _fallback_story() -> Dictionary:
 	var t := _theme

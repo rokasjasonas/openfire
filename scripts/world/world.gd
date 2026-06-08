@@ -42,7 +42,7 @@ func _ready() -> void:
 			_begin_survival_story()
 		# Grace fallback (waits for the story in Survival); hard cap regardless.
 		get_tree().create_timer(5.0).timeout.connect(_grace_begin)
-		get_tree().create_timer(70.0).timeout.connect(_begin)
+		get_tree().create_timer(70.0).timeout.connect(_hard_begin)
 		_try_begin()
 	else:
 		_report_ready.rpc_id(1)
@@ -89,9 +89,40 @@ func _grace_begin() -> void:
 func _begin_survival_story() -> void:
 	if not Story.story_ready.is_connected(_on_story_ready):
 		Story.story_ready.connect(_on_story_ready)
+	# First start with an embedded model but no file yet: download it (with progress)
+	# before generating; gameplay waits via _hard_begin while downloading.
+	if LLM.embedded_available() and not LLM.has_model():
+		LLM.model_ready.connect(_on_model_ready, CONNECT_ONE_SHOT)
+		LLM.download_progress.connect(_on_model_progress)
+		LLM.ensure_model()
+	else:
+		_kick_story()
+
+func _on_model_ready(_ok: bool) -> void:
+	if LLM.download_progress.is_connected(_on_model_progress):
+		LLM.download_progress.disconnect(_on_model_progress)
+	_set_loading_text.rpc("Generating world & story\u2026")
+	_kick_story()
+
+func _on_model_progress(frac: float) -> void:
+	_set_loading_text.rpc("Downloading AI model\u2026  %d%%" % int(frac * 100.0))
+
+func _kick_story() -> void:
 	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
 	sfacs.append(Game.RAIDER_FACTION)
 	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10)), "names_per_faction": 16})
+
+## Grace fallback that keeps waiting while the AI model is still downloading.
+func _hard_begin() -> void:
+	if Game.is_survival() and LLM.downloading:
+		get_tree().create_timer(20.0).timeout.connect(_hard_begin)
+		return
+	_begin()
+
+@rpc("authority", "call_local", "reliable")
+func _set_loading_text(t: String) -> void:
+	if hud and hud.has_method("set_loading_text"):
+		hud.set_loading_text(t)
 
 func _begin() -> void:
 	if _begun:

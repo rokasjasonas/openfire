@@ -141,6 +141,11 @@ func _close_npc_dialog() -> void:
 func set_quest_tracker(t: String) -> void:
 	quest_tracker.text = t
 
+func set_loading_text(t: String) -> void:
+	var lbl := generating_panel.get_node_or_null("GenLabel")
+	if lbl:
+		lbl.text = t
+
 func _update_health_display() -> void:
 	# Player health is always shown on the main bar (driven by _on_health). The car
 	# health is shown as a separate extra bar only while seated in a vehicle.

@@ -1,7 +1,7 @@
 extends Control
-## Equipment doll shown left of the backpack, laid out like a body: head on top,
-## body in the middle with a gun in each "hand", legs below, and a holster (Gun 3)
-## and belt (Extra) at the bottom. The three gun slots mirror the weapon loadout.
+## Equipment panel shown left of the backpack: a column of armor (Head / Body /
+## Legs), a row of three gun slots beneath it (mirroring the weapon loadout), and
+## an Extra (throwable) slot in the top-right corner next to the backpack.
 ## Double-click a slot to unequip it. Equip from the grid (double-click an item, or
 ## drag it left onto this panel).
 
@@ -10,15 +10,14 @@ const SH := 48.0   # slot height
 
 var player: Node = null
 
-# Body-shaped layout: each slot's top-left position.
 const SLOTS := [
-	{"slot": "head", "label": "Head", "x": 68, "y": 4},
-	{"slot": "gun1", "label": "Gun 1", "x": 4, "y": 58},
-	{"slot": "body", "label": "Body", "x": 68, "y": 58},
-	{"slot": "gun2", "label": "Gun 2", "x": 132, "y": 58},
-	{"slot": "pants", "label": "Legs", "x": 68, "y": 114},
-	{"slot": "gun3", "label": "Gun 3", "x": 4, "y": 174},
-	{"slot": "extra", "label": "Extra", "x": 132, "y": 174},
+	{"slot": "head", "label": "Head", "x": 4, "y": 4},
+	{"slot": "body", "label": "Body", "x": 4, "y": 58},
+	{"slot": "pants", "label": "Legs", "x": 4, "y": 112},
+	{"slot": "gun1", "label": "Gun 1", "x": 4, "y": 170},
+	{"slot": "gun2", "label": "Gun 2", "x": 68, "y": 170},
+	{"slot": "gun3", "label": "Gun 3", "x": 132, "y": 170},
+	{"slot": "extra", "label": "Extra", "x": 132, "y": 4},
 ]
 
 func _ready() -> void:
@@ -58,16 +57,6 @@ func _gui_input(event: InputEvent) -> void:
 func _draw() -> void:
 	if player == null:
 		return
-	# Faint body silhouette linking the slots (spine + arms).
-	var c := Color(1, 1, 1, 0.10)
-	var head_c := Vector2(68 + SW * 0.5, 4 + SH)
-	var body_c := Vector2(68 + SW * 0.5, 58 + SH * 0.5)
-	var legs_c := Vector2(68 + SW * 0.5, 114)
-	draw_line(head_c, body_c, c, 2.0)
-	draw_line(Vector2(68 + SW * 0.5, 58 + SH), legs_c + Vector2(0, SH), c, 2.0)
-	draw_line(body_c, Vector2(4 + SW, 58 + SH * 0.5), c, 2.0)   # left arm
-	draw_line(body_c, Vector2(132, 58 + SH * 0.5), c, 2.0)      # right arm
-
 	var font := get_theme_default_font()
 	for s in SLOTS:
 		var rect := _slot_rect(s)

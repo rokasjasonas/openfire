@@ -35,3 +35,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# Adventure character saves (live next to the executable)
+characters/

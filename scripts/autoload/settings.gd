@@ -9,7 +9,7 @@ signal changed
 var mouse_sensitivity: float = 1.0   # multiplier (0.2 .. 3.0)
 var master_volume: float = 0.8       # linear 0 .. 1
 var fov: float = 75.0                # degrees (60 .. 110)
-var inventory_keycode: int = KEY_TAB # Survival: key that opens the backpack
+var inventory_keycode: int = KEY_TAB # Adventure: key that opens the backpack
 # Local LLM (Survival story). Defaults to LM Studio's OpenAI-compatible server.
 var llm_endpoint: String = "http://localhost:1234/v1/chat/completions"
 var llm_model: String = "local-model"

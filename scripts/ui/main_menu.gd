@@ -18,8 +18,8 @@ const SKILLS := [
 	{ "name": "Normal", "value": 1.0 },
 	{ "name": "Hard", "value": 1.4 },
 ]
-# Survival uses one procedurally-generated terrain map, sized by map_size + seed.
-const SURVIVAL_MAP := "res://maps/terrain.tscn"
+# Adventure uses one procedurally-generated terrain map, sized by map_size + seed.
+const ADVENTURE_MAP := "res://maps/terrain.tscn"
 
 @onready var setup_panel: Control = %SetupPanel
 @onready var lobby_panel: Control = %LobbyPanel
@@ -48,8 +48,13 @@ const SURVIVAL_MAP := "res://maps/terrain.tscn"
 @onready var map_size_row: Control = %MapSizeRow
 @onready var map_size_option: OptionButton = %MapSizeOption
 @onready var inv_key_option: OptionButton = %InvKeyOption
+@onready var character_row: Control = %CharacterRow
+@onready var char_label: Label = %CharLabel
+@onready var character_panel: Control = %CharacterPanel
+@onready var create_panel: Control = %CreatePanel
+@onready var char_list: VBoxContainer = %CharList
 
-# Selectable inventory keys for Survival (label + keycode).
+# Selectable inventory keys for Adventure (label + keycode).
 const INV_KEYS := [
 	{ "name": "Tab", "code": KEY_TAB },
 	{ "name": "I", "code": KEY_I },
@@ -58,7 +63,7 @@ const INV_KEYS := [
 ]
 
 # Embedded llama.cpp models (Qwen2.5 Instruct, Q4_K_M GGUF). Downloaded on first
-# Survival start into user://models/. Bigger = better stories, larger download.
+# Adventure start into user://models/. Bigger = better stories, larger download.
 const AI_MODELS := [
 	{
 		"name": "Tiny — Qwen2.5 0.5B (~0.4 GB)",
@@ -98,12 +103,12 @@ func _ready() -> void:
 	mode_option.add_item("Team Deathmatch")
 	mode_option.add_item("Domination")
 	mode_option.add_item("Battle Royale")
-	mode_option.add_item("Survival")
-	mode_option.selected = Game.Mode.SURVIVAL  # Survival is the default mode
+	mode_option.add_item("Adventure")
+	mode_option.selected = Game.Mode.ADVENTURE  # Adventure is the default mode
 	map_size_option.clear()
-	for size_name in ["Small", "Medium", "Large"]:
+	for size_name in ["Tiny", "Small", "Medium", "Large"]:
 		map_size_option.add_item(size_name)
-	map_size_option.selected = 1
+	map_size_option.selected = 2   # Medium
 	map_option.clear()
 	for m in MAPS:
 		map_option.add_item(m["name"])
@@ -122,6 +127,18 @@ func _ready() -> void:
 	mode_option.item_selected.connect(_on_mode_changed)
 	start_button.pressed.connect(func(): Net.start_match())
 	%BackButton.pressed.connect(_on_back)
+
+	# Character screens (Adventure).
+	%CreateKit.clear()
+	for kit_id in Characters.KIT_IDS:
+		%CreateKit.add_item(Characters.kit_name(kit_id))
+	%CharBtn.pressed.connect(_show_characters)
+	%CharBackBtn.pressed.connect(_show_setup)
+	%NewCharBtn.pressed.connect(_show_create)
+	%DeleteCharBtn.pressed.connect(_on_delete_character)
+	%CreateConfirm.pressed.connect(_on_create_confirm)
+	%CreateCancel.pressed.connect(_show_characters)
+	_update_char_label()
 
 	# Click sound on every button.
 	for b in find_children("*", "Button", true):
@@ -207,20 +224,23 @@ func _show_options() -> void:
 	setup_panel.visible = false
 	lobby_panel.visible = false
 	options_panel.visible = true
+	character_panel.visible = false
+	create_panel.visible = false
 
 func _on_mode_changed(_idx: int) -> void:
 	var coop := mode_option.selected == 1
 	var br := mode_option.selected == 4  # Battle Royale: no frag limit, last one alive wins
-	var survival := mode_option.selected == 5
-	map_row.visible = not coop and not survival      # Survival picks a size, not a map
-	frag_row.visible = not coop and not br and not survival
+	var adventure := mode_option.selected == 5
+	map_row.visible = not coop and not adventure      # Adventure picks a size, not a map
+	frag_row.visible = not coop and not br and not adventure
 	mission_row.visible = coop
-	mission_points_row.visible = survival
-	seed_row.visible = survival
-	map_size_row.visible = survival
-	theme_row.visible = survival
-	# Survival hides the manual NPC count, but keeps the difficulty (Bot skill) selector.
-	bots_spin.get_parent().visible = not survival
+	mission_points_row.visible = adventure
+	seed_row.visible = adventure
+	map_size_row.visible = adventure
+	theme_row.visible = adventure
+	character_row.visible = adventure
+	# Adventure hides the manual NPC count, but keeps the difficulty (Bot skill) selector.
+	bots_spin.get_parent().visible = not adventure
 	if coop and Missions.get_all().is_empty():
 		status_label.text = "No missions found in res://missions/"
 
@@ -229,8 +249,8 @@ func _capture_config() -> void:
 	if Game.player_name == "":
 		Game.player_name = "Player"
 	var coop := mode_option.selected == 1
-	var survival := mode_option.selected == 5
-	# Option order matches the Mode enum (0=Deathmatch … 5=Survival).
+	var adventure := mode_option.selected == 5
+	# Option order matches the Mode enum (0=Deathmatch … 5=Adventure).
 	Game.config["mode"] = mode_option.selected
 	Game.config["bot_count"] = int(bots_spin.value)
 	Game.config["bot_skill"] = SKILLS[skill_option.selected]["value"]
@@ -240,10 +260,10 @@ func _capture_config() -> void:
 			var m: Dictionary = missions[clampi(mission_option.selected, 0, missions.size() - 1)]
 			Game.config["mission_id"] = m["id"]
 			Game.config["map"] = m["map"]
-	elif survival:
+	elif adventure:
 		Game.config["mission_points"] = int(mission_points_spin.value)
 		Game.config["map_size"] = map_size_option.selected
-		Game.config["map"] = SURVIVAL_MAP   # terrain.gd reads map_size + seed
+		Game.config["map"] = ADVENTURE_MAP   # terrain.gd reads map_size + seed
 		Game.config["frag_limit"] = 0
 		Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
 		Game.config["theme"] = theme_edit.text.strip_edges()
@@ -274,7 +294,7 @@ func _on_host() -> void:
 
 func _on_solo() -> void:
 	_capture_config()
-	if not Game.is_survival():
+	if not Game.is_adventure():
 		Game.config["bot_count"] = maxi(1, int(bots_spin.value))
 	if Net.host_game():
 		Net.start_match()
@@ -320,13 +340,76 @@ func _show_setup() -> void:
 	setup_panel.visible = true
 	lobby_panel.visible = false
 	options_panel.visible = false
+	character_panel.visible = false
+	create_panel.visible = false
+	_update_char_label()
 
 func _show_lobby() -> void:
 	setup_panel.visible = false
 	options_panel.visible = false
+	character_panel.visible = false
+	create_panel.visible = false
 	lobby_panel.visible = true
 	start_button.visible = Net.is_host()
 	_refresh_lobby()
+
+# ---------------------------------------------------------------- characters
+
+func _update_char_label() -> void:
+	char_label.text = String(Characters.current.get("name", "(none)")) if Characters.has_current() else "(none)"
+
+func _show_characters() -> void:
+	setup_panel.visible = false
+	create_panel.visible = false
+	character_panel.visible = true
+	_rebuild_char_list()
+
+func _rebuild_char_list() -> void:
+	for c in char_list.get_children():
+		c.queue_free()
+	if Characters.profiles.is_empty():
+		var empty := Label.new()
+		empty.text = "No characters yet — create one."
+		empty.modulate = Color(1, 1, 1, 0.5)
+		char_list.add_child(empty)
+		return
+	for p in Characters.profiles:
+		var pd: Dictionary = p
+		var b := Button.new()
+		var st: Dictionary = pd.get("stats", {})
+		var chosen := String(pd.get("id", "")) == String(Characters.current.get("id", ""))
+		b.text = "%s%s  ·  %s  ·  %d adv, %d pts" % [
+			"▶ " if chosen else "", String(pd.get("name", "?")),
+			Characters.kit_name(String(pd.get("kit", "scout"))),
+			int(st.get("adventures", 0)), int(st.get("points", 0))]
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var id := String(pd.get("id", ""))
+		b.pressed.connect(func(): _choose_character(id))
+		char_list.add_child(b)
+
+func _choose_character(id: String) -> void:
+	Characters.set_current(id)
+	_update_char_label()
+	_rebuild_char_list()
+
+func _on_delete_character() -> void:
+	if Characters.has_current():
+		Characters.delete(String(Characters.current["id"]))
+		_rebuild_char_list()
+		_update_char_label()
+
+func _show_create() -> void:
+	%CreateName.text = ""
+	%CreateBackstory.text = ""
+	%CreateKit.selected = 0
+	%CreateColor.color = Color(0.4, 0.6, 0.9)
+	character_panel.visible = false
+	create_panel.visible = true
+
+func _on_create_confirm() -> void:
+	var kit: String = Characters.KIT_IDS[clampi(%CreateKit.selected, 0, Characters.KIT_IDS.size() - 1)]
+	Characters.create(%CreateName.text, %CreateColor.color, kit, %CreateBackstory.text)
+	_show_characters()
 
 func _refresh_lobby() -> void:
 	if not lobby_panel.visible:
@@ -344,7 +427,7 @@ func _refresh_lobby() -> void:
 		summary += " — " + m.get("name", "?")
 	elif Game.is_battle_royale():
 		summary += " — last one standing"
-	elif Game.is_survival():
+	elif Game.is_adventure():
 		summary += " — %d mission points" % int(Game.config.get("mission_points", 10))
 	else:
 		summary += " — frag limit %d" % int(Game.config["frag_limit"])

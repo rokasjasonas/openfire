@@ -88,6 +88,26 @@ unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(220, 0)
 
+[node name="CharacterRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Character"
+
+[node name="CharLabel" type="Label" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(130, 0)
+text = "(none)"
+
+[node name="CharBtn" type="Button" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Characters…"
+
 [node name="MapRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -147,7 +167,7 @@ text = "Mission points"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(220, 0)
-min_value = 2.0
+min_value = 1.0
 max_value = 100.0
 step = 1.0
 value = 10.0
@@ -488,3 +508,158 @@ placeholder_text = "local-model"
 unique_name_in_owner = true
 layout_mode = 2
 text = "Back"
+
+[node name="CharacterPanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="CharacterPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="CharacterPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="CharacterPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+custom_minimum_size = Vector2(440, 0)
+
+[node name="Title" type="Label" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "CHARACTERS"
+horizontal_alignment = 1
+
+[node name="Hint" type="Label" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+modulate = Color(1, 1, 1, 0.55)
+text = "Your gear and progress are saved per character."
+horizontal_alignment = 1
+
+[node name="CharScroll" type="ScrollContainer" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 220)
+
+[node name="CharList" type="VBoxContainer" parent="CharacterPanel/Center/Box/VBox/CharScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="Buttons" type="HBoxContainer" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="NewCharBtn" type="Button" parent="CharacterPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "New Character"
+
+[node name="DeleteCharBtn" type="Button" parent="CharacterPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Delete Selected"
+
+[node name="CharBackBtn" type="Button" parent="CharacterPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back"
+
+[node name="CreatePanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="CreatePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="CreatePanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="CreatePanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+custom_minimum_size = Vector2(460, 0)
+
+[node name="Title" type="Label" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+text = "NEW CHARACTER"
+horizontal_alignment = 1
+
+[node name="NameRow" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="CreatePanel/Center/Box/VBox/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Name"
+
+[node name="CreateName" type="LineEdit" parent="CreatePanel/Center/Box/VBox/NameRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(260, 0)
+placeholder_text = "Wanderer"
+
+[node name="ColorRow" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="CreatePanel/Center/Box/VBox/ColorRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Color"
+
+[node name="CreateColor" type="ColorPickerButton" parent="CreatePanel/Center/Box/VBox/ColorRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(120, 28)
+color = Color(0.4, 0.6, 0.9, 1)
+edit_alpha = false
+
+[node name="KitRow" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="CreatePanel/Center/Box/VBox/KitRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Starting kit"
+
+[node name="CreateKit" type="OptionButton" parent="CreatePanel/Center/Box/VBox/KitRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(260, 0)
+
+[node name="BackstoryLabel" type="Label" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+text = "Backstory (the AI weaves this into the story)"
+
+[node name="CreateBackstory" type="TextEdit" parent="CreatePanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 90)
+wrap_mode = 1
+
+[node name="Buttons" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="CreateConfirm" type="Button" parent="CreatePanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Create"
+
+[node name="CreateCancel" type="Button" parent="CreatePanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cancel"

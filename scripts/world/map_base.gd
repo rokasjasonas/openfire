@@ -173,7 +173,7 @@ func add_ladder(bottom: Vector3, top: Vector3, normal: Vector3 = Vector3(0, 0, -
 	node.set_meta("bottom", bottom)
 	node.set_meta("top", top)
 	node.set_meta("normal", normal.normalized())   # horizontal dir from wall toward the climber
-	node.set_meta("radius", 1.3)
+	node.set_meta("radius", 1.9)                    # generous so you can grab it from the platform edge
 	add_child(node)
 	var height := top.y - bottom.y
 	if height <= 0.1:

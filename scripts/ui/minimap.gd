@@ -70,7 +70,9 @@ func _draw() -> void:
 	# Survival mission points (village/quest POIs). Those tied to an active quest get
 	# a pulsing ring + label so the objective is unmistakable; the rest are dim. Far
 	# targets clamp to the edge with an arrow pointing the way.
-	var active_pois := {}   # poi -> quest title to show
+	var active_pois := {}        # poi -> quest title to show
+	var active_factions := {}    # faction name -> true (hunt / clear_camp targets)
+	var active_targets := {}     # combatant_id -> true (assassinate targets)
 	var qm := get_tree().get_first_node_in_group("quest_manager")
 	if qm != null:
 		for q in qm.quests:
@@ -79,6 +81,10 @@ func _draw() -> void:
 					active_pois[q["poi"]] = String(q.get("title", ""))
 				if q.has("dest") and not active_pois.has(q["dest"]):
 					active_pois[q["dest"]] = String(q.get("title", ""))
+				if q.has("faction"):
+					active_factions[String(q["faction"])] = true
+				if q.has("target_id"):
+					active_targets[int(q["target_id"])] = true
 	# Dim (non-objective) POIs first, so the active one always draws on top.
 	for poi in get_tree().get_nodes_in_group("poi_site"):
 		if not active_pois.has(poi):
@@ -87,15 +93,34 @@ func _draw() -> void:
 		if is_instance_valid(poi):
 			_draw_objective(c, poi.global_position - ppos, fwd, right, scale, String(active_pois[poi]))
 
-	# Combatants.
+	# Combatants. Quest-focus enemies (hunt a faction / assassinate a target) glow gold.
+	# In Adventure, NPCs are coloured by their stance toward you (hostile = red,
+	# friendly = green, neutral = grey) so actual enemies stand out from villagers;
+	# other modes use the plain enemy/ally team colours.
+	var is_adv := Game.is_adventure()
 	for cm in get_tree().get_nodes_in_group("combatant"):
 		if cm == me or cm.get("dead") or cm.get("fully_dead"):
 			continue
 		var enemy := int(cm.get("team")) != my_team
-		var col := Color(1, 0.35, 0.3) if enemy else Color(0.4, 0.7, 1.0)
+		var is_objective: bool = enemy and (active_factions.has(String(cm.get("faction"))) or active_targets.has(int(cm.get("combatant_id"))))
+		if is_objective:
+			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(1.0, 0.85, 0.3), 4.0, true, false)
+			continue
+		var col: Color
+		if is_adv and cm.is_in_group("bot"):
+			var fac := String(cm.get("faction"))
+			var stance := String(Game.adventure_stance.get(fac, "neutral"))
+			if fac == Game.RAIDER_FACTION or stance == "hostile":
+				col = Color(1.0, 0.3, 0.25)     # hostile
+			elif stance == "friendly":
+				col = Color(0.3, 0.9, 0.4)      # friendly villager
+			else:
+				col = Color(0.72, 0.74, 0.78)   # neutral villager
+		else:
+			col = Color(1, 0.35, 0.3) if enemy else Color(0.4, 0.7, 1.0)
 		if cm.get("downed"):
 			col = col.darkened(0.4)
-		_blip(c, cm.global_position - ppos, fwd, right, scale, col, 3.0, false)
+		_blip(c, cm.global_position - ppos, fwd, right, scale, col, 3.0, false, false)
 
 	# Self (arrow pointing up).
 	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -7), c + Vector2(-5, 5), c + Vector2(5, 5)]),
@@ -139,11 +164,15 @@ func _draw_objective(c: Vector2, rel: Vector3, fwd: Vector3, right: Vector3, sca
 		draw_string(font, lp + Vector2(1, 1), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0, 0, 0, 0.8))
 		draw_string(font, lp, lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, gold)
 
-func _blip(c: Vector2, rel: Vector3, fwd: Vector3, right: Vector3, scale: float, col: Color, r: float, square: bool) -> void:
+## `clamp_edge`: POIs/objectives pin to the rim as direction cues; combatants pass
+## false so out-of-range NPCs simply aren't drawn (no corner clutter).
+func _blip(c: Vector2, rel: Vector3, fwd: Vector3, right: Vector3, scale: float, col: Color, r: float, square: bool, clamp_edge: bool = true) -> void:
 	var lx := rel.dot(right)
 	var lz := rel.dot(fwd)
 	var p := Vector2(lx, -lz) * scale
 	if p.length() > _radius - 2.0:
+		if not clamp_edge:
+			return  # off the minimap — don't draw it on the edge
 		p = p.normalized() * (_radius - 2.0)  # clamp to edge
 		col.a *= 0.6
 	var sp := c + p

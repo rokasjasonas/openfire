@@ -16,7 +16,7 @@ var coop_lives: int = 6
 const DOM_LIMIT := 250
 var dom_score: Array = [0, 0]
 
-enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION, BATTLE_ROYALE, SURVIVAL }
+enum Mode { DEATHMATCH, COOP, TEAM_DEATHMATCH, DOMINATION, BATTLE_ROYALE, ADVENTURE }
 
 # Team ids. In coop, humans share TEAM_PLAYERS and bots are TEAM_ENEMIES.
 # In team deathmatch, teams 0 and 1 are BLUE and RED (each holds players + bots).
@@ -31,21 +31,21 @@ var player_name: String = "Player"
 
 # Default match configuration; overwritten by the lobby / host.
 var config: Dictionary = {
-	"mode": Mode.SURVIVAL,
+	"mode": Mode.ADVENTURE,
 	"map": "res://maps/arena.tscn",
 	"mission_id": "",          # used only in coop
 	"bot_count": 6,
 	"bot_skill": 1.0,          # 0.5 = easy, 1.0 = normal, 1.5 = hard
 	"frag_limit": 25,          # deathmatch
 	"time_limit": 600,         # seconds, 0 = unlimited
-	# Survival mode (most take effect in later chunks).
-	"mission_points": 10,      # survival point target (2-100)
+	# Adventure mode (most take effect in later chunks).
+	"mission_points": 10,      # adventure point target (2-100)
 	"seed": 0,                 # world generation seed (0 = random at host time)
 	"map_size": 1,             # 0 = small, 1 = medium, 2 = large
-	"theme": "",               # survival story theme (drives LLM/offline generation)
+	"theme": "",               # adventure story theme (drives LLM/offline generation)
 }
 
-# Survival narrative (host generates via Story; replicated to clients).
+# Adventure narrative (host generates via Story; replicated to clients).
 var story: Dictionary = {}
 
 # Live per-combatant scoreboard: id -> { name, kills, deaths, is_bot, team }
@@ -134,14 +134,14 @@ func is_domination() -> bool:
 func is_battle_royale() -> bool:
 	return config["mode"] == Mode.BATTLE_ROYALE
 
-func is_survival() -> bool:
-	return config["mode"] == Mode.SURVIVAL
+func is_adventure() -> bool:
+	return config["mode"] == Mode.ADVENTURE
 
 ## True when combatants share teams (coop / TDM / domination) — used for friendly
 ## fire and team-coloured nameplates. Plain deathmatch is free-for-all.
 func is_team_mode() -> bool:
-	# Survival: humans share a team vs the NPC world (friendly fire off).
-	return is_coop() or is_team_deathmatch() or is_domination() or is_survival()
+	# Adventure: humans share a team vs the NPC world (friendly fire off).
+	return is_coop() or is_team_deathmatch() or is_domination() or is_adventure()
 
 func team_color(team: int) -> Color:
 	return TEAM_COLORS.get(team, Color(1, 1, 1))
@@ -155,44 +155,44 @@ func mode_name() -> String:
 		Mode.TEAM_DEATHMATCH: return "Team Deathmatch"
 		Mode.DOMINATION: return "Domination"
 		Mode.BATTLE_ROYALE: return "Battle Royale"
-		Mode.SURVIVAL: return "Survival"
+		Mode.ADVENTURE: return "Adventure"
 		_: return "Deathmatch"
 
-# ---------------------------------------------------------------- survival factions
+# ---------------------------------------------------------------- adventure factions
 # Each village belongs to a faction with a per-world stance toward the player
 # (friendly / neutral / hostile). Raiders are hostile to everyone. Factions fight
 # each other (so raiders attack villages, etc.). Stances live host-side (the AI runs
 # on the host); provoking a neutral village flips it hostile.
 
-const SURVIVAL_VILLAGE_FACTIONS := ["Ridgeback Clan", "Verdant Pact", "Ashfall Brotherhood"]
+const ADVENTURE_VILLAGE_FACTIONS := ["Ridgeback Clan", "Verdant Pact", "Ashfall Brotherhood"]
 const RAIDER_FACTION := "raiders"
-var survival_stance: Dictionary = {}   # faction -> "friendly" | "neutral" | "hostile"
+var adventure_stance: Dictionary = {}   # faction -> "friendly" | "neutral" | "hostile"
 
-func survival_setup(seed_val: int) -> void:
+func adventure_setup(seed_val: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
-	survival_stance.clear()
-	for f in SURVIVAL_VILLAGE_FACTIONS:
+	adventure_stance.clear()
+	for f in ADVENTURE_VILLAGE_FACTIONS:
 		var r := rng.randf()
-		survival_stance[f] = "friendly" if r < 0.34 else ("neutral" if r < 0.67 else "hostile")
-	survival_stance[RAIDER_FACTION] = "hostile"
+		adventure_stance[f] = "friendly" if r < 0.34 else ("neutral" if r < 0.67 else "hostile")
+	adventure_stance[RAIDER_FACTION] = "hostile"
 
 ## True if faction `a` will fight faction `b`. Same faction / co-op players never.
-func survival_hostile(a: String, b: String) -> bool:
+func adventure_hostile(a: String, b: String) -> bool:
 	if a == "" or b == "" or a == b:
 		return false
 	if a == RAIDER_FACTION or b == RAIDER_FACTION:
 		return true
 	if a == "player":
-		return survival_stance.get(b, "neutral") == "hostile"
+		return adventure_stance.get(b, "neutral") == "hostile"
 	if b == "player":
-		return survival_stance.get(a, "neutral") == "hostile"
+		return adventure_stance.get(a, "neutral") == "hostile"
 	return false  # village vs village: neutral by default
 
 ## A village turns hostile to the player once provoked (e.g. you shot one of them).
-func survival_provoke(faction: String) -> void:
+func adventure_provoke(faction: String) -> void:
 	if faction != "" and faction != "player" and faction != RAIDER_FACTION:
-		survival_stance[faction] = "hostile"
+		adventure_stance[faction] = "hostile"
 
 func end_match(result: Dictionary) -> void:
 	if not match_active:

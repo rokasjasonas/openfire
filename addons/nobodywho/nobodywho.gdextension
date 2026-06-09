@@ -4,14 +4,18 @@ compatibility_minimum = 4.5
 reloadable = true
 
 [libraries]
-linux.x86_64 = "res://addons/nobodywho/libnobodywho-godot-x86_64-unknown-linux-gnu-release.so"
-
-; Lean dev install: only the Linux x86_64 release lib is shipped here (65 MB).
-; To export to other platforms, extract the matching lib from
-; nobodywho-godot-v9.2.0.zip into this folder and add its key, e.g.:
-;   windows.x86_64 = "res://addons/nobodywho/libnobodywho-godot-x86_64-pc-windows-msvc-release.dll"
-;   macos.arm64    = "res://addons/nobodywho/libnobodywho-godot-aarch64-apple-darwin-release.dylib"
-;   android.arm64  = "res://addons/nobodywho/libnobodywho-godot-aarch64-linux-android-release.so"
+; Desktop release libs (NobodyWho v9.3.0) for all build targets. The libs are
+; gitignored (65-130 MB each) — re-extract them from the nobodywho-godot release zip
+; into this folder, or let CI fetch them via the NOBODYWHO_URL Actions variable.
+; Debug keys point at the release libs so debug exports still resolve.
+linux.debug.x86_64 =     "res://addons/nobodywho/libnobodywho-godot-x86_64-unknown-linux-gnu-release.so"
+linux.release.x86_64 =   "res://addons/nobodywho/libnobodywho-godot-x86_64-unknown-linux-gnu-release.so"
+windows.debug.x86_64 =   "res://addons/nobodywho/libnobodywho-godot-x86_64-pc-windows-msvc-release.dll"
+windows.release.x86_64 = "res://addons/nobodywho/libnobodywho-godot-x86_64-pc-windows-msvc-release.dll"
+macos.debug =            "res://addons/nobodywho/libnobodywho-godot-x86_64-apple-darwin-release.dylib"
+macos.release =          "res://addons/nobodywho/libnobodywho-godot-x86_64-apple-darwin-release.dylib"
+macos.debug.arm64 =      "res://addons/nobodywho/libnobodywho-godot-aarch64-apple-darwin-release.dylib"
+macos.release.arm64 =    "res://addons/nobodywho/libnobodywho-godot-aarch64-apple-darwin-release.dylib"
 
 [icons]
 NobodyWhoModel        = "res://addons/nobodywho/icon.svg"

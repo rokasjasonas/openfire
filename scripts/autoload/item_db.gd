@@ -1,5 +1,5 @@
 extends Node
-## Survival item definitions + factory (autoload "ItemDB").
+## Adventure item definitions + factory (autoload "ItemDB").
 ##
 ## Items do NOT stack and occupy a rectangular footprint (w x h cells) in a spatial
 ## grid backpack (a la Tarkov). The backpack itself is a grid (grid_w x grid_h);

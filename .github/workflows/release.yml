@@ -54,8 +54,16 @@ jobs:
           set -uo pipefail
           if [ -n "${NOBODYWHO_URL:-}" ]; then
             curl -fL -o nw.zip "$NOBODYWHO_URL" && mkdir -p nw_extract && unzip -o -q nw.zip -d nw_extract
-            find nw_extract \( -name 'libnobodywho-*.so' -o -name 'libnobodywho-*.dll' -o -name 'libnobodywho-*.dylib' \) \
-              -exec cp {} addons/nobodywho/ \;
+            # Copy ONLY the desktop release libs the manifest references (the zip also
+            # contains huge debug/android/ios libs we must not ship).
+            for lib in \
+              libnobodywho-godot-x86_64-unknown-linux-gnu-release.so \
+              libnobodywho-godot-x86_64-pc-windows-msvc-release.dll \
+              libnobodywho-godot-x86_64-apple-darwin-release.dylib \
+              libnobodywho-godot-aarch64-apple-darwin-release.dylib; do
+              found=$(find nw_extract -name "$lib" | head -1)
+              [ -n "$found" ] && cp "$found" addons/nobodywho/
+            done
           fi
           # If no native libs are present, drop the .gdextension manifest so Godot
           # doesn't error trying to load a missing library (the LLM just falls back).

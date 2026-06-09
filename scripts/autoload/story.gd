@@ -24,6 +24,12 @@ var _story_part: Dictionary = {}
 var _names_part: Dictionary = {}
 var _story_pending: bool = false
 var _names_pending: bool = false
+var _emitted: bool = false
+
+# How long to wait on the HTTP LLM (LM Studio) before giving up and using the offline
+# story — so a server that isn't running doesn't hang the loading screen.
+const HTTP_TIMEOUT := 10.0
+const HTTP_WATCHDOG := 12.0
 
 func _ready() -> void:
 	_http_story = _make_http()
@@ -33,7 +39,7 @@ func _ready() -> void:
 
 func _make_http() -> HTTPRequest:
 	var h := HTTPRequest.new()
-	h.timeout = 60.0
+	h.timeout = HTTP_TIMEOUT
 	add_child(h)
 	return h
 
@@ -44,6 +50,7 @@ func generate(theme: String, facts: Dictionary) -> void:
 	_facts = facts
 	_story_part = {}
 	_names_part = {}
+	_emitted = false
 	if LLM.embedded_ready():
 		_generate_embedded()
 	else:
@@ -74,6 +81,14 @@ func _on_embed_names(text: String) -> void:
 	_finish_embedded()
 
 func _finish_embedded() -> void:
+	_emit()
+
+## Emit the finished story exactly once (guards against a late HTTP reply arriving
+## after the watchdog already fired the fallback).
+func _emit() -> void:
+	if _emitted:
+		return
+	_emitted = true
 	story = _story_part.duplicate()
 	story["names"] = _names_part
 	story_ready.emit(story)
@@ -89,7 +104,16 @@ func _generate_http() -> void:
 		_story_pending = false
 	if _send(_http_names, _names_prompt(), 2600) != OK:
 		_names_pending = false
+	# Safety net: if the server is unreachable/slow, fall back so we never hang.
+	get_tree().create_timer(HTTP_WATCHDOG).timeout.connect(_on_http_watchdog)
 	_maybe_emit()
+
+func _on_http_watchdog() -> void:
+	if _emitted:
+		return
+	if _story_part.is_empty():
+		_story_part = _fallback_story()
+	_emit()
 
 func _send(http: HTTPRequest, prompt: String, max_tokens: int) -> int:
 	var body := JSON.stringify({
@@ -121,9 +145,7 @@ func _on_names_done(result: int, code: int, _h: PackedStringArray, body: PackedB
 func _maybe_emit() -> void:
 	if _story_pending or _names_pending:
 		return
-	story = _story_part.duplicate()
-	story["names"] = _names_part
-	story_ready.emit(story)
+	_emit()
 
 # ---------------------------------------------------------------- prompts
 
@@ -134,11 +156,23 @@ func _faction_list() -> String:
 	return s
 
 func _story_prompt() -> String:
-	return ("Theme: %s\nFactions:\n%sThe player completes survival quests for points (target %d).\n"
+	return ("Theme: %s\n%sFactions:\n%sThe player completes adventure quests for points (target %d).\n"
 		+ "JSON keys: \"briefing\" (2-3 vivid sentences on this theme), "
 		+ "\"factions\" (object: each faction name -> one-sentence backstory), "
 		+ "\"greetings\" (object: each faction name -> a short in-character line an NPC says to the player), "
-		+ "\"outro\" (one victory sentence). Stay on theme.") % [_theme, _faction_list(), int(_facts.get("points", 10))]
+		+ "\"outro\" (one victory sentence). Stay on theme.") % [_theme, _hero_line(), _faction_list(), int(_facts.get("points", 10))]
+
+## Optional hero context from the chosen character (name + backstory) for the LLM.
+func _hero_line() -> String:
+	var h: Dictionary = _facts.get("hero", {})
+	var nm := String(h.get("name", "")).strip_edges()
+	var bio := String(h.get("bio", "")).strip_edges()
+	if nm == "" and bio == "":
+		return ""
+	var line := ("The player's character is %s" % nm) if nm != "" else "The player's character"
+	if bio != "":
+		line += ": %s" % bio
+	return line + ". Weave them into the briefing.\n"
 
 func _names_prompt() -> String:
 	var per := int(_facts.get("names_per_faction", 16))

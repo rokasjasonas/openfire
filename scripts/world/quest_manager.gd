@@ -1,5 +1,5 @@
 extends Node
-## Host-only Survival quest system. Generates a pool of point-bearing quests (more
+## Host-only Adventure quest system. Generates a pool of point-bearing quests (more
 ## than the player needs), runs an auto-advancing main chain, lets named NPCs offer
 ## side quests, tracks completion and ends the match once the player reaches the
 ## point target (Game.config.mission_points). The quest log is pushed to every HUD
@@ -199,7 +199,7 @@ func _complete(q: Dictionary) -> bool:
 	if q["main"]:
 		_advance_main()
 	if points >= target_points and Game.match_active:
-		Game.end_match({"reason": "survival_win", "points": points})
+		Game.end_match({"reason": "adventure_win", "points": points})
 	return true
 
 func _advance_main() -> void:

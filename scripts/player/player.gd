@@ -25,7 +25,7 @@ const REVIVE_RANGE := 2.6
 const REVIVE_TIME := 3.0
 const REVIVE_HEALTH := 40.0
 
-# Survival needs (only active in Survival mode). Hunger/thirst drain over time
+# Adventure needs (only active in Adventure mode). Hunger/thirst drain over time
 # (faster while sprinting) and chip health once either hits zero.
 const MAX_NEED := 100.0
 const HUNGER_RATE := 0.45        # points/sec
@@ -47,11 +47,16 @@ const DROWN_DAMAGE := 6.0        # health/sec once out of air
 # Ladders
 const CLIMB_SPEED := 4.0
 
+# Fall damage: a landing faster than FALL_SAFE_SPEED hurts (≈ a >4 m drop), scaling
+# with how much faster you hit the ground.
+const FALL_SAFE_SPEED := 14.0
+const FALL_DAMAGE_PER := 6.0
+
 # combatant_id == peer id for players (always positive). Used for scoring.
 var combatant_id: int = 1
 var team: int = -1
 var display_name: String = "Player"
-var faction: String = "player"   # Survival faction (used for NPC hostility)
+var faction: String = "player"   # Adventure faction (used for NPC hostility)
 
 # Replicated state (see SceneReplicationConfig in player.tscn).
 var sync_health: float = MAX_HEALTH
@@ -67,7 +72,7 @@ var _bleed: float = 0.0
 var _revive_prog: float = 0.0
 var _awaiting_life: bool = false
 
-# Survival needs (authority-owned; HUD shows the local player's only).
+# Adventure needs (authority-owned; HUD shows the local player's only).
 var hunger: float = MAX_NEED
 var thirst: float = MAX_NEED
 var _need_dmg_accum: float = 0.0
@@ -79,13 +84,14 @@ var near_ladder: Node = null
 var _water_y: float = -1.0e20    # cached water-surface height (sentinel = unknown)
 var _oxy_dmg_accum: float = 0.0
 var _ladder_detach: float = 0.0  # brief no-grab window after jumping off a ladder
+var _air_speed: float = 0.0      # peak downward speed while airborne, for fall damage
 
 # Run stats (local only) for the Stats tab: distance, shots, accuracy.
 var meters_walked: float = 0.0
 var shots_fired: int = 0
 var shots_hit: int = 0
 
-# Survival backpack: a spatial grid (backpack_w x backpack_h). Items are non-stacking
+# Adventure backpack: a spatial grid (backpack_w x backpack_h). Items are non-stacking
 # and occupy a w x h footprint at a placed (gx, gy); fixed orientation.
 var backpack_w: int = ItemDB.DEFAULT_GRID_W
 var backpack_h: int = ItemDB.DEFAULT_GRID_H
@@ -135,8 +141,8 @@ const ENTER_RANGE := 3.5
 const NPC_TALK_RANGE := 4.5
 var driving: Node = null       # the vehicle we're in, or null
 var near_vehicle: bool = false
-var near_npc: Node = null      # Survival: nearest talkable (non-hostile) NPC, or null
-var near_pickup: Node = null   # Survival: nearest collectable pickup (press E), or null
+var near_npc: Node = null      # Adventure: nearest talkable (non-hostile) NPC, or null
+var near_pickup: Node = null   # Adventure: nearest collectable pickup (press E), or null
 var _cam_yaw: float = 0.0      # drive-camera orbit (relative to car)
 var _cam_pitch: float = 0.0
 var _cam_idle: float = 0.0
@@ -159,11 +165,15 @@ func _ready() -> void:
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
 	# local player can actually fire). Runs before set_local/_emit_hud below.
-	# In Survival you spawn with just a pistol already equipped (slot 1); the
-	# backpack starts empty (see _fill_survival_start).
-	if Game.is_survival():
+	# In Adventure you spawn with just a pistol already equipped (slot 1); the
+	# backpack starts empty (see _fill_adventure_start).
+	if Game.is_adventure():
 		weapons.set_loadout(["pistol"])
-		_fill_survival_start()
+		_fill_adventure_start()
+		# A chosen character brings their saved gear/loadout/appearance with them.
+		if is_multiplayer_authority() and Characters.has_current():
+			Characters.apply_to_player(self)
+			name_label.text = display_name
 	else:
 		weapons.set_loadout(WeaponDB.default_loadout())
 	# Only the owning peer drives input and owns the camera.
@@ -268,7 +278,7 @@ func _physics_process(delta: float) -> void:
 		_update_downed(delta)
 		return
 
-	if Game.is_survival():
+	if Game.is_adventure():
 		_update_needs(delta)
 
 	# Driving a vehicle redirects all movement input to the vehicle.
@@ -279,8 +289,8 @@ func _physics_process(delta: float) -> void:
 			_drive_vehicle(delta)
 		return
 	near_vehicle = _nearest_vehicle() != null
-	near_npc = _nearest_talkable_npc() if Game.is_survival() else null
-	near_pickup = _nearest_pickup() if Game.is_survival() else null
+	near_npc = _nearest_talkable_npc() if Game.is_adventure() else null
+	near_pickup = _nearest_pickup() if Game.is_adventure() else null
 	near_ladder = _nearest_ladder()
 	if Input.is_action_just_pressed("interact"):
 		if near_vehicle:
@@ -333,6 +343,11 @@ func _physics_process(delta: float) -> void:
 		velocity.z = lerp(velocity.z, target.z, accel * delta)
 
 		move_and_slide()
+		# Fall damage: track peak downward speed in the air, apply it on landing.
+		if is_on_floor():
+			_apply_fall_landing()
+		else:
+			_air_speed = maxf(_air_speed, -velocity.y)
 	if is_multiplayer_authority():
 		meters_walked += Vector2(velocity.x, velocity.z).length() * delta
 	_update_footsteps(delta)
@@ -378,7 +393,7 @@ func add_grenades(n: int) -> void:
 	grenades = mini(MAX_GRENADES, grenades + n)
 	grenades_changed.emit(grenades)
 
-# ---------------------------------------------------------------- survival needs
+# ---------------------------------------------------------------- adventure needs
 
 ## Drain hunger/thirst over time (faster while sprinting); chip health when empty.
 func _update_needs(delta: float) -> void:
@@ -430,6 +445,7 @@ func _update_oxygen(delta: float, head_under: bool) -> void:
 func _swim(delta: float) -> void:
 	_crouch = 0.0
 	sync_crouch = 0.0
+	_air_speed = 0.0   # water breaks the fall — no landing damage
 	_apply_crouch(0.0)
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y))
@@ -467,7 +483,7 @@ func _nearest_ladder() -> Node:
 ## a climb input — it detaches you from the ladder (see _climb).
 func _wants_climb() -> bool:
 	var up := Input.is_action_pressed("move_forward")
-	var down := Input.is_action_pressed("move_back")
+	var down := Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch")
 	return up or down or not is_on_floor()
 
 const LADDER_OFFSET := 0.5   # stand this far out in front of the rungs
@@ -475,6 +491,7 @@ const LADDER_OFFSET := 0.5   # stand this far out in front of the rungs
 func _climb(delta: float, l: Node) -> void:
 	_crouch = 0.0
 	sync_crouch = 0.0
+	_air_speed = 0.0   # grabbing the ladder cancels any fall
 	_apply_crouch(0.0)
 	var bottom: Vector3 = l.get_meta("bottom")
 	var top: Vector3 = l.get_meta("top")
@@ -490,12 +507,13 @@ func _climb(delta: float, l: Node) -> void:
 	var up := 0.0
 	if Input.is_action_pressed("move_forward"):
 		up += 1.0
-	if Input.is_action_pressed("move_back"):
+	if Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch"):
 		up -= 1.0
 	velocity.y = up * CLIMB_SPEED
 
 	# Stand a little out in front of the rungs (not embedded in the ladder), hugging
-	# that offset line so you stay aligned while climbing.
+	# that offset line so you stay aligned while climbing. This also pulls you off the
+	# platform edge when you start a descent, so the floor stops holding you up.
 	var stand := Vector3(bottom.x, 0.0, bottom.z) + normal * LADDER_OFFSET
 	velocity.x = (stand.x - global_position.x) * 6.0
 	velocity.z = (stand.z - global_position.z) * 6.0
@@ -508,15 +526,38 @@ func _climb(delta: float, l: Node) -> void:
 		velocity.y = CLIMB_SPEED
 	move_and_slide()
 
-## Survival: spawn unarmed with the default guns + grenades stowed in the backpack.
-func _fill_survival_start() -> void:
+## Apply fall damage for the speed built up while airborne, then reset. A landing
+## faster than FALL_SAFE_SPEED hurts, scaling with the excess.
+func _apply_fall_landing() -> void:
+	if _air_speed > FALL_SAFE_SPEED:
+		receive_damage((_air_speed - FALL_SAFE_SPEED) * FALL_DAMAGE_PER, combatant_id)
+	_air_speed = 0.0
+
+## Tint the body model to the character's colour (Adventure appearance).
+func set_body_tint(c: Color) -> void:
+	for mi in _mesh_instances(body_model):
+		var m := StandardMaterial3D.new()
+		m.albedo_color = c
+		m.roughness = 0.9
+		mi.material_override = m
+
+func _mesh_instances(n: Node) -> Array:
+	var out: Array = []
+	if n is MeshInstance3D:
+		out.append(n)
+	for child in n.get_children():
+		out.append_array(_mesh_instances(child))
+	return out
+
+## Adventure: spawn unarmed with the default guns + grenades stowed in the backpack.
+func _fill_adventure_start() -> void:
 	if not is_multiplayer_authority():
 		return
 	# Start with only the equipped pistol — empty backpack, no grenades.
 	grenades = 0
 	grenades_changed.emit(grenades)
 
-## Consumables (Survival #3) call these to restore the needs.
+## Consumables (Adventure #3) call these to restore the needs.
 func eat(amount: float) -> void:
 	if not is_multiplayer_authority():
 		return
@@ -529,7 +570,7 @@ func drink(amount: float) -> void:
 	thirst = minf(MAX_NEED, thirst + amount)
 	thirst_changed.emit(thirst, MAX_NEED)
 
-# ---------------------------------------------------------------- survival backpack
+# ---------------------------------------------------------------- adventure backpack
 
 func inv_cell_count() -> int:
 	return backpack_w * backpack_h
@@ -805,7 +846,7 @@ func _nearest_vehicle() -> Node:
 			best = v
 	return best
 
-## Survival: nearest collectable pickup within reach (collected on E).
+## Adventure: nearest collectable pickup within reach (collected on E).
 func _nearest_pickup() -> Node:
 	var best: Node = null
 	var bd := 2.6
@@ -818,14 +859,14 @@ func _nearest_pickup() -> Node:
 			best = p
 	return best
 
-## Survival: nearest living NPC within talk range that isn't hostile to us.
+## Adventure: nearest living NPC within talk range that isn't hostile to us.
 func _nearest_talkable_npc() -> Node:
 	var best: Node = null
 	var bd := NPC_TALK_RANGE
 	for b in get_tree().get_nodes_in_group("bot"):
 		if b.get("dead"):
 			continue
-		if Game.survival_hostile("player", String(b.get("faction"))):
+		if Game.adventure_hostile("player", String(b.get("faction"))):
 			continue  # can't chat with someone trying to kill you
 		var d: float = global_position.distance_to(b.global_position)
 		if d < bd:
@@ -861,7 +902,7 @@ func _npc_greeting(npc: Node) -> String:
 	var greetings = Game.story.get("greetings", {})
 	if typeof(greetings) == TYPE_DICTIONARY and greetings.has(fac):
 		return String(greetings[fac])
-	var stance := String(Game.survival_stance.get(fac, "neutral"))
+	var stance := String(Game.adventure_stance.get(fac, "neutral"))
 	if stance == "friendly":
 		if role == "Elder":
 			return "Welcome, traveler. The %s could use a steady hand." % fac
@@ -1163,7 +1204,14 @@ func respawn(xform: Transform3D) -> void:
 	dead = false
 	sync_health = MAX_HEALTH
 	oxygen = MAX_OXYGEN
+	_air_speed = 0.0
 	oxygen_changed.emit(oxygen, MAX_OXYGEN)
+	# Respawn restores survival needs to full, too.
+	hunger = MAX_NEED
+	thirst = MAX_NEED
+	_need_dmg_accum = 0.0
+	hunger_changed.emit(hunger, MAX_NEED)
+	thirst_changed.emit(thirst, MAX_NEED)
 	body_model.visible = not is_multiplayer_authority()  # body visible only for remotes
 	weapons.set_hidden(false)
 	name_label.visible = not is_multiplayer_authority()

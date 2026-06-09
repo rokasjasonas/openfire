@@ -79,9 +79,10 @@ func build_level() -> void:
 
 func _size_for(idx: int) -> float:
 	match idx:
-		0: return 384.0
-		2: return 1024.0
-		_: return 640.0
+		0: return 224.0    # tiny
+		1: return 384.0    # small
+		3: return 1024.0   # large
+		_: return 640.0    # medium
 
 func _make_noise(sd: int) -> void:
 	_nc = _mk(sd, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, 0.00085, 2)
@@ -140,7 +141,7 @@ func _height(wx: float, wz: float) -> float:
 
 func _pick_sites(rng: RandomNumberGenerator) -> Array:
 	var sites: Array = []
-	var count := clampi(int(_size / 110.0), 5, 14)
+	var count := clampi(int(_size / 110.0), 3, 14)   # tiny maps get as few as 3 villages
 	var span := _size * 0.40
 	var attempts := 0
 	while sites.size() < count and attempts < count * 60:

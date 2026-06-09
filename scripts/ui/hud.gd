@@ -93,8 +93,8 @@ func _process(delta: float) -> void:
 	if result_panel.visible and _result_left > 0.0:
 		_result_left = maxf(0.0, _result_left - delta)
 		_update_result_label()
-	# Survival shows a loading overlay until the world is generated and you spawn in.
-	var loading := Game.is_survival() and Game.match_active and (_player == null or not is_instance_valid(_player))
+	# Adventure shows a loading overlay until the world is generated and you spawn in.
+	var loading := Game.is_adventure() and Game.match_active and (_player == null or not is_instance_valid(_player))
 	if generating_panel.visible != loading:
 		generating_panel.visible = loading
 	# Keep the Stats tab live (time survived / accuracy tick) while it's open.
@@ -114,11 +114,11 @@ func _process(delta: float) -> void:
 func _update_npc_prompt() -> void:
 	var busy: bool = _player.driving != null or npc_dialog.visible
 	var pk = _player.near_pickup
-	if Game.is_survival() and pk != null and is_instance_valid(pk) and not busy:
+	if Game.is_adventure() and pk != null and is_instance_valid(pk) and not busy:
 		npc_prompt.text = "[E] Pick up %s" % pk.label()
 		return
 	var n = _player.near_npc
-	if Game.is_survival() and n != null and is_instance_valid(n) and not busy:
+	if Game.is_adventure() and n != null and is_instance_valid(n) and not busy:
 		npc_prompt.text = "%s — %s (%s)    [E] Talk" % [String(n.display_name), String(n.role), String(n.faction)]
 	else:
 		npc_prompt.text = ""
@@ -231,8 +231,8 @@ func _try_bind() -> void:
 			backpack_grid.equip_panel = equip_panel
 			_on_health(p.sync_health, p.MAX_HEALTH)
 			_on_grenades(p.grenades)
-			# Hunger/thirst bars are only shown in Survival mode.
-			var surv := Game.is_survival()
+			# Hunger/thirst bars are only shown in Adventure mode.
+			var surv := Game.is_adventure()
 			hunger_bar.visible = surv
 			hunger_label.visible = surv
 			thirst_bar.visible = surv
@@ -346,7 +346,7 @@ func _on_oxygen(value: float, maximum: float) -> void:
 	oxygen_bar.visible = show_ox
 	oxygen_label.visible = show_ox
 
-# ---------------------------------------------------------------- survival backpack
+# ---------------------------------------------------------------- adventure backpack
 
 func _is_inventory_key(event: InputEvent) -> bool:
 	return event is InputEventKey and event.pressed and not event.echo \
@@ -463,9 +463,9 @@ func set_objective(t: String) -> void:
 # ---------------------------------------------------------------- scoreboard
 
 func _input(event: InputEvent) -> void:
-	# Survival: the configurable inventory key opens/closes the backpack (and, when
+	# Adventure: the configurable inventory key opens/closes the backpack (and, when
 	# it is Tab, takes precedence over the scoreboard).
-	if Game.is_survival() and _is_inventory_key(event):
+	if Game.is_adventure() and _is_inventory_key(event):
 		_toggle_inventory()
 		get_viewport().set_input_as_handled()
 		return
@@ -556,7 +556,7 @@ func show_result(result: Dictionary) -> void:
 				var wid: int = int(result.get("winner", 0))
 				var wname: String = Net.get_player_name(wid) if wid > 0 else String(Game.scores.get(wid, {}).get("name", "Bot"))
 				txt = "%s wins!" % wname
-		"survival_win":
+		"adventure_win":
 			var outro := String(Game.story.get("outro", ""))
 			if outro == "":
 				outro = "Reached the goal with %d points." % int(result.get("points", 0))
@@ -597,5 +597,8 @@ func _resume() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _leave() -> void:
+	# Adventure: persist the character's gear + progress before quitting the run.
+	if Game.is_adventure() and Characters.has_current() and _player != null and is_instance_valid(_player):
+		Characters.capture_from_player(_player)
 	Net.disconnect_net()
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")

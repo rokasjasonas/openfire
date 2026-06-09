@@ -37,10 +37,10 @@ func _ready() -> void:
 		Game.match_over.connect(_host_on_match_over)
 		_expected_peers = Net.players.keys()
 		_ready_peers[1] = true
-		# Survival: generate the story during a loading phase before gameplay starts.
-		if Game.is_survival():
-			_begin_survival_story()
-		# Grace fallback (waits for the story in Survival); hard cap regardless.
+		# Adventure: generate the story during a loading phase before gameplay starts.
+		if Game.is_adventure():
+			_begin_adventure_story()
+		# Grace fallback (waits for the story in Adventure); hard cap regardless.
 		get_tree().create_timer(5.0).timeout.connect(_grace_begin)
 		get_tree().create_timer(70.0).timeout.connect(_hard_begin)
 		_try_begin()
@@ -75,18 +75,18 @@ func _try_begin() -> void:
 	for pid in _expected_peers:
 		if not _ready_peers.has(pid):
 			return
-	if Game.is_survival() and not _story_done:
+	if Game.is_adventure() and not _story_done:
 		return  # hold gameplay until the story has been generated
 	_begin()
 
-## Grace-timer entry: don't start Survival until its story is ready.
+## Grace-timer entry: don't start Adventure until its story is ready.
 func _grace_begin() -> void:
-	if Game.is_survival() and not _story_done:
+	if Game.is_adventure() and not _story_done:
 		return
 	_begin()
 
-## Survival loading phase: generate the world's story (local LLM, offline fallback).
-func _begin_survival_story() -> void:
+## Adventure loading phase: generate the world's story (local LLM, offline fallback).
+func _begin_adventure_story() -> void:
 	if not Story.story_ready.is_connected(_on_story_ready):
 		Story.story_ready.connect(_on_story_ready)
 	if not Story.phase_changed.is_connected(_on_story_phase):
@@ -115,8 +115,8 @@ func _on_story_phase(text: String) -> void:
 
 ## Compose a loading-screen message: a context header (world size + theme) + phase.
 func _loading(phase: String) -> String:
-	var sizes := ["Small", "Medium", "Large"]
-	var head := "Survival \u2014 %s world" % sizes[clampi(int(Game.config.get("map_size", 1)), 0, 2)]
+	var sizes := ["Tiny", "Small", "Medium", "Large"]
+	var head := "Adventure \u2014 %s world" % sizes[clampi(int(Game.config.get("map_size", 2)), 0, 3)]
 	var theme := String(Game.config.get("theme", "")).strip_edges()
 	if theme != "":
 		head += " \u00b7 \"%s\"" % theme
@@ -133,13 +133,16 @@ func _ai_label() -> String:
 	return "AI model: local LLM server"
 
 func _kick_story() -> void:
-	var sfacs := (Game.SURVIVAL_VILLAGE_FACTIONS as Array).duplicate()
+	var sfacs := (Game.ADVENTURE_VILLAGE_FACTIONS as Array).duplicate()
 	sfacs.append(Game.RAIDER_FACTION)
-	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10)), "names_per_faction": 16})
+	var hero := {}
+	if Characters.has_current():
+		hero = {"name": String(Characters.current.get("name", "")), "bio": String(Characters.current.get("backstory", ""))}
+	Story.generate(String(Game.config.get("theme", "")), {"factions": sfacs, "points": int(Game.config.get("mission_points", 10)), "names_per_faction": 16, "hero": hero})
 
 ## Grace fallback that keeps waiting while the AI model is still downloading.
 func _hard_begin() -> void:
-	if Game.is_survival() and LLM.downloading:
+	if Game.is_adventure() and LLM.downloading:
 		get_tree().create_timer(20.0).timeout.connect(_hard_begin)
 		return
 	_begin()
@@ -166,7 +169,7 @@ func _begin() -> void:
 		_start_domination()
 	elif Game.is_battle_royale():
 		_start_battle_royale()
-	elif Game.is_survival():
+	elif Game.is_adventure():
 		_start_survival()
 	else:
 		_start_deathmatch()
@@ -182,7 +185,7 @@ func _assign_teams() -> void:
 
 func _spawn_player(peer_id: int) -> void:
 	var team: int
-	if Game.is_coop() or Game.is_survival():
+	if Game.is_coop() or Game.is_adventure():
 		team = Game.TEAM_PLAYERS
 	elif Game.is_team_deathmatch() or Game.is_domination():
 		team = _player_team.get(peer_id, 0)
@@ -204,7 +207,7 @@ func spawn_enemy(skill: float, respawns: bool, at: Vector3 = Vector3.INF, etype:
 	var team: int
 	if team_override != -999:
 		team = team_override
-	elif Game.is_coop() or Game.is_survival():
+	elif Game.is_coop() or Game.is_adventure():
 		team = Game.TEAM_ENEMIES
 	else:
 		team = id  # FFA: unique team
@@ -300,11 +303,11 @@ func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
 		_objective_runner.notify_enemy_killed(victim_id)
 	if _quest_manager:
 		_quest_manager.notify_kill(victim_id)
-	if Game.is_survival():
+	if Game.is_adventure():
 		_maybe_drop_loot(victim_id)
 	check_last_standing()
 
-## Survival: a killed NPC sometimes drops loot (often armor) where it fell.
+## Adventure: a killed NPC sometimes drops loot (often armor) where it fell.
 func _maybe_drop_loot(victim_id: int) -> void:
 	if randf() > 0.3:
 		return
@@ -343,7 +346,7 @@ func _spawn_loot(idx: int, pos: Vector3, kind: String, subtype: String) -> void:
 
 # ---------------------------------------------------------------- modes
 
-# ---------------------------------------------------------------- survival
+# ---------------------------------------------------------------- adventure
 
 const SURVIVAL_ACT_DIST := 110.0   # NPCs beyond this from every player freeze (no AI)
 var _survival_rng := RandomNumberGenerator.new()
@@ -351,20 +354,20 @@ var _surv_act_t := 0.0
 
 func _start_survival() -> void:
 	set_objective_text.rpc("Survive the wilds \u2014 villages, raiders and the storm await.")
-	Game.survival_setup(int(Game.config.get("seed", 0)))
+	Game.adventure_setup(int(Game.config.get("seed", 0)))
 	NameGen.reseed(int(Game.config.get("seed", 0)))
 	_survival_rng.seed = int(Game.config.get("seed", 0))
 	var pois := get_tree().get_nodes_in_group("poi_site")
 	var skill := float(Game.config["bot_skill"])
 	var faction_team := {Game.RAIDER_FACTION: 1}
 	var next_team := 2
-	var factions: Array = Game.SURVIVAL_VILLAGE_FACTIONS
+	var factions: Array = Game.ADVENTURE_VILLAGE_FACTIONS
 	# Populate each village (POI) with defenders of its faction.
 	for i in pois.size():
 		var poi: Node3D = pois[i]
 		var fac: String = String(factions[i % factions.size()])
 		if i == 0:
-			Game.survival_stance[fac] = "friendly"   # the start village is safe
+			Game.adventure_stance[fac] = "friendly"   # the start village is safe
 		if not faction_team.has(fac):
 			faction_team[fac] = next_team
 			next_team += 1
@@ -384,13 +387,16 @@ func _start_survival() -> void:
 		var poi: Node3D = pois[_survival_rng.randi() % pois.size()]
 		var radius: float = float(poi.get_meta("radius", 24.0))
 		var ang := _survival_rng.randf() * TAU
-		var rr := radius * _survival_rng.randf_range(2.5, 5.0)
+		var rr := radius * _survival_rng.randf_range(1.8, 3.2)
 		var x := poi.global_position.x + cos(ang) * rr
 		var z := poi.global_position.z + sin(ang) * rr
 		var y := _ground_y(x, z, poi.global_position.y) + 1.0
+		# Snap onto the navmesh so raiders never land off-map, in the sea, or on a peak.
+		var spot := _snap_to_nav(Vector3(x, y, z))
+		spot.y += 1.0
 		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
 		var rperson := NameGen.npc_person(Game.RAIDER_FACTION)
-		spawn_enemy(skill, false, Vector3(x, y, z), _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": rperson["name"], "role": rrole, "persona": rperson["trait"]})
+		spawn_enemy(skill, false, spot, _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": rperson["name"], "role": rrole, "persona": rperson["trait"]})
 	set_process(true)
 	# Quests reference the villages/NPCs we just spawned, so build them last.
 	_quest_manager = QUEST_MANAGER.new()
@@ -419,6 +425,17 @@ func _ground_y(x: float, z: float, approx: float) -> float:
 	q.collision_mask = 1
 	var r := space.intersect_ray(q)
 	return r.position.y if r else approx
+
+## Pull a position onto the baked navmesh (nearest walkable point) so spawns never
+## land off-map, in water, or on an unreachable slope.
+func _snap_to_nav(pos: Vector3) -> Vector3:
+	var reg := get_tree().get_first_node_in_group("nav_region")
+	if reg == null or not (reg is NavigationRegion3D):
+		return pos
+	var navmap: RID = reg.get_navigation_map()
+	if not NavigationServer3D.map_is_active(navmap):
+		return pos
+	return NavigationServer3D.map_get_closest_point(navmap, pos)
 
 ## Freeze NPCs that are far from every living player so only nearby ones think.
 func _process_survival(delta: float) -> void:
@@ -472,7 +489,7 @@ func _process(delta: float) -> void:
 		_process_domination(delta)
 	elif Game.is_battle_royale():
 		_process_storm(delta)
-	elif Game.is_survival():
+	elif Game.is_adventure():
 		_process_survival(delta)
 
 func _process_domination(delta: float) -> void:
@@ -804,11 +821,20 @@ func _host_on_match_over(result: Dictionary) -> void:
 @rpc("authority", "call_local", "reliable")
 func _show_result(result: Dictionary) -> void:
 	Game.match_active = false
+	# Adventure: save the local character's gear + run stats into their profile.
+	if Game.is_adventure() and Characters.has_current():
+		Characters.capture_from_player(_local_player())
 	if hud and hud.has_method("show_result"):
 		hud.show_result(result)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	await get_tree().create_timer(3.0).timeout
 	_leave_to_menu()
+
+func _local_player() -> Node:
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.is_multiplayer_authority():
+			return p
+	return null
 
 func _leave_to_menu() -> void:
 	Net.disconnect_net()

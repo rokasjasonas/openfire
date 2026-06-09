@@ -38,16 +38,17 @@ var etype: String = "soldier"
 var combatant_id: int = -1
 var team: int = 1
 var display_name: String = "Bot"
-var faction: String = ""        # Survival faction (drives hostility); "" elsewhere
-var role: String = ""           # Survival role (Leader / Guard / Raider / ...)
-var persona: String = ""        # Survival: short LLM-written persona trait
-var _active: bool = true         # Survival: false when far from all players (frozen)
+var faction: String = ""        # Adventure faction (drives hostility); "" elsewhere
+var role: String = ""           # Adventure role (Leader / Guard / Raider / ...)
+var persona: String = ""        # Adventure: short LLM-written persona trait
+var _active: bool = true         # Adventure: false when far from all players (frozen)
 
 # Swimming: bots float in water and can swim straight to a visible target across it.
 const SWIM_CHASE_RANGE := 45.0   # max distance to wade into water after a target
 var _water_y: float = -1.0e20
 var in_water: bool = false
 var _water_ahead: bool = false
+var _quest_marker: Label3D = null   # Adventure: floats over kill/hunt targets
 
 # Stats resolved from the profile.
 var max_health: float = 100.0
@@ -140,8 +141,8 @@ func _apply_profile() -> void:
 		sync_health = max_health
 	name_label.text = "%s %d" % [p["name"], absi(combatant_id) % 1000]
 	name_label.modulate = Game.team_color(team) if Game.is_team_mode() else p["color"]
-	# Hide bot/NPC name tags in Battle Royale (stealthy FFA) and in Survival.
-	name_label.visible = not Game.is_battle_royale() and not Game.is_survival()
+	# Hide bot/NPC name tags in Battle Royale (stealthy FFA) and in Adventure.
+	name_label.visible = not Game.is_battle_royale() and not Game.is_adventure()
 	body_model.scale = Vector3.ONE * float(p["scale"])
 	# The bot's forward is -Z (look_at + the muzzle), but the character mesh faces
 	# +Z, so flip the model 180° or it appears to walk backwards.
@@ -173,7 +174,7 @@ func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String
 	if is_node_ready():
 		_apply_profile()
 
-## Survival: the world freezes bots far from every player (no AI / physics).
+## Adventure: the world freezes bots far from every player (no AI / physics).
 func set_active(on: bool) -> void:
 	if on == _active:
 		return
@@ -212,6 +213,7 @@ func _physics_process(delta: float) -> void:
 		_acquire_target()
 		_maybe_enter_vehicle()
 		_water_ahead = _water_between_me_and(_target)
+		_update_quest_marker()
 
 	if _shoot_cd > 0.0:
 		_shoot_cd -= delta
@@ -259,8 +261,8 @@ func _acquire_target() -> void:
 			continue
 		if c.get("dead") or c.get("downed") or c.get("fully_dead"):
 			continue
-		if Game.is_survival():
-			if not Game.survival_hostile(faction, String(c.get("faction"))):
+		if Game.is_adventure():
+			if not Game.adventure_hostile(faction, String(c.get("faction"))):
 				continue
 		elif c.get("team") == team:
 			continue
@@ -477,6 +479,64 @@ func _water_between_me_and(target: Node) -> bool:
 		return false
 	return float(res.position.y) < _water_y - 0.5
 
+## Adventure: float a marker over this NPC — a red ▼ if it's a kill target (active
+## hunt / clear-camp / assassinate), or a gold "!" if it has a quest to offer — so the
+## player can find who to fight and who to talk to.
+func _update_quest_marker() -> void:
+	var text := ""
+	var col := Color.WHITE
+	if Game.is_adventure() and not dead:
+		var qm = get_tree().get_first_node_in_group("quest_manager")
+		if qm != null:
+			for q in qm.quests:
+				if q.get("state", "") != "active":
+					continue
+				var t := String(q.get("type", ""))
+				if ((t == "hunt" or t == "clear_camp") and String(q.get("faction", "")) == faction) \
+						or (t == "assassinate" and int(q.get("target_id", 0)) == combatant_id):
+					text = "▼"
+					col = Color(1.0, 0.3, 0.25)   # kill target
+					break
+			if text == "" and qm.has_method("offer_for") and not qm.offer_for(combatant_id).is_empty():
+				text = "!"
+				col = Color(1.0, 0.85, 0.2)        # quest giver
+	# Only show the marker when a player is close enough to read it (avoid clutter).
+	if text != "" and not _player_within(50.0):
+		text = ""
+	_set_marker(text, col)
+
+func _player_within(dist: float) -> bool:
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.get("dead") or p.get("fully_dead"):
+			continue
+		if global_position.distance_to(p.global_position) <= dist:
+			return true
+	return false
+
+func _set_marker(text: String, col: Color) -> void:
+	if text == "":
+		if _quest_marker != null:
+			_quest_marker.visible = false
+		return
+	if _quest_marker == null:
+		_quest_marker = Label3D.new()
+		_quest_marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_quest_marker.no_depth_test = true     # visible through cover so it's findable
+		_quest_marker.fixed_size = true
+		_quest_marker.pixel_size = 0.0012
+		_quest_marker.font_size = 64
+		_quest_marker.outline_size = 12
+		_quest_marker.outline_modulate = Color(0, 0, 0, 0.85)
+		_quest_marker.position = Vector3(0, 2.5, 0)
+		add_child(_quest_marker)
+	_quest_marker.text = text
+	_quest_marker.modulate = col
+	_quest_marker.visible = true
+
+func _clear_marker() -> void:
+	if _quest_marker != null:
+		_quest_marker.visible = false
+
 func _move_toward(world_pos: Vector3, speed: float) -> void:
 	nav.target_position = world_pos
 	if nav.is_navigation_finished():
@@ -568,9 +628,9 @@ func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
 func receive_damage(amount: float, attacker_id: int) -> void:
 	if dead:
 		return
-	# Survival: being shot by a player provokes this NPC's faction (neutral -> hostile).
-	if Game.is_survival() and is_multiplayer_authority() and attacker_id > 0:
-		Game.survival_provoke(faction)
+	# Adventure: being shot by a player provokes this NPC's faction (neutral -> hostile).
+	if Game.is_adventure() and is_multiplayer_authority() and attacker_id > 0:
+		Game.adventure_provoke(faction)
 	sync_health = max(0.0, sync_health - amount)
 	if sync_health <= 0.0:
 		_die(attacker_id)
@@ -597,6 +657,7 @@ func _set_dead_visual(is_dead: bool) -> void:
 	name_label.visible = not is_dead
 	$CollisionShape3D.disabled = is_dead
 	if is_dead:
+		_clear_marker()   # no kill/quest marker over a corpse
 		Audio.play_3d("res://assets/audio/death.ogg", global_position, -2.0, 0.06)
 
 func _do_respawn() -> void:

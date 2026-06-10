@@ -28,6 +28,9 @@ var _water: float = 6.0
 var _n: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
 var _sites: Array = []
+# Climate derived deterministically from the story theme — biases biomes, snowline,
+# water level, vegetation and palette so the map reflects the prompt.
+var _climate: Dictionary = {}
 
 # Seeded noise fields (created in _make_noise).
 var _nc: FastNoiseLite       # continentalness (very low freq)
@@ -48,6 +51,8 @@ func build_level() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = sd
 	_make_noise(sd)
+	_climate = _theme_climate(String(Game.config.get("theme", "")))
+	_water = 6.0 + float(_climate.get("water", 0.0))
 
 	# Coarser, size-scaled navmesh cells so the bake stays bounded on huge terrain.
 	var cell := clampf(_size / 360.0, 1.0, 3.0)
@@ -167,6 +172,57 @@ func _near_site(x: float, z: float, margin: float) -> bool:
 			return true
 	return false
 
+# ---------------------------------------------------------------- climate (theme)
+
+# Climate presets keyed by name. Game.config["climate"] (set by the host's LLM
+# classification) selects one directly; otherwise the theme is keyword-matched.
+const CLIMATES := {
+	"temperate": {"temp": 0.0, "moist": 0.0, "snow": 0.0, "water": 0.0, "veg": 1.0, "tint": Color(1, 1, 1)},
+	"frozen":    {"temp": -0.42, "moist": 0.05, "snow": -55.0, "water": 0.0, "veg": 0.55, "tint": Color(0.92, 0.96, 1.06)},
+	"desert":    {"temp": 0.4, "moist": -0.45, "snow": 60.0, "water": -3.5, "veg": 0.3, "tint": Color(1.1, 1.0, 0.82)},
+	"verdant":   {"temp": 0.12, "moist": 0.45, "snow": 30.0, "water": 1.5, "veg": 1.9, "tint": Color(0.9, 1.06, 0.9)},
+	"volcanic":  {"temp": 0.35, "moist": -0.3, "snow": 50.0, "water": -2.5, "veg": 0.35, "tint": Color(1.12, 0.82, 0.78)},
+	"isles":     {"temp": 0.18, "moist": 0.25, "snow": 20.0, "water": 9.0, "veg": 1.3, "tint": Color(0.96, 1.0, 1.05)},
+	"alpine":    {"temp": -0.12, "moist": 0.0, "snow": -25.0, "water": -1.0, "veg": 0.8, "tint": Color(1, 1, 1)},
+}
+
+## Pick the climate preset: the host's LLM classification (Game.config["climate"]) if
+## present, else keyword-match the theme, else temperate. Pure function of config +
+## theme string, so every co-op peer and every save resolves the same world.
+func _theme_climate(theme: String) -> Dictionary:
+	var key := String(Game.config.get("climate", ""))
+	if CLIMATES.has(key):
+		return CLIMATES[key]
+	var t := theme.to_lower()
+	if _kw(t, ["snow", "ice", "frozen", "frost", "tundra", "arctic", "winter", "glacier", "blizzard", "polar"]):
+		return CLIMATES["frozen"]
+	if _kw(t, ["desert", "sand", "arid", "dune", "scorch", "drought", "wasteland", "badland", "dust", "mojave", "sahara"]):
+		return CLIMATES["desert"]
+	if _kw(t, ["jungle", "rainforest", "forest", "lush", "verdant", "swamp", "overgrown", "bog", "marsh", "jurassic", "amazon"]):
+		return CLIMATES["verdant"]
+	if _kw(t, ["volcan", "lava", "ash", "inferno", "hell", "ember", "magma", "scorched", "demon", "doom"]):
+		return CLIMATES["volcanic"]
+	if _kw(t, ["ocean", "island", "sea", "coast", "flood", "sunken", "atoll", "archipelago", "tropic", "pirate", "naval"]):
+		return CLIMATES["isles"]
+	if _kw(t, ["mountain", "alpine", "highland", "peak", "summit", "crag", "ridge"]):
+		return CLIMATES["alpine"]
+	return CLIMATES["temperate"]
+
+func _kw(t: String, words: Array) -> bool:
+	for w in words:
+		if t.find(String(w)) >= 0:
+			return true
+	return false
+
+func _temp_at(wx: float, wz: float) -> float:
+	return clampf(_ntemp.get_noise_2d(wx, wz) * 0.5 + 0.5 + float(_climate.get("temp", 0.0)), 0.0, 1.0)
+
+func _moist_at(wx: float, wz: float) -> float:
+	return clampf(_nmoist.get_noise_2d(wx, wz) * 0.5 + 0.5 + float(_climate.get("moist", 0.0)), 0.0, 1.0)
+
+func _snowline() -> float:
+	return SNOWLINE + float(_climate.get("snow", 0.0))
+
 # ---------------------------------------------------------------- biomes
 
 ## A coarse biome id for prop placement (slope-independent).
@@ -175,9 +231,9 @@ func _biome_at(wx: float, wz: float, h: float) -> String:
 		return "water"
 	if h <= _water + 3.0:
 		return "beach"
-	var temp: float = _ntemp.get_noise_2d(wx, wz) * 0.5 + 0.5
-	var moist: float = _nmoist.get_noise_2d(wx, wz) * 0.5 + 0.5
-	if h > SNOWLINE + (temp - 0.5) * 30.0:
+	var temp := _temp_at(wx, wz)
+	var moist := _moist_at(wx, wz)
+	if h > _snowline() + (temp - 0.5) * 30.0:
 		return "snow"
 	if h > ALPINE:
 		return "rock"
@@ -198,23 +254,28 @@ func _biome_color(wx: float, wz: float, h: float, ny: float) -> Color:
 	if h <= _water + 0.25:
 		return Color(0.16, 0.20, 0.26)             # lakebed (under the water plane)
 	if h <= _water + 3.0:
-		return _vary(Color(0.82, 0.76, 0.55), wx, wz, 0.05)  # beach sand
+		return _tint(_vary(Color(0.82, 0.76, 0.55), wx, wz, 0.05))  # beach sand
 	var slope := 1.0 - clampf(ny, 0.0, 1.0)        # 0 flat .. 1 vertical
 	if slope > 0.60:
-		return _vary(Color(0.40, 0.37, 0.35), wx, wz, 0.05)  # exposed cliff rock
-	var temp: float = _ntemp.get_noise_2d(wx, wz) * 0.5 + 0.5
-	var moist: float = _nmoist.get_noise_2d(wx, wz) * 0.5 + 0.5
-	if h > SNOWLINE + (temp - 0.5) * 30.0:
-		return _vary(Color(0.93, 0.94, 0.97), wx, wz, 0.03)  # snow
+		return _tint(_vary(Color(0.40, 0.37, 0.35), wx, wz, 0.05))  # exposed cliff rock
+	var temp := _temp_at(wx, wz)
+	var moist := _moist_at(wx, wz)
+	if h > _snowline() + (temp - 0.5) * 30.0:
+		return _tint(_vary(Color(0.93, 0.94, 0.97), wx, wz, 0.03))  # snow
 	if h > ALPINE:
-		return _vary(Color(0.46, 0.43, 0.40), wx, wz, 0.05)  # alpine rock
+		return _tint(_vary(Color(0.46, 0.43, 0.40), wx, wz, 0.05))  # alpine rock
 	if temp > 0.62 and moist < 0.40:
-		return _vary(Color(0.78, 0.70, 0.42), wx, wz, 0.05)  # desert
+		return _tint(_vary(Color(0.78, 0.70, 0.42), wx, wz, 0.05))  # desert
 	if moist > 0.60:
-		return _vary(Color(0.19, 0.41, 0.18), wx, wz, 0.05)  # lush forest
+		return _tint(_vary(Color(0.19, 0.41, 0.18), wx, wz, 0.05))  # lush forest
 	if temp < 0.36:
-		return _vary(Color(0.44, 0.52, 0.41), wx, wz, 0.04)  # tundra / taiga
-	return _vary(Color(0.30, 0.52, 0.24), wx, wz, 0.05)      # grassland
+		return _tint(_vary(Color(0.44, 0.52, 0.41), wx, wz, 0.04))  # tundra / taiga
+	return _tint(_vary(Color(0.30, 0.52, 0.24), wx, wz, 0.05))      # grassland
+
+## Multiply a biome colour by the theme's palette tint.
+func _tint(c: Color) -> Color:
+	var k: Color = _climate.get("tint", Color(1, 1, 1))
+	return Color(clampf(c.r * k.r, 0, 1), clampf(c.g * k.g, 0, 1), clampf(c.b * k.b, 0, 1))
 
 # ---------------------------------------------------------------- mesh + collision
 
@@ -360,7 +421,8 @@ func _sample_height(wx: float, wz: float) -> float:
 
 func _scatter_vegetation(rng: RandomNumberGenerator) -> void:
 	var area := _size * _size
-	var tree_budget := clampi(int(area / 2600.0), 60, 520)
+	var veg: float = float(_climate.get("veg", 1.0))   # theme density (desert sparse, jungle dense)
+	var tree_budget := clampi(int(area / 2600.0 * veg), 20, 700)
 	var rock_budget := clampi(int(area / 9000.0), 20, 170)
 	var span := _size * 0.47
 

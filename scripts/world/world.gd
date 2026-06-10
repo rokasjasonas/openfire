@@ -24,6 +24,14 @@ var _objective_runner: Node = null
 var _quest_manager: Node = null
 var _player_team: Dictionary = {}
 
+# Adventure: the terrain build waits until the climate (LLM-classified from the theme,
+# or keyword fallback) is resolved and broadcast, so every peer builds the same world.
+var _adventure_map_path: String = ""
+var _climate_resolved: bool = false
+var _terrain_built: bool = false
+const CLIMATE_SYS := "You label a game's setting with ONE climate word. Reply with exactly one of: temperate, frozen, desert, verdant, volcanic, isles, alpine."
+const CLIMATE_KEYS := ["frozen", "desert", "verdant", "volcanic", "isles", "alpine", "temperate"]
+
 func _ready() -> void:
 	add_to_group("world")
 	spawner.spawn_function = Callable(self, "_spawn_combatant")
@@ -37,15 +45,19 @@ func _ready() -> void:
 		Game.match_over.connect(_host_on_match_over)
 		_expected_peers = Net.players.keys()
 		_ready_peers[1] = true
-		# Adventure: generate the story during a loading phase before gameplay starts.
+		# Adventure: resolve climate -> build terrain -> generate story, all before play.
 		if Game.is_adventure():
-			_begin_adventure_story()
+			_begin_adventure()
 		# Grace fallback (waits for the story in Adventure); hard cap regardless.
 		get_tree().create_timer(5.0).timeout.connect(_grace_begin)
 		get_tree().create_timer(70.0).timeout.connect(_hard_begin)
 		_try_begin()
 	else:
 		_report_ready.rpc_id(1)
+		# Adventure client: build terrain when the host broadcasts the climate; if it
+		# never arrives, fall back so we don't hang on an empty world.
+		if Game.is_adventure():
+			get_tree().create_timer(30.0).timeout.connect(func(): _apply_climate(String(Game.config.get("climate", ""))))
 
 func _load_map() -> void:
 	var map_path: String = Game.config["map"]
@@ -55,7 +67,19 @@ func _load_map() -> void:
 			map_path = m["map"]
 	if not ResourceLoader.exists(map_path):
 		map_path = "res://maps/arena.tscn"
+	if Game.is_adventure():
+		# Defer: built in _build_adventure_terrain once the climate is resolved so the
+		# theme can shape the world (and every peer builds it identically).
+		_adventure_map_path = map_path
+		return
 	var map: Node = load(map_path).instantiate()
+	map_holder.add_child(map)
+
+func _build_adventure_terrain() -> void:
+	if _terrain_built:
+		return
+	_terrain_built = true
+	var map: Node = load(_adventure_map_path).instantiate()
 	map_holder.add_child(map)
 
 # ---------------------------------------------------------------- start handshake
@@ -85,15 +109,53 @@ func _grace_begin() -> void:
 		return
 	_begin()
 
-## Adventure loading phase: generate the world's story (local LLM, offline fallback).
-func _begin_adventure_story() -> void:
+## Adventure loading (host): classify the theme's climate -> build terrain -> story.
+func _begin_adventure() -> void:
 	if not Story.story_ready.is_connected(_on_story_ready):
 		Story.story_ready.connect(_on_story_ready)
 	if not Story.phase_changed.is_connected(_on_story_phase):
 		Story.phase_changed.connect(_on_story_phase)
 	_set_loading_text.rpc(_loading("Preparing the world\u2026"))
-	# First start with an embedded model but no file yet: download it (with progress)
-	# before generating; gameplay waits via _hard_begin while downloading.
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	# Only classify when the model is already downloaded \u2014 otherwise terrain would wait
+	# on a big first-run download. First adventure uses keyword climate; later ones LLM.
+	if theme != "" and LLM.embedded_ready():
+		_set_loading_text.rpc(_loading("Reading the omens\u2026"))
+		LLM.chat_done.connect(_on_climate_done, CONNECT_ONE_SHOT)
+		if not LLM.chat(CLIMATE_SYS, "Setting / theme: \"%s\". Which one climate word fits it best?" % theme):
+			_apply_climate.rpc("")
+		else:
+			get_tree().create_timer(8.0).timeout.connect(_climate_timeout)
+	else:
+		_apply_climate.rpc("")
+
+func _on_climate_done(text: String) -> void:
+	var t := text.strip_edges().to_lower()
+	var key := ""
+	for k in CLIMATE_KEYS:
+		if t.find(k) >= 0:
+			key = k
+			break
+	_apply_climate.rpc(key)
+
+func _climate_timeout() -> void:
+	if not _climate_resolved:
+		_apply_climate.rpc("")   # LLM too slow \u2014 fall back to keyword/temperate
+
+## Lock in the climate on every peer, build the terrain, then (host) kick the story.
+@rpc("authority", "call_local", "reliable")
+func _apply_climate(key: String) -> void:
+	if _climate_resolved:
+		return
+	_climate_resolved = true
+	if key != "":
+		Game.config["climate"] = key
+	_build_adventure_terrain()
+	if Net.is_host():
+		_start_story_generation()
+
+func _start_story_generation() -> void:
+	# Download the model (with progress) if needed, then generate the story.
 	if LLM.embedded_available() and not LLM.has_model():
 		LLM.model_ready.connect(_on_model_ready, CONNECT_ONE_SHOT)
 		LLM.download_progress.connect(_on_model_progress)
@@ -145,6 +207,8 @@ func _hard_begin() -> void:
 	if Game.is_adventure() and LLM.downloading:
 		get_tree().create_timer(20.0).timeout.connect(_hard_begin)
 		return
+	if Game.is_adventure() and not _terrain_built:
+		_apply_climate(String(Game.config.get("climate", "")))   # safety: never begin without terrain
 	_begin()
 
 @rpc("authority", "call_local", "reliable")

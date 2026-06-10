@@ -967,11 +967,16 @@ func _ready() -> void:
 	get_tree().root.add_child(terB)
 	await get_tree().physics_frame
 	var det_ok: bool = terA._heights.size() > 0 and terA._heights == terB._heights
+	# Theme drives a deterministic climate (cold themes -> colder, jungle -> denser).
+	var cold: Dictionary = terA._theme_climate("frozen tundra")
+	var jungle: Dictionary = terA._theme_climate("lush jungle")
+	var climate_ok: bool = float(cold["temp"]) < 0.0 and float(jungle["veg"]) > 1.0 \
+		and float(terA._theme_climate("anything else").temp) == 0.0
 	terA.queue_free()
 	terB.queue_free()
 	Game.config["map_size"] = pms2
 	Game.config["seed"] = psd2
-	terrain_depth_ok = biome_variety_ok and props_ok and det_ok and cave_loot > 0
+	terrain_depth_ok = biome_variety_ok and props_ok and det_ok and cave_loot > 0 and climate_ok
 	print("SMOKE: terrain_depth_ok=", terrain_depth_ok, " biomes=", biomes.size(), " props=", propc, " determinism=", det_ok)
 
 	# Swimming + oxygen: air drains underwater, refills at the surface, and you drown

@@ -363,6 +363,7 @@ func _toggle_inventory() -> void:
 		return
 	inventory_panel.visible = not inventory_panel.visible
 	if inventory_panel.visible:
+		tabs.current_tab = 0   # always open on the Inventory tab, not the last-used one
 		_refresh_inventory()
 		_refresh_stats()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

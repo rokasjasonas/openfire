@@ -130,8 +130,12 @@ func _ready() -> void:
 	var headshot_ok := false
 	var bots_list := get_tree().get_nodes_in_group("bot")
 	if me and not bots_list.is_empty():
-		var bot: Node = bots_list[0]
-		var head := bot.get_node_or_null("Hitboxes/Head/Shape")
+		var bot: Node = null
+		for b in bots_list:
+			if not b.get("dead"):   # dead bots disable their hitboxes
+				bot = b
+				break
+		var head := bot.get_node_or_null("Hitboxes/Head/Shape") if bot else null
 		if head:
 			var hpos: Vector3 = head.global_position
 			var q := PhysicsRayQueryParameters3D.create(hpos + Vector3(0, 0, 2.0), hpos)

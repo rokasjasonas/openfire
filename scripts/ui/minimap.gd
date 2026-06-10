@@ -72,7 +72,7 @@ func _draw() -> void:
 	# targets clamp to the edge with an arrow pointing the way.
 	var active_pois := {}        # poi -> quest title to show
 	var active_factions := {}    # faction name -> true (hunt / clear_camp targets)
-	var active_targets := {}     # combatant_id -> true (assassinate targets)
+	var assassinate := {}        # combatant_id -> quest title (single named target)
 	var qm := get_tree().get_first_node_in_group("quest_manager")
 	if qm != null:
 		for q in qm.quests:
@@ -84,7 +84,7 @@ func _draw() -> void:
 				if q.has("faction"):
 					active_factions[String(q["faction"])] = true
 				if q.has("target_id"):
-					active_targets[int(q["target_id"])] = true
+					assassinate[int(q["target_id"])] = String(q.get("title", ""))
 	# Dim (non-objective) POIs first, so the active one always draws on top.
 	for poi in get_tree().get_nodes_in_group("poi_site"):
 		if not active_pois.has(poi):
@@ -92,6 +92,15 @@ func _draw() -> void:
 	for poi in active_pois:
 		if is_instance_valid(poi):
 			_draw_objective(c, poi.global_position - ppos, fwd, right, scale, String(active_pois[poi]))
+	# Assassinate targets: a single named boss — draw their LIVE position as an
+	# objective (edge-clamped + label) so you can find them from across the map.
+	if not assassinate.is_empty():
+		for cm in get_tree().get_nodes_in_group("combatant"):
+			if cm.get("dead") or cm.get("fully_dead"):
+				continue
+			var cid := int(cm.get("combatant_id"))
+			if assassinate.has(cid):
+				_draw_objective(c, cm.global_position - ppos, fwd, right, scale, String(assassinate[cid]))
 
 	# Combatants. Quest-focus enemies (hunt a faction / assassinate a target) glow gold.
 	# In Adventure, NPCs are coloured by their stance toward you (hostile = red,
@@ -102,7 +111,7 @@ func _draw() -> void:
 		if cm == me or cm.get("dead") or cm.get("fully_dead"):
 			continue
 		var enemy := int(cm.get("team")) != my_team
-		var is_objective: bool = enemy and (active_factions.has(String(cm.get("faction"))) or active_targets.has(int(cm.get("combatant_id"))))
+		var is_objective: bool = enemy and (active_factions.has(String(cm.get("faction"))) or assassinate.has(int(cm.get("combatant_id"))))
 		if is_objective:
 			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(1.0, 0.85, 0.3), 4.0, true, false)
 			continue

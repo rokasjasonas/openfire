@@ -27,6 +27,7 @@ const WEAPONS: Array[Dictionary] = [
 		"sfx": "res://assets/audio/fire_smg.ogg",
 		"name": "SMG",
 		"model": "res://assets/models/weapons/blaster-e.glb",
+		"vm_pos": Vector3(0.18, -0.18, -0.28),   # blaster-e sits far; pull it in
 		"slot": 0,
 		"damage": 12.0,
 		"fire_rate": 14.0,

@@ -13,19 +13,19 @@ const LOS_MASK := 1   # only world geometry blocks line of sight
 ## when spawning (world.spawn_enemy) or in a mission's enemy_types list.
 const PROFILES := {
 	"soldier": {"name": "Soldier", "health": 100.0, "speed": 5.5, "cooldown": 0.9, "damage": 11.0,
-		"sight": 60.0, "attack": 26.0, "spread_far": 7.0, "spread_near": 1.5,
+		"sight": 45.0, "attack": 26.0, "spread_far": 10.0, "spread_near": 1.8,
 		"model": "res://assets/models/characters/character-m.glb", "color": Color(1, 0.5, 0.45), "scale": 1.0},
 	"rusher": {"name": "Rusher", "health": 55.0, "speed": 8.5, "cooldown": 0.5, "damage": 7.0,
-		"sight": 55.0, "attack": 16.0, "spread_far": 9.0, "spread_near": 3.0,
+		"sight": 42.0, "attack": 16.0, "spread_far": 12.0, "spread_near": 3.2,
 		"model": "res://assets/models/characters/character-c.glb", "color": Color(1, 0.8, 0.3), "scale": 0.9},
 	"sniper": {"name": "Sniper", "health": 70.0, "speed": 4.0, "cooldown": 2.1, "damage": 55.0,
-		"sight": 130.0, "attack": 85.0, "spread_far": 1.4, "spread_near": 0.3,
+		"sight": 95.0, "attack": 85.0, "spread_far": 2.6, "spread_near": 0.4,
 		"model": "res://assets/models/characters/character-h.glb", "color": Color(0.5, 0.8, 1.0), "scale": 1.0},
 	"heavy": {"name": "Heavy", "health": 210.0, "speed": 3.6, "cooldown": 0.7, "damage": 14.0,
-		"sight": 55.0, "attack": 22.0, "spread_far": 6.0, "spread_near": 2.0,
+		"sight": 42.0, "attack": 22.0, "spread_far": 9.0, "spread_near": 2.2,
 		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.3, 0.3), "scale": 1.18},
 	"boss": {"name": "WARLORD", "health": 1500.0, "speed": 4.2, "cooldown": 0.5, "damage": 22.0,
-		"sight": 95.0, "attack": 45.0, "spread_far": 4.0, "spread_near": 1.0,
+		"sight": 72.0, "attack": 45.0, "spread_far": 5.0, "spread_near": 1.2,
 		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.15, 0.55), "scale": 1.9},
 }
 # Spawn weighting (soldiers common, others rarer).
@@ -133,7 +133,8 @@ func _apply_profile() -> void:
 	move_speed = p["speed"]
 	fire_cooldown = p["cooldown"]
 	shoot_damage = p["damage"]
-	sight_range = p["sight"]
+	# Sight scales with skill so Easy bots spot you much later than Hard ones.
+	sight_range = float(p["sight"]) * clampf(0.45 + skill * 0.4, 0.5, 1.0)
 	attack_range = p["attack"]
 	spread_far = p["spread_far"]
 	spread_near = p["spread_near"]
@@ -144,6 +145,9 @@ func _apply_profile() -> void:
 	# Hide bot/NPC name tags in Battle Royale (stealthy FFA) and in Adventure.
 	name_label.visible = not Game.is_battle_royale() and not Game.is_adventure()
 	body_model.scale = Vector3.ONE * float(p["scale"])
+	# Scale the hitboxes with the visible model so headshots line up on big archetypes.
+	if has_node("Hitboxes"):
+		$Hitboxes.scale = Vector3.ONE * float(p["scale"])
 	# The bot's forward is -Z (look_at + the muzzle), but the character mesh faces
 	# +Z, so flip the model 180° or it appears to walk backwards.
 	body_model.rotation.y = PI
@@ -298,7 +302,8 @@ func _acquire_target() -> void:
 			_state = State.PATROL
 
 func _reaction_time() -> float:
-	return clampf(0.45 / skill, 0.08, 0.6)
+	# Easy bots are slow on the trigger; Hard bots snap to it.
+	return clampf(0.5 / skill, 0.12, 0.95)
 
 # ---------------------------------------------------------------- vehicle AI
 
@@ -527,8 +532,10 @@ func _set_marker(text: String, col: Color) -> void:
 		_quest_marker.font_size = 64
 		_quest_marker.outline_size = 12
 		_quest_marker.outline_modulate = Color(0, 0, 0, 0.85)
-		_quest_marker.position = Vector3(0, 2.5, 0)
 		add_child(_quest_marker)
+	if _quest_marker != null:
+		# Sit clearly above the head, accounting for bigger archetypes (heavy/boss).
+		_quest_marker.position = Vector3(0, 2.7 + maxf(0.0, body_model.scale.x - 1.0) * 1.8, 0)
 	_quest_marker.text = text
 	_quest_marker.modulate = col
 	_quest_marker.visible = true
@@ -564,7 +571,9 @@ func _shoot_at(target: Node3D) -> void:
 	var origin := muzzle.global_position
 	var reach := maxf(origin.distance_to(target.global_position) + 12.0, 90.0)
 	var aim := (target.global_position + Vector3.UP * 1.1) - origin
-	var spread := deg_to_rad(lerpf(spread_far, spread_near, clampf(skill - 0.5, 0.0, 1.0)))
+	# Easy (skill 0.6) fires at the full wide spread; only higher skill tightens it.
+	var acc := clampf((skill - 0.6) / 0.8, 0.0, 1.0)
+	var spread := deg_to_rad(lerpf(spread_far, spread_near, acc))
 	var dir := aim.normalized()
 	# random cone
 	var n := Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5).normalized()

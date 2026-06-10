@@ -821,6 +821,28 @@ func inv_drop(index: int) -> void:
 	_spawn_dropped_item.rpc(combatant_id, _drop_counter, item, pos)
 	_drop_counter += 1
 
+## Adventure death: scatter a few carried items as loot where you fell, then wipe
+## the backpack and gear back to a fresh start (you respawn with just a pistol).
+func _drop_loot_on_death() -> void:
+	if not is_multiplayer_authority():
+		return
+	var loot: Array = inventory.duplicate()
+	for slot in ["head", "body", "pants", "extra"]:
+		var it: Dictionary = equip.get(slot, {})
+		if not it.is_empty():
+			loot.append(it)
+	for i in mini(loot.size(), 5):
+		var pos := global_position + Vector3(randf_range(-1.5, 1.5), 0.5, randf_range(-1.5, 1.5))
+		_spawn_dropped_item.rpc(combatant_id, _drop_counter, loot[i], pos)
+		_drop_counter += 1
+	inventory.clear()
+	equip = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+	weapons.set_loadout(["pistol"])
+	grenades = 0
+	inventory_changed.emit()
+	equipment_changed.emit()
+	grenades_changed.emit(0)
+
 @rpc("any_peer", "call_local", "reliable")
 func _spawn_dropped_item(owner_id: int, idx: int, item: Dictionary, pos: Vector3) -> void:
 	var p := PICKUP_SCENE.instantiate()
@@ -891,7 +913,8 @@ func _talk_to(npc: Node) -> void:
 		var offer: Dictionary = qm.offer_for(int(npc.get("combatant_id")))
 		if not offer.is_empty():
 			info["quest_id"] = int(offer["id"])
-			info["quest_title"] = String(offer["title"])
+			var diff_label: String = qm.difficulty_label(offer) if qm.has_method("difficulty_label") else ""
+			info["quest_title"] = "[%s]  %s" % [diff_label, String(offer["title"])] if diff_label != "" else String(offer["title"])
 			info["quest_desc"] = "%s  (+%d pts)" % [String(offer["desc"]), int(offer["points"])]
 	talk_to.emit(info)
 
@@ -1175,6 +1198,8 @@ func _die(attacker_id: int) -> void:
 			if world and world.has_method("check_last_standing"):
 				world.check_last_standing()
 		else:
+			if Game.is_adventure():
+				_drop_loot_on_death()
 			_respawn_timer = 3.0
 			set_process(true)
 

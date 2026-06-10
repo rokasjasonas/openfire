@@ -177,10 +177,11 @@ func _equip(index: int) -> void:
 		holder.add_child(_model)
 		# Position the viewmodel bottom-right of the view. The Kenney blasters are
 		# modelled along +Z (barrel forward), so rotate 180° on Y to point the
-		# muzzle away from the camera (which looks down -Z).
-		_model.position = Vector3(0.18, -0.18, -0.45)
+		# muzzle away from the camera (which looks down -Z). Per-weapon offset because
+		# the blaster models have differing origins (the SMG sat too far out).
+		_model.position = w.get("vm_pos", Vector3(0.18, -0.18, -0.45))
 		_model.rotation_degrees = Vector3(0, 180, 0)
-		_model.scale = Vector3.ONE * 1.0
+		_model.scale = Vector3.ONE * float(w.get("vm_scale", 1.0))
 	if is_local:
 		emit_state()
 

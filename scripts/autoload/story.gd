@@ -68,7 +68,7 @@ func _generate_embedded() -> void:
 
 func _on_embed_story(text: String) -> void:
 	_story_part = _parse_story_content(text)
-	if _story_part.is_empty():
+	if not _has_briefing(_story_part):
 		_story_part = _fallback_story()
 	phase_changed.emit("Naming the inhabitants…")
 	LLM.chat_done.connect(_on_embed_names, CONNECT_ONE_SHOT)
@@ -132,9 +132,13 @@ func _on_story_done(result: int, code: int, _h: PackedStringArray, body: PackedB
 	var d := {}
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
 		d = _parse_story(body.get_string_from_utf8())
-	_story_part = d if not d.is_empty() else _fallback_story()
+	_story_part = d if _has_briefing(d) else _fallback_story()
 	_story_pending = false
 	_maybe_emit()
+
+## A parsed story is only "good" if the model actually wrote a briefing.
+func _has_briefing(d: Dictionary) -> bool:
+	return not d.is_empty() and String(d.get("briefing", "")).strip_edges() != ""
 
 func _on_names_done(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
@@ -156,11 +160,14 @@ func _faction_list() -> String:
 	return s
 
 func _story_prompt() -> String:
-	return ("Theme: %s\n%sFactions:\n%sThe player completes adventure quests for points (target %d).\n"
-		+ "JSON keys: \"briefing\" (2-3 vivid sentences on this theme), "
-		+ "\"factions\" (object: each faction name -> one-sentence backstory), "
-		+ "\"greetings\" (object: each faction name -> a short in-character line an NPC says to the player), "
-		+ "\"outro\" (one victory sentence). Stay on theme.") % [_theme, _hero_line(), _faction_list(), int(_facts.get("points", 10))]
+	return ("You are writing the lore bible for a game world themed: \"%s\".\n%s"
+		+ "Factions in this world:\n%s"
+		+ "Make EVERY line unmistakably about \"%s\" — use its specific places, names, tone, creatures and tropes; never generic post-apocalypse filler.\n"
+		+ "Respond with ONLY a compact JSON object (no prose, no markdown) with keys: "
+		+ "\"briefing\" (2-3 vivid sentences setting the scene, grounded in this theme), "
+		+ "\"factions\" (object mapping each faction name to a one-sentence backstory that fits the theme), "
+		+ "\"greetings\" (object mapping each faction name to a short in-character greeting an NPC says to the player), "
+		+ "\"outro\" (one triumphant victory sentence).") % [_theme, _hero_line(), _faction_list(), _theme]
 
 ## Optional hero context from the chosen character (name + backstory) for the LLM.
 func _hero_line() -> String:
@@ -184,14 +191,24 @@ func _names_prompt() -> String:
 
 # ---------------------------------------------------------------- parsing
 
-## Extract a JSON object from a raw string (tolerating prose / code fences / junk).
+## Extract a JSON object from a raw string, tolerating prose, code fences, trailing
+## commas and a truncated tail (small models often produce all of these).
 func _json_obj(content: String):
-	content = content.strip_edges()
+	content = content.strip_edges().replace("```json", "").replace("```", "")
 	var a := content.find("{")
-	var b := content.rfind("}")
-	if a < 0 or b <= a:
+	if a < 0:
 		return null
-	return JSON.parse_string(content.substr(a, b - a + 1))
+	var b := content.rfind("}")
+	var s := content.substr(a, b - a + 1) if b > a else content.substr(a) + "}"
+	var parsed = JSON.parse_string(s)
+	if parsed == null:
+		parsed = JSON.parse_string(_strip_trailing_commas(s))   # lenient retry
+	return parsed
+
+func _strip_trailing_commas(s: String) -> String:
+	var re := RegEx.new()
+	re.compile(",\\s*([}\\]])")
+	return re.sub(s, "$1", true)
 
 ## Pull the message content out of an OpenAI-style chat reply.
 func _envelope_content(txt: String) -> String:
@@ -225,17 +242,22 @@ func _parse_story(txt: String) -> Dictionary:
 func _parse_names(txt: String) -> Dictionary:
 	return _parse_names_content(_envelope_content(txt))
 
+## Procedural fallback used when no LLM is reachable (or it returns nothing usable).
+## Weaves the theme and the chosen character into the text so it still feels on-prompt.
 func _fallback_story() -> Dictionary:
 	var t := _theme
+	var hero := String((_facts.get("hero", {}) as Dictionary).get("name", "")).strip_edges()
+	var you := hero if hero != "" else "stranger"
 	var factions := {}
 	var greetings := {}
 	for f in _facts.get("factions", []):
 		var name := String(f)
-		factions[name] = "%s endure in a world of %s, trusting few and arming many." % [name, t]
-		greetings[name] = "Hard times for %s, stranger. State your business." % name
+		factions[name] = "The %s have carved out their corner of %s, wary of outsiders and quick to arm." % [name, t]
+		greetings[name] = "You're far from safe ground, %s. State your business — this is %s." % [you, t]
+	var lead := ("%s arrives in %s" % [hero, t]) if hero != "" else ("You arrive in %s" % t)
 	return {
-		"briefing": "The world has fallen to %s. Scattered settlements cling to survival while raiders prowl the wastes — earn your place, or perish." % t,
+		"briefing": "%s — a land of scattered settlements, prowling raiders and few you can trust. Earn your place here, or be swallowed by it." % lead,
 		"factions": factions,
 		"greetings": greetings,
-		"outro": "Against all odds, you carved out survival in a world of %s." % t,
+		"outro": "Against all odds, %s carved out a legend in %s." % [you, t],
 	}

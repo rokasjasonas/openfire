@@ -298,11 +298,11 @@ func spawn_escort(from: Vector3, dest: Vector3, speed: float) -> Node:
 	var id := -4000 - _bot_counter
 	return spawner.spawn({"type": "escort", "id": id, "pos": from, "dest": dest, "speed": speed})
 
-func _on_bot_died(_attacker_id: int, victim_id: int) -> void:
+func _on_bot_died(attacker_id: int, victim_id: int) -> void:
 	if _objective_runner and _objective_runner.has_method("notify_enemy_killed"):
 		_objective_runner.notify_enemy_killed(victim_id)
 	if _quest_manager:
-		_quest_manager.notify_kill(victim_id)
+		_quest_manager.notify_kill(victim_id, attacker_id)
 	if Game.is_adventure():
 		_maybe_drop_loot(victim_id)
 	check_last_standing()
@@ -353,7 +353,7 @@ var _survival_rng := RandomNumberGenerator.new()
 var _surv_act_t := 0.0
 
 func _start_survival() -> void:
-	set_objective_text.rpc("Survive the wilds \u2014 villages, raiders and the storm await.")
+	# (No generic banner \u2014 the LLM briefing set in _on_story_ready stays as the intro.)
 	Game.adventure_setup(int(Game.config.get("seed", 0)))
 	NameGen.reseed(int(Game.config.get("seed", 0)))
 	_survival_rng.seed = int(Game.config.get("seed", 0))
@@ -454,6 +454,27 @@ func _process_survival(delta: float) -> void:
 				near = true
 				break
 		b.set_active(near)
+	_maybe_ambush(delta, pps)
+
+# World event: every so often a small raider party ambushes a random player, for
+# emergent encounters between missions.
+var _ambush_t: float = 0.0
+func _maybe_ambush(delta: float, player_positions: Array) -> void:
+	if not Net.is_host() or player_positions.is_empty():
+		return
+	_ambush_t += delta + 0.5   # _process_survival ticks ~2x/sec; this accumulates wall time
+	if _ambush_t < _survival_rng.randf_range(80.0, 140.0):
+		return
+	_ambush_t = 0.0
+	var center: Vector3 = player_positions[_survival_rng.randi() % player_positions.size()]
+	var skill := float(Game.config.get("bot_skill", 1.0))
+	var n := _survival_rng.randi_range(2, 4)
+	for i in n:
+		var ang := _survival_rng.randf() * TAU
+		var pos := _snap_to_nav(center + Vector3(cos(ang), 0, sin(ang)) * _survival_rng.randf_range(18.0, 30.0))
+		pos.y += 1.0
+		spawn_enemy(skill, false, pos, _random_enemy_type(), 1, Game.RAIDER_FACTION)
+	broadcast_event("⚠ Raider ambush!")
 
 func _start_deathmatch() -> void:
 	set_objective_text.rpc("Deathmatch — first to %d frags" % int(Game.config["frag_limit"]))

@@ -746,8 +746,8 @@ func _ready() -> void:
 		qm._activate(hid)
 		var rid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(8, 0, 0), "soldier", 1, "raiders")
 		await get_tree().process_frame
-		qm.notify_kill(rid)
-		qm.notify_kill(rid)
+		qm.notify_kill(rid, me.combatant_id)   # player kill counts toward the hunt
+		qm.notify_kill(rid, me.combatant_id)
 		var hunt_ok: bool = qm.points >= 2
 		var sid = qm._make("collect", "Side", "collect 1 ammo", {"item": "ammo", "count": 1}, false, 4242)
 		var offer = qm.offer_for(4242)
@@ -763,6 +763,38 @@ func _ready() -> void:
 		Game.config["mode"] = prev_mode5
 		quests_ok = hunt_ok and offer_ok and accept_ok and tracker_ok
 		print("SMOKE: quests_ok=", quests_ok, " hunt=", hunt_ok, " offer=", offer_ok, " accept=", accept_ok, " tracker=", tracker_ok)
+
+	# Per-mission difficulty: a Hard quest is worth more and labels correctly; the new
+	# recon/sabotage types are registered.
+	var missions_ok := false
+	if world:
+		var qmd = load("res://scripts/world/quest_manager.gd").new()
+		qmd.name = "QM_diff"
+		add_child(qmd)
+		qmd.add_to_group("quest_manager")
+		qmd.world = world
+		qmd.target_points = 99
+		Game.match_active = false   # don't let _process trigger a win
+		var eid = qmd._make("hunt", "E", "", {"faction": "raiders", "count": 3}, false, 0, 0)
+		var hid2 = qmd._make("hunt", "H", "", {"faction": "raiders", "count": 3}, false, 0, 2)
+		var eq := {}
+		var hq := {}
+		for q in qmd.quests:
+			if int(q["id"]) == eid:
+				eq = q
+			elif int(q["id"]) == hid2:
+				hq = q
+		var diff_pts_ok: bool = int(hq.get("points", 0)) > int(eq.get("points", 0)) \
+			and qmd.difficulty_label(hq) == "Hard" and qmd.difficulty_label(eq) == "Easy"
+		qmd._make("recon", "R", "", {"recon_pois": [], "visited": []}, false, 0, 1)
+		qmd._make("sabotage", "S", "", {}, false, 0, 1)
+		var types_ok: bool = qmd.PTS.has("recon") and qmd.PTS.has("sabotage")
+		# label appears in the tracker text for an active quest
+		qmd._activate(hid2)
+		var label_ok: bool = qmd._tracker_text().contains("[Hard]")
+		qmd.queue_free()
+		missions_ok = diff_pts_ok and types_ok and label_ok
+		print("SMOKE: missions_ok=", missions_ok, " diff_pts=", diff_pts_ok, " types=", types_ok, " label=", label_ok)
 
 	# Adventure story: offline fallback produces all keys, and the LLM-response parser
 	# extracts our story JSON from an OpenAI-style chat reply.
@@ -1108,6 +1140,24 @@ func _ready() -> void:
 		snap_ok = snapped.distance_to(far) > 1.0   # pulled toward the navmesh, not left off-map
 		print("SMOKE: snap_ok=", snap_ok)
 
+	# Adventure death: drops carried items as loot and resets the backpack/gear to a
+	# fresh start (pistol only).
+	var death_drop_ok := false
+	if me:
+		me.inventory.clear()
+		me.inv_add(ItemDB.make("food"))
+		me.inv_add(ItemDB.make_weapon("rifle"))
+		me.equip = {"head": {}, "body": ItemDB.make("vest"), "pants": {}, "extra": {}}
+		var before_pickups := get_tree().get_nodes_in_group("pickup").size()
+		me._drop_loot_on_death()
+		await get_tree().process_frame
+		var after_pickups := get_tree().get_nodes_in_group("pickup").size()
+		death_drop_ok = me.inventory.is_empty() and me.weapons.loadout[0] == "pistol" \
+			and (me.equip["body"] as Dictionary).is_empty() and after_pickups > before_pickups
+		me.inventory.clear()
+		me.weapons.set_loadout([])
+		print("SMOKE: death_drop_ok=", death_drop_ok)
+
 	# Tiny adventures: the smallest map size builds a (smaller) world that still bakes
 	# a navmesh and has a few villages.
 	var tiny_map_ok := false
@@ -1146,7 +1196,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

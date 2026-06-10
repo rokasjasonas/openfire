@@ -49,6 +49,7 @@ var _player: Node = null
 var _last_health: float = -1.0
 var _flash_tween: Tween = null
 var _spawn_msec: int = 0   # for "time survived" in the Stats tab
+const ADVENTURE_BRIEFING_SECS := 12   # how long the intro banner stays before fading
 
 const RESULT_COUNTDOWN := 3.0
 var _result_base_text: String = ""
@@ -97,6 +98,11 @@ func _process(delta: float) -> void:
 	var loading := Game.is_adventure() and Game.match_active and (_player == null or not is_instance_valid(_player))
 	if generating_panel.visible != loading:
 		generating_panel.visible = loading
+	# Adventure: the story briefing is an intro — fade it out a while after you spawn so
+	# the play screen stays clean (the quest tracker carries the live objectives).
+	if Game.is_adventure() and objective_label.visible and _spawn_msec > 0 \
+			and Time.get_ticks_msec() - _spawn_msec > ADVENTURE_BRIEFING_SECS * 1000:
+		objective_label.visible = false
 	# Keep the Stats tab live (time survived / accuracy tick) while it's open.
 	if inventory_panel.visible and tabs.get_current_tab_control() != null \
 			and tabs.get_current_tab_control().name == "Stats":

@@ -21,6 +21,7 @@ var _busy: bool = false
 var _started: bool = false
 var _worker_ready: bool = false
 var _pending: String = ""
+var _system: String = ""   # system prompt currently loaded in the chat context
 
 func _ready() -> void:
 	_dl = HTTPRequest.new()
@@ -100,6 +101,7 @@ func _ensure_nodes(system: String) -> bool:
 		_chat_node = ClassDB.instantiate("NobodyWhoChat")
 		_chat_node.set("model_node", _model_node)
 		_chat_node.set("system_prompt", system)
+		_system = system
 		_chat_node.set("context_length", 4096)
 		add_child(_chat_node)
 		_chat_node.connect("response_finished", _on_chat_finished)
@@ -117,6 +119,16 @@ func _ensure_nodes(system: String) -> bool:
 func chat(system: String, user: String) -> bool:
 	if _busy or not _ensure_nodes(system):
 		return false
+	# The chat node keeps its system prompt + history across calls; when a different
+	# caller needs a different persona (story JSON vs an NPC speaking in character),
+	# swap the system prompt and reset the context so the old one doesn't bleed in.
+	if system != _system:
+		_system = system
+		_chat_node.set("system_prompt", system)
+		if _chat_node.has_method("reset_context"):
+			_chat_node.call("reset_context")
+		elif _chat_node.has_method("reset"):
+			_chat_node.call("reset")
 	_busy = true
 	if _worker_ready:
 		_chat_node.call("say", user)

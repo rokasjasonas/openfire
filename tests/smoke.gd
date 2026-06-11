@@ -186,6 +186,21 @@ func _ready() -> void:
 		grenade_ok = me.grenades == before_g - 1 and found
 	print("SMOKE: grenade_ok=", grenade_ok)
 
+	# Grenade detonation FX: the burst spawns fire + smoke particle systems.
+	var nade_fx_ok := false
+	var nade: Node = load("res://scenes/grenade.tscn").instantiate()
+	get_tree().current_scene.add_child(nade)
+	nade.global_position = Vector3(0, 1, 0)
+	nade._spawn_fx(nade.global_position)
+	await get_tree().process_frame
+	var fx_particles := 0
+	for n in get_tree().current_scene.get_children():
+		if n is GPUParticles3D:
+			fx_particles += 1
+	nade_fx_ok = fx_particles >= 2   # fireball + smoke
+	nade.queue_free()
+	print("SMOKE: nade_fx_ok=", nade_fx_ok, " particle_systems=", fx_particles)
+
 	# Settings autoload present + applied.
 	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
 	print("SMOKE: settings_ok=", settings_ok)
@@ -935,6 +950,43 @@ func _ready() -> void:
 		improve_ok = im_pts_ok and im_buy_ok and im_apply_ok and im_val_ok and im_coins_ok and im_env_ok and im_marker_ok and im_snap_ok and im_restore_ok
 		print("SMOKE: improve_ok=", improve_ok, " perks=", im_pts_ok, " buy=", im_buy_ok, " papply=", im_apply_ok, " value=", im_val_ok, " coins=", im_coins_ok, " env=", im_env_ok, " marker=", im_marker_ok, " snap=", im_snap_ok, " restore=", im_restore_ok)
 
+	# Grenades as Adventure inventory items: count = Extra slot + backpack, must be
+	# equipped to throw, and throws spend the backpack before the equipped reserve.
+	var nade_item_ok := false
+	if me:
+		var gn_prev_mode = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		me.equip["extra"] = {}
+		me.grenades = 0
+		var gn_added := 0
+		for k in 3:
+			if me.inv_add(ItemDB.make("grenade")):
+				gn_added += 1
+		# Three loose grenades: counted, but not throwable until one is equipped.
+		var gn_count3: bool = me.grenade_count() == 3
+		var gn_noeq: bool = not me._grenade_equipped() and not me._can_throw_grenade()
+		var gn_gi := -1
+		for i in me.inventory.size():
+			if String(me.inventory[i].get("kind", "")) == "grenade":
+				gn_gi = i
+				break
+		me._equip_slot("extra", gn_gi)
+		# Equipping moves one to the gear slot — total unchanged, now throwable.
+		var gn_eq: bool = me._grenade_equipped() and me._can_throw_grenade() and me.grenade_count() == 3
+		me._consume_grenade()
+		var gn_a1: bool = me._grenade_equipped() and me.grenade_count() == 2   # backpack spent first
+		me._consume_grenade()
+		var gn_a2: bool = me._grenade_equipped() and me.grenade_count() == 1
+		me._consume_grenade()
+		var gn_a3: bool = not me._grenade_equipped() and me.grenade_count() == 0 and not me._can_throw_grenade()
+		nade_item_ok = gn_added == 3 and gn_count3 and gn_noeq and gn_eq and gn_a1 and gn_a2 and gn_a3
+		me.inventory.clear()
+		me.equip["extra"] = {}
+		me.grenades = 0
+		Game.config["mode"] = gn_prev_mode
+		print("SMOKE: nade_item_ok=", nade_item_ok, " added=", gn_added, " count3=", gn_count3, " noeq=", gn_noeq, " eq=", gn_eq, " a1=", gn_a1, " a2=", gn_a2, " a3=", gn_a3)
+
 	# Adventure story: offline fallback produces all keys, and the LLM-response parser
 	# extracts our story JSON from an OpenAI-style chat reply.
 	var story_ok := false
@@ -1345,7 +1397,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

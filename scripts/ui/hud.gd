@@ -461,7 +461,13 @@ func _feed_color(team: int) -> String:
 	return "#e0c080"  # neutral gold for free-for-all
 
 func _on_grenades(count: int) -> void:
-	grenade_label.text = "Grenades: %d" % count
+	var txt := "Grenades: %d" % count
+	# Adventure: you can only throw one that's equipped in the Extra slot. If you're
+	# carrying some but none is equipped, hint that they need equipping.
+	if Game.is_adventure() and count > 0 and _player != null and is_instance_valid(_player) \
+			and not _player._grenade_equipped():
+		txt += "  (equip to throw)"
+	grenade_label.text = txt
 
 func _on_hunger(value: float, maximum: float) -> void:
 	hunger_bar.max_value = maximum
@@ -672,7 +678,19 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_released("scoreboard"):
 		scoreboard.visible = false
 	if event.is_action_pressed("pause"):
-		_toggle_pause()
+		# Escape closes whatever overlay is open first; only opens the pause menu
+		# when nothing else is up.
+		if trade_panel.visible:
+			_close_trade()
+		elif npc_dialog.visible:
+			_close_npc_dialog()
+		elif %WorldMap.visible:
+			%WorldMap.visible = false
+		elif inventory_panel.visible:
+			_toggle_inventory()
+		else:
+			_toggle_pause()
+		get_viewport().set_input_as_handled()
 
 func _refresh_scoreboard() -> void:
 	if not scoreboard.visible and not result_panel.visible:

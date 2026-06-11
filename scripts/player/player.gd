@@ -82,6 +82,7 @@ var oxygen: float = MAX_OXYGEN
 var in_water: bool = false
 var perks: Array = []            # character perk ids (Characters.PERKS), set on apply
 var coins: int = 0               # trade currency (persisted on the character)
+var _input_enabled: bool = true  # false while a menu/text field has the cursor (no gameplay input)
 var near_ladder: Node = null
 var _water_y: float = -1.0e20    # cached water-surface height (sentinel = unknown)
 var _oxy_dmg_accum: float = 0.0
@@ -295,7 +296,10 @@ func _physics_process(delta: float) -> void:
 	near_npc = _nearest_talkable_npc() if Game.is_adventure() else null
 	near_pickup = _nearest_pickup() if Game.is_adventure() else null
 	near_ladder = _nearest_ladder()
-	if Input.is_action_just_pressed("interact"):
+	# When a menu or text field is open the cursor is freed; suppress all gameplay
+	# input so typing to an NPC (or browsing the backpack) doesn't move/act/shoot.
+	_input_enabled = Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if _input_enabled and Input.is_action_just_pressed("interact"):
 		if near_vehicle:
 			_enter_vehicle(_nearest_vehicle())
 			return
@@ -317,7 +321,7 @@ func _physics_process(delta: float) -> void:
 		_climb(delta, near_ladder)
 	else:
 		# Crouch (hold). Can't stand back up if something is overhead.
-		var want_crouch := Input.is_action_pressed("crouch")
+		var want_crouch := _input_enabled and Input.is_action_pressed("crouch")
 		if not want_crouch and _crouch > 0.05 and not _has_headroom():
 			want_crouch = true
 		_crouch = move_toward(_crouch, 1.0 if want_crouch else 0.0, CROUCH_SPEED_FACTOR * delta)
@@ -328,16 +332,16 @@ func _physics_process(delta: float) -> void:
 		if not is_on_floor():
 			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
 
-		if Input.is_action_just_pressed("jump") and is_on_floor() and _crouch < 0.5:
+		if _input_enabled and Input.is_action_just_pressed("jump") and is_on_floor() and _crouch < 0.5:
 			velocity.y = JUMP_VELOCITY
 
-		var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back") if _input_enabled else Vector2.ZERO
 		var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 
 		var speed := WALK_SPEED
 		if _crouch > 0.3:
 			speed = CROUCH_SPEED
-		elif Input.is_action_pressed("sprint"):
+		elif _input_enabled and Input.is_action_pressed("sprint"):
 			speed = SPRINT_SPEED
 
 		var accel := ACCEL_GROUND if is_on_floor() else ACCEL_AIR
@@ -365,7 +369,7 @@ func _physics_process(delta: float) -> void:
 			weapons.set_aiming(true)
 		if Input.is_action_just_released("aim"):
 			weapons.set_aiming(false)
-		if Input.is_action_just_pressed("grenade") and grenades > 0:
+		if Input.is_action_just_pressed("grenade") and _can_throw_grenade():
 			_throw_grenade()
 		if Input.is_action_just_pressed("weapon_1"):
 			weapons.switch_to(0)
@@ -395,6 +399,57 @@ func add_grenades(n: int) -> void:
 		return
 	grenades = mini(MAX_GRENADES, grenades + n)
 	grenades_changed.emit(grenades)
+
+# ---------------------------------------------------------------- grenades (Adventure)
+# In Adventure grenades are inventory items: the HUD count is the total you hold across
+# the Extra gear slot + backpack. You can only throw when one is equipped in the Extra
+# slot, and throws spend loose backpack grenades first (the equipped one is the last to
+# go). In other modes `grenades` is a plain per-life counter (no inventory).
+
+## Total grenades held: the equipped Extra-slot grenade + every grenade in the backpack.
+func grenade_count() -> int:
+	var n := 0
+	var g: Dictionary = equip.get("extra", {})
+	if String(g.get("kind", "")) == "grenade":
+		n += int(g.get("amount", 1))
+	for it in inventory:
+		if String(it.get("kind", "")) == "grenade":
+			n += int(it.get("amount", 1))
+	return n
+
+## True when a grenade is equipped in the Extra slot (required to throw in Adventure).
+func _grenade_equipped() -> bool:
+	return String(equip.get("extra", {}).get("kind", "")) == "grenade"
+
+## Recompute the displayed total from inventory + gear and push it to the HUD.
+func _refresh_grenades() -> void:
+	grenades = grenade_count()
+	grenades_changed.emit(grenades)
+
+## Consume one grenade for a throw: backpack first, then the equipped Extra slot.
+## Returns false if none could be spent.
+func _consume_grenade() -> bool:
+	for i in inventory.size():
+		if String(inventory[i].get("kind", "")) == "grenade":
+			var amt := int(inventory[i].get("amount", 1))
+			if amt > 1:
+				inventory[i]["amount"] = amt - 1
+			else:
+				inventory.remove_at(i)
+			inventory_changed.emit()
+			_refresh_grenades()
+			return true
+	var g: Dictionary = equip.get("extra", {})
+	if String(g.get("kind", "")) == "grenade":
+		var amt := int(g.get("amount", 1))
+		if amt > 1:
+			equip["extra"]["amount"] = amt - 1
+		else:
+			equip["extra"] = {}
+		equipment_changed.emit()
+		_refresh_grenades()
+		return true
+	return false
 
 # ---------------------------------------------------------------- adventure needs
 
@@ -451,14 +506,14 @@ func _swim(delta: float) -> void:
 	sync_crouch = 0.0
 	_air_speed = 0.0   # water breaks the fall — no landing damage
 	_apply_crouch(0.0)
-	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back") if _input_enabled else Vector2.ZERO
 	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y))
 	velocity.x = lerp(velocity.x, dir.x * SWIM_SPEED, SWIM_ACCEL * delta)
 	velocity.z = lerp(velocity.z, dir.z * SWIM_SPEED, SWIM_ACCEL * delta)
 	var vy := 0.0
-	if Input.is_action_pressed("jump"):
+	if _input_enabled and Input.is_action_pressed("jump"):
 		vy += 1.0
-	if Input.is_action_pressed("crouch"):
+	if _input_enabled and Input.is_action_pressed("crouch"):
 		vy -= 1.0
 	var target_vy := vy * SWIM_VERT_SPEED
 	if absf(vy) < 0.01:
@@ -486,6 +541,8 @@ func _nearest_ladder() -> Node:
 ## (mid-climb). Standing idle at the base lets you walk away normally. Jump is NOT
 ## a climb input — it detaches you from the ladder (see _climb).
 func _wants_climb() -> bool:
+	if not _input_enabled:
+		return not is_on_floor()   # keep clinging mid-climb, but don't grab while typing
 	var up := Input.is_action_pressed("move_forward")
 	var down := Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch")
 	return up or down or not is_on_floor()
@@ -502,16 +559,16 @@ func _climb(delta: float, l: Node) -> void:
 	var normal: Vector3 = l.get_meta("normal", Vector3(0, 0, -1))  # outward, toward climber
 
 	# Space jumps OFF the ladder — leap outward and up, with a brief no-regrab window.
-	if Input.is_action_just_pressed("jump"):
+	if _input_enabled and Input.is_action_just_pressed("jump"):
 		velocity = normal * 6.0 + Vector3.UP * (JUMP_VELOCITY * 0.8)
 		_ladder_detach = 0.4
 		move_and_slide()
 		return
 
 	var up := 0.0
-	if Input.is_action_pressed("move_forward"):
+	if _input_enabled and Input.is_action_pressed("move_forward"):
 		up += 1.0
-	if Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch"):
+	if _input_enabled and (Input.is_action_pressed("move_back") or Input.is_action_pressed("crouch")):
 		up -= 1.0
 	velocity.y = up * CLIMB_SPEED
 
@@ -574,6 +631,10 @@ func _fill_adventure_start() -> void:
 	# Start with only the equipped pistol — empty backpack, no grenades.
 	grenades = 0
 	grenades_changed.emit(grenades)
+	# In Adventure the grenade count tracks inventory, so recompute it whenever the
+	# backpack changes (pickups, trades, drops, equips).
+	if not inventory_changed.is_connected(_refresh_grenades):
+		inventory_changed.connect(_refresh_grenades)
 
 ## Consumables (Adventure #3) call these to restore the needs.
 func eat(amount: float) -> void:
@@ -757,8 +818,7 @@ func _equip_slot(slot: String, index: int) -> void:
 		return
 	equip[slot] = item
 	if slot == "extra":
-		grenades = MAX_GRENADES
-		grenades_changed.emit(grenades)
+		_refresh_grenades()   # total = equipped + backpack
 	inventory_changed.emit()
 	equipment_changed.emit()
 
@@ -788,8 +848,7 @@ func unequip(slot: String) -> void:
 	if inv_add(item):
 		equip[slot] = {}
 		if slot == "extra":
-			grenades = 0
-			grenades_changed.emit(0)
+			_refresh_grenades()   # still counts the ones now back in the backpack
 		equipment_changed.emit()
 
 ## Use/equip the item at `index`, applying its effect; consumed items are removed.
@@ -810,9 +869,8 @@ func inv_use(index: int) -> void:
 		"ammo":
 			weapons.refill()
 		"grenade":
-			if grenades >= MAX_GRENADES:
-				return
-			add_grenades(int(item.get("amount", 1)))
+			_equip_slot("extra", index)   # using a grenade equips it to the Extra slot
+			return
 		"weapon":
 			weapons.give_weapon(String(item.get("weapon_id", "")))
 		"backpack":
@@ -1070,9 +1128,18 @@ func _drive_vehicle(delta: float) -> void:
 	if Input.is_action_just_pressed("interact"):
 		_exit_vehicle()
 
+## Can a grenade be thrown right now? Adventure needs one equipped in the Extra slot;
+## other modes just need the per-life counter above zero.
+func _can_throw_grenade() -> bool:
+	return _grenade_equipped() if Game.is_adventure() else grenades > 0
+
 func _throw_grenade() -> void:
-	grenades -= 1
-	grenades_changed.emit(grenades)
+	if Game.is_adventure():
+		if not _consume_grenade():
+			return
+	else:
+		grenades -= 1
+		grenades_changed.emit(grenades)
 	var fwd := -camera.global_transform.basis.z
 	var pos := camera.global_position + fwd * 0.6
 	var vel := fwd * 16.0 + Vector3.UP * 4.0 + Vector3(velocity.x, 0, velocity.z) * 0.5
@@ -1274,9 +1341,12 @@ func respawn(xform: Transform3D) -> void:
 		sync_yaw = rotation.y
 		head.rotation.x = 0.0
 		set_process(false)
-		grenades = MAX_GRENADES
+		if Game.is_adventure():
+			_refresh_grenades()   # only what you still carry — no free respawn grenades
+		else:
+			grenades = MAX_GRENADES
+			grenades_changed.emit(grenades)
 		health_changed.emit(sync_health, MAX_HEALTH)
-		grenades_changed.emit(grenades)
 		weapons.refill()
 
 func get_team() -> int:

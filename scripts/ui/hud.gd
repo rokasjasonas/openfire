@@ -42,6 +42,7 @@ extends CanvasLayer
 @onready var npc_name: Label = %NpcName
 @onready var npc_role: Label = %NpcRole
 @onready var npc_body: Label = %NpcBody
+@onready var npc_scroll: ScrollContainer = %NpcScroll
 @onready var quest_tracker: Label = %QuestTracker
 @onready var generating_panel: Panel = %GeneratingPanel
 @onready var trade_panel: Panel = %TradePanel
@@ -53,7 +54,10 @@ var _npc_info: Dictionary = {}   # the NPC currently in the talk dialog
 var _ask_pending: bool = false
 
 # Quartermaster stock: item ids (ItemDB) and weapon ids, bought at full value.
-const TRADE_ITEMS := ["medkit", "food", "water", "ammo", "grenade", "helmet", "vest", "leg_armor", "backpack_small"]
+const TRADE_ITEMS := ["medkit", "food", "water", "ammo", "grenade", "grenade_smoke", "grenade_flash",
+	"grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void",
+	"flashlight", "binoculars", "nvg", "scanner",
+	"helmet", "vest", "leg_armor", "backpack_small"]
 const TRADE_WEAPONS := ["pistol", "smg", "shotgun", "rifle"]
 
 var _player: Node = null
@@ -66,7 +70,16 @@ const RESULT_COUNTDOWN := 3.0
 var _result_base_text: String = ""
 var _result_left: float = 0.0
 
+var _postfx: ColorRect = null
+var _lowhp: ColorRect = null
+var _lowhp_amt: float = 0.0
+var _flashbang: ColorRect = null
+var _nvg: ColorRect = null
+var _gadget_label: Label = null
+
 func _ready() -> void:
+	add_to_group("hud")
+	_setup_postfx()
 	scoreboard.visible = false
 	result_panel.visible = false
 	pause_panel.visible = false
@@ -111,6 +124,12 @@ func _process(delta: float) -> void:
 	if result_panel.visible and _result_left > 0.0:
 		_result_left = maxf(0.0, _result_left - delta)
 		_update_result_label()
+	_update_gadget_label()
+	# Animate the low-health blood vignette with a heartbeat pulse.
+	if _lowhp != null and _lowhp.material is ShaderMaterial:
+		var cur: float = float(_lowhp.material.get_shader_parameter("intensity"))
+		_lowhp.material.set_shader_parameter("intensity", lerpf(cur, _lowhp_amt, clampf(6.0 * delta, 0.0, 1.0)))
+		_lowhp.material.set_shader_parameter("pulse", 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006))
 	# Adventure shows a loading overlay until the world is generated and you spawn in.
 	var loading := Game.is_adventure() and Game.match_active and (_player == null or not is_instance_valid(_player))
 	if generating_panel.visible != loading:
@@ -168,6 +187,7 @@ func _on_talk(info: Dictionary) -> void:
 	npc_body.text = body
 	npc_dialog.visible = true
 	npc_prompt.text = ""
+	_scroll_dialogue_top()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func _on_accept_quest() -> void:
@@ -179,6 +199,7 @@ func _on_accept_quest() -> void:
 	_close_npc_dialog()
 
 func _close_npc_dialog() -> void:
+	%NpcAsk.release_focus()
 	npc_dialog.visible = false
 	if not pause_panel.visible and not inventory_panel.visible and not result_panel.visible \
 			and not trade_panel.visible:
@@ -194,6 +215,7 @@ func _on_npc_ask() -> void:
 	%NpcAsk.text = ""
 	var who := String(_npc_info.get("name", "Stranger"))
 	npc_body.text += "\n\nYou: %s" % q
+	_scroll_dialogue_bottom()
 	var sys := ("You are %s, a %s of the %s faction. Persona: %s. World: %s\n"
 		+ "Stay in character. Reply with 1-2 short spoken sentences only — no narration, no quotes.") % [
 		who, String(_npc_info.get("role", "villager")), String(_npc_info.get("faction", "")),
@@ -218,6 +240,17 @@ func _on_npc_answer(text: String) -> void:
 	if i >= 0:
 		npc_body.text = npc_body.text.substr(0, i)
 	npc_body.text += "\n%s: %s" % [who, reply]
+	_scroll_dialogue_bottom()
+
+## Keep the latest dialogue line in view (deferred a frame so the label has resized).
+func _scroll_dialogue_bottom() -> void:
+	await get_tree().process_frame
+	if is_instance_valid(npc_scroll):
+		npc_scroll.scroll_vertical = int(npc_scroll.get_v_scroll_bar().max_value)
+
+func _scroll_dialogue_top() -> void:
+	if is_instance_valid(npc_scroll):
+		npc_scroll.scroll_vertical = 0
 
 # ---------------------------------------------------------------- trading
 
@@ -460,6 +493,98 @@ func _feed_color(team: int) -> String:
 		return "#" + Game.team_color(team).to_html(false)
 	return "#e0c080"  # neutral gold for free-for-all
 
+## Cinematic vignette + film grain overlay, behind all other HUD elements. Vignette
+## from Medium quality up; grain only at High. Off entirely on Low.
+func _setup_postfx() -> void:
+	_postfx = ColorRect.new()
+	_postfx.name = "PostFX"
+	_postfx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_postfx.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var sh := load("res://shaders/postfx.gdshader")
+	if sh == null:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	var q: int = Settings.quality
+	mat.set_shader_parameter("vignette", 0.45 if q >= 1 else 0.0)
+	mat.set_shader_parameter("grain", 0.05 if q >= 2 else 0.0)
+	_postfx.material = mat
+	_postfx.visible = q >= 1
+	add_child(_postfx)
+	move_child(_postfx, 0)   # draw beneath the real HUD widgets
+	# Red low-health blood vignette (all quality levels).
+	_lowhp = ColorRect.new()
+	_lowhp.name = "LowHealth"
+	_lowhp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lowhp.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var lsh := load("res://shaders/lowhealth.gdshader")
+	if lsh != null:
+		var lmat := ShaderMaterial.new()
+		lmat.shader = lsh
+		lmat.set_shader_parameter("intensity", 0.0)
+		_lowhp.material = lmat
+		add_child(_lowhp)
+		move_child(_lowhp, 1)
+
+const GADGET_NAMES := {"flashlight": "Flashlight", "binoculars": "Binoculars", "nvg": "Night Vision", "scanner": "Scanner"}
+
+## Show the equipped gadget + its Q state above the weapon label (Adventure only).
+func _update_gadget_label() -> void:
+	if _gadget_label == null:
+		_gadget_label = Label.new()
+		_gadget_label.name = "GadgetLabel"
+		_gadget_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		_gadget_label.offset_left = -284
+		_gadget_label.offset_top = -160
+		_gadget_label.offset_right = -24
+		_gadget_label.offset_bottom = -132
+		_gadget_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		_gadget_label.modulate = Color(0.5, 0.9, 1.0)
+		add_child(_gadget_label)
+	var g := ""
+	if _player != null and is_instance_valid(_player) and _player.has_method("equipped_gadget"):
+		g = _player.equipped_gadget()
+	if g == "" or Game.is_battle_royale():
+		_gadget_label.visible = false
+		return
+	_gadget_label.visible = true
+	var state := ""
+	if g == "scanner":
+		state = "  [Q ping]"
+	elif _player.get("_gadget_on"):
+		state = "  [ON]"
+	else:
+		state = "  [Q]"
+	_gadget_label.text = "%s%s" % [GADGET_NAMES.get(g, g), state]
+
+## Night-vision: a green additive overlay that brightens dark scenes into a green wash.
+func set_nightvision(on: bool) -> void:
+	if _nvg == null:
+		_nvg = ColorRect.new()
+		_nvg.name = "NVG"
+		_nvg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_nvg.color = Color(0.25, 1.0, 0.35, 0.0)
+		_nvg.set_anchors_preset(Control.PRESET_FULL_RECT)
+		var m := CanvasItemMaterial.new()
+		m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		_nvg.material = m
+		add_child(_nvg)
+		move_child(_nvg, 0)
+	_nvg.color.a = 0.28 if on else 0.0
+
+## Flashbang white-out: a full-screen white flash that fades over a couple seconds.
+func flashbang(intensity: float) -> void:
+	if _flashbang == null:
+		_flashbang = ColorRect.new()
+		_flashbang.name = "Flashbang"
+		_flashbang.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_flashbang.color = Color(1, 1, 1, 0)
+		_flashbang.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(_flashbang)
+	_flashbang.color = Color(1, 1, 1, clampf(intensity, 0.0, 1.0))
+	var tw := create_tween()
+	tw.tween_property(_flashbang, "color:a", 0.0, 1.2 + intensity)
+
 func _on_grenades(count: int) -> void:
 	var txt := "Grenades: %d" % count
 	# Adventure: you can only throw one that's equipped in the Extra slot. If you're
@@ -634,6 +759,9 @@ func _on_health(cur: float, maxhp: float) -> void:
 	if _last_health >= 0.0 and cur < _last_health:
 		_flash_damage(_last_health - cur, cur / maxhp)
 	_last_health = cur
+	# Blood vignette ramps up below 40% health.
+	var frac := cur / maxf(1.0, maxhp)
+	_lowhp_amt = clampf((0.4 - frac) / 0.4, 0.0, 1.0) if cur > 0.0 else 0.0
 
 func _flash_damage(amount: float, health_frac: float) -> void:
 	# Stronger flash for bigger hits and when low on health.
@@ -657,6 +785,13 @@ func set_objective(t: String) -> void:
 # ---------------------------------------------------------------- scoreboard
 
 func _input(event: InputEvent) -> void:
+	# While a text field has focus (e.g. asking an NPC), let it have the keyboard —
+	# don't fire game shortcuts like M (map) or Tab (backpack) into the typed message.
+	# Escape still passes through so it can close the dialog.
+	if event is InputEventKey:
+		var focus := get_viewport().gui_get_focus_owner()
+		if (focus is LineEdit or focus is TextEdit) and not event.is_action_pressed("pause"):
+			return
 	# Adventure: the configurable inventory key opens/closes the backpack (and, when
 	# it is Tab, takes precedence over the scoreboard).
 	if Game.is_adventure() and _is_inventory_key(event):

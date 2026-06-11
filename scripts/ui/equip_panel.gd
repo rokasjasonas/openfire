@@ -24,6 +24,7 @@ const SLOTS := [
 	{"slot": "gun2", "label": "Gun 2", "x": 68, "y": 204},
 	{"slot": "gun3", "label": "Gun 3", "x": 132, "y": 204},
 	{"slot": "extra", "label": "Extra", "x": 132, "y": 4},
+	{"slot": "gadget", "label": "Gadget", "x": 132, "y": 58},
 ]
 
 func _ready() -> void:

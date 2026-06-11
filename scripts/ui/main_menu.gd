@@ -160,6 +160,12 @@ func _setup_options() -> void:
 		if int(INV_KEYS[i]["code"]) == Settings.inventory_keycode:
 			sel = i
 	inv_key_option.selected = sel
+	# Graphics quality preset.
+	%QualityOption.clear()
+	for qn in Settings.QUALITY_NAMES:
+		%QualityOption.add_item(qn)
+	%QualityOption.selected = clampi(Settings.quality, 0, 2)
+	%QualityOption.item_selected.connect(_on_quality_changed)
 	# Embedded AI model preset: match the saved file to a preset (default Small).
 	%LlmEmbedOption.clear()
 	var msel := 1
@@ -210,6 +216,10 @@ func _on_vol_changed(v: float) -> void:
 func _on_fov_changed(v: float) -> void:
 	Settings.fov = v
 	_apply_and_save()
+
+func _on_quality_changed(idx: int) -> void:
+	Settings.quality = clampi(idx, 0, 2)
+	_apply_and_save()   # takes effect on the next match (environment built on load)
 
 func _apply_and_save() -> void:
 	_update_option_labels()

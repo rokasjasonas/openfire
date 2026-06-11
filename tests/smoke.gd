@@ -144,6 +144,25 @@ func _ready() -> void:
 			var r: Dictionary = me.get_world_3d().direct_space_state.intersect_ray(q)
 			if r and r.collider is Hitbox:
 				headshot_ok = r.collider.multiplier >= 2.0 and r.collider.combatant() == bot
+			# Alignment: the head hitbox must sit near the top of the VISIBLE model, not
+			# down at chest height (the bug where headshots on the model's head missed).
+			var maabb := AABB()
+			var first := true
+			for mi in bot.get_node("BodyModel").find_children("*", "MeshInstance3D", true, false):
+				var a: AABB = mi.get_aabb()
+				var gt: Transform3D = mi.global_transform
+				for ci in 8:
+					var cr := a.position + Vector3(a.size.x if (ci & 1) else 0.0, a.size.y if (ci & 2) else 0.0, a.size.z if (ci & 4) else 0.0)
+					var wp := gt * cr
+					if first:
+						maabb = AABB(wp, Vector3.ZERO)
+						first = false
+					else:
+						maabb = maabb.expand(wp)
+			var mtop: float = maabb.position.y + maabb.size.y
+			var head_aligned: bool = not first and head.global_position.y >= maabb.position.y + maabb.size.y * 0.7
+			headshot_ok = headshot_ok and head_aligned
+			print("SMOKE: head_aligned=", head_aligned, " head_y=", head.global_position.y, " model_top=", mtop)
 	print("SMOKE: headshot_hitbox_ok=", headshot_ok)
 
 	# Crouch: _apply_crouch shrinks the capsule and lowers the head.
@@ -201,9 +220,138 @@ func _ready() -> void:
 	nade.queue_free()
 	print("SMOKE: nade_fx_ok=", nade_fx_ok, " particle_systems=", fx_particles)
 
+	# Collect-quest progress: the tracker shows how many of N are carried (2/4).
+	var collect_ok := false
+	if me:
+		var cq_prev = Game.config["mode"]
+		var cq_active: bool = Game.match_active
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		var cqm = load("res://scripts/world/quest_manager.gd").new()
+		cqm.name = "QM_collect"
+		add_child(cqm)
+		cqm.world = world
+		cqm.target_points = 999
+		var cqid = cqm._make("collect", "Gather ammunition", "", {"item": "ammo", "count": 4})
+		cqm._activate(cqid)
+		me.inv_add(ItemDB.make("ammo"))
+		me.inv_add(ItemDB.make("ammo"))
+		Game.match_active = true
+		cqm._process(0.1)
+		Game.match_active = false
+		var cq := {}
+		for q in cqm.quests:
+			if int(q["id"]) == cqid:
+				cq = q
+		var cq_prog2: bool = int(cq.get("progress", -1)) == 2
+		var cq_text: bool = cqm._qprog(cq) == "  (2/4)"
+		collect_ok = cq_prog2 and cq_text
+		cqm.queue_free()
+		me.inventory.clear()
+		Game.config["mode"] = cq_prev
+		Game.match_active = cq_active
+		print("SMOKE: collect_ok=", collect_ok, " progress=", int(cq.get("progress", -1)), " text='", cqm._qprog(cq), "'")
+
 	# Settings autoload present + applied.
 	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
 	print("SMOKE: settings_ok=", settings_ok)
+
+	# Gadgets + grenade types: item defs, gadget slot equip + Q toggle, grenade variant
+	# spawn, and a couple of effect behaviours.
+	var gear_ok := false
+	if me:
+		var ge_prev = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		me.equip["gadget"] = {}
+		# Item defs exist for every gadget + grenade type.
+		var defs_ok := true
+		for gid in ItemDB.GADGET_IDS:
+			if not ItemDB.DEFS.has(gid):
+				defs_ok = false
+		for gid in ItemDB.GRENADE_IDS:
+			if not ItemDB.DEFS.has(gid):
+				defs_ok = false
+		# Equip a flashlight to the gadget slot and toggle it with the gadget API.
+		me.inv_add(ItemDB.make("flashlight"))
+		var fi := -1
+		for i in me.inventory.size():
+			if String(me.inventory[i].get("id", "")) == "flashlight":
+				fi = i
+		me._equip_slot("gadget", fi)
+		var equip_ok: bool = me.equipped_gadget() == "flashlight"
+		me._use_gadget()
+		var on_ok: bool = me.get("_gadget_on")
+		me._use_gadget()
+		var off_ok: bool = not me.get("_gadget_on")
+		# Binoculars set glassing; scanner sets a reveal window.
+		me.equip["gadget"] = ItemDB.make("binoculars")
+		me._gadget_on = false
+		me._use_gadget()
+		var glass_ok: bool = me.get("glassing")
+		me.equip["gadget"] = ItemDB.make("scanner")
+		me._gadget_on = false
+		me.reveal_until = 0
+		me._use_gadget()
+		var scan_ok: bool = int(me.reveal_until) > Time.get_ticks_msec()
+		# Grenade variants spawn with the right type and the field scene loads.
+		var gnade: Node = load("res://scenes/grenade.tscn").instantiate()
+		gnade.gtype = "smoke"
+		get_tree().current_scene.add_child(gnade)
+		gnade.global_position = Vector3(0, 1, 0)
+		var type_ok: bool = gnade.gtype == "smoke"
+		gnade._spawn_fx(gnade.global_position)
+		await get_tree().process_frame
+		var field_ok := false
+		for n in get_tree().current_scene.get_children():
+			if n.get_script() == load("res://scripts/combat/grenade_field.gd"):
+				field_ok = true
+				n.queue_free()
+		gnade.queue_free()
+		# A bot can be stunned (flashbang).
+		var stun_ok := false
+		for b in get_tree().get_nodes_in_group("bot"):
+			if not b.get("dead"):
+				b.stun(2.0)
+				stun_ok = b.get("_stun") > 1.0
+				b._stun = 0.0
+				break
+		gear_ok = defs_ok and equip_ok and on_ok and off_ok and glass_ok and scan_ok and type_ok and field_ok and stun_ok
+		me.inventory.clear()
+		me.equip["gadget"] = {}
+		me.glassing = false
+		me.reveal_until = 0
+		Game.config["mode"] = ge_prev
+		print("SMOKE: gear_ok=", gear_ok, " defs=", defs_ok, " equip=", equip_ok, " on=", on_ok, " off=", off_ok, " glass=", glass_ok, " scan=", scan_ok, " gtype=", type_ok, " field=", field_ok, " stun=", stun_ok)
+
+	# Immersion pass: quality setting, cinematic environment, reverb bus, camera shake.
+	var immersion_ok := false
+	var iq_ok: bool = Settings.quality >= 0 and Settings.quality <= 2 and Settings.quality_label() in ["Low", "Medium", "High"]
+	var rev_ok: bool = AudioServer.get_bus_index("SFX3D") >= 0
+	var shake_ok := false
+	if me:
+		me._cam_shake = 0.0
+		me.add_camera_shake(0.7)
+		shake_ok = me._cam_shake > 0.5
+		me._cam_shake = 0.0
+	# Cinematic env: a fresh map's WorldEnvironment has fog + AGX tonemap.
+	var env_ok := false
+	var imap: Node = load("res://maps/badlands.tscn").instantiate()
+	get_tree().root.add_child(imap)
+	await get_tree().process_frame
+	var wenv := imap.get_node_or_null("WorldEnvironment")
+	if wenv and wenv.environment:
+		env_ok = wenv.environment.fog_enabled and wenv.environment.tonemap_mode == Environment.TONE_MAPPER_AGX
+	imap.queue_free()
+	# Blood FX scene loads + spawns particles.
+	var blood_ok := false
+	var bfx: Node = load("res://scenes/fx/blood.tscn").instantiate()
+	get_tree().current_scene.add_child(bfx)
+	await get_tree().process_frame
+	blood_ok = bfx.get_child_count() > 0
+	bfx.queue_free()
+	immersion_ok = iq_ok and rev_ok and shake_ok and env_ok and blood_ok
+	print("SMOKE: immersion_ok=", immersion_ok, " quality=", iq_ok, " reverb=", rev_ok, " shake=", shake_ok, " env=", env_ok, " blood=", blood_ok)
 
 	# Enemy variety: spawning a "heavy" yields a tougher bot than the default.
 	var variety_ok := false
@@ -1397,7 +1545,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

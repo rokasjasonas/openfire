@@ -107,6 +107,8 @@ func _draw() -> void:
 	# friendly = green, neutral = grey) so actual enemies stand out from villagers;
 	# other modes use the plain enemy/ally team colours.
 	var is_adv := Game.is_adventure()
+	# Scanner / binoculars: briefly reveal every hostile, even off the visible area.
+	var revealing: bool = bool(me.get("glassing")) or int(me.get("reveal_until")) > Time.get_ticks_msec()
 	for cm in get_tree().get_nodes_in_group("combatant"):
 		if cm == me or cm.get("dead") or cm.get("fully_dead"):
 			continue
@@ -116,20 +118,27 @@ func _draw() -> void:
 			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(1.0, 0.85, 0.3), 4.0, true, false)
 			continue
 		var col: Color
+		var hostile := false
 		if is_adv and cm.is_in_group("bot"):
 			var fac := String(cm.get("faction"))
 			var stance := String(Game.adventure_stance.get(fac, "neutral"))
 			if fac == Game.RAIDER_FACTION or stance == "hostile":
 				col = Color(1.0, 0.3, 0.25)     # hostile
+				hostile = true
 			elif stance == "friendly":
 				col = Color(0.3, 0.9, 0.4)      # friendly villager
 			else:
 				col = Color(0.72, 0.74, 0.78)   # neutral villager
 		else:
 			col = Color(1, 0.35, 0.3) if enemy else Color(0.4, 0.7, 1.0)
+			hostile = enemy
 		if cm.get("downed"):
 			col = col.darkened(0.4)
-		_blip(c, cm.global_position - ppos, fwd, right, scale, col, 3.0, false, false)
+		# Revealed hostiles get a brighter, larger blip pinned to the rim if off-area.
+		if revealing and hostile:
+			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(1.0, 0.5, 0.2), 4.5, false, true)
+		else:
+			_blip(c, cm.global_position - ppos, fwd, right, scale, col, 3.0, false, false)
 
 	# Self (arrow pointing up).
 	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -7), c + Vector2(-5, 5), c + Vector2(5, 5)]),

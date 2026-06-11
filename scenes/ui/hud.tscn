@@ -437,16 +437,16 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -260.0
-offset_top = -120.0
-offset_right = 260.0
-offset_bottom = 120.0
+offset_left = -270.0
+offset_top = -170.0
+offset_right = 270.0
+offset_bottom = 170.0
 
 [node name="VBox" type="VBoxContainer" parent="NpcDialog"]
 offset_left = 18.0
 offset_top = 16.0
-offset_right = 502.0
-offset_bottom = 224.0
+offset_right = 522.0
+offset_bottom = 324.0
 theme_override_constants/separation = 10
 
 [node name="NpcName" type="Label" parent="NpcDialog/VBox"]
@@ -460,8 +460,16 @@ modulate = Color(1, 1, 1, 0.7)
 horizontal_alignment = 1
 text = "Role"
 
-[node name="NpcBody" type="Label" parent="NpcDialog/VBox"]
+[node name="NpcScroll" type="ScrollContainer" parent="NpcDialog/VBox"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 150)
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="NpcBody" type="Label" parent="NpcDialog/VBox/NpcScroll"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(484, 0)
+size_flags_horizontal = 3
 autowrap_mode = 3
 horizontal_alignment = 1
 text = "..."

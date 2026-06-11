@@ -103,7 +103,7 @@ var _drop_counter: int = 0
 
 # Equipment slots: armor (head/body/pants) + a throwable slot. Guns live in the
 # weapon loadout (gun1/2/3 in the UI mirror weapons.loadout).
-var equip: Dictionary = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+var equip: Dictionary = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
 
 var _yaw: float = 0.0
 var _pitch: float = 0.0
@@ -150,6 +150,12 @@ var _cam_yaw: float = 0.0      # drive-camera orbit (relative to car)
 var _cam_pitch: float = 0.0
 var _cam_idle: float = 0.0
 
+# Camera juice (local view only): walk bob, landing dip, and blast/hit shake.
+var _cam_base_pos := Vector3.ZERO
+var _cam_bob_t: float = 0.0
+var _cam_dip: float = 0.0       # downward kick on hard landings (eases back)
+var _cam_shake: float = 0.0     # trauma 0..1; screen shakes by trauma^2
+
 func _ready() -> void:
 	_spawn_point = global_transform
 	sync_pos = global_position
@@ -165,6 +171,7 @@ func _ready() -> void:
 	if Game.is_team_mode():
 		name_label.modulate = Game.team_color(team)
 	camera.fov = Settings.fov
+	_cam_base_pos = camera.position
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
 	# local player can actually fire). Runs before set_local/_emit_hud below.
@@ -239,6 +246,11 @@ func _has_headroom() -> bool:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority() or dead:
+		return
+	# Q activates the equipped gadget (only while actually playing).
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_Q and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_use_gadget()
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := MOUSE_SENS * Settings.mouse_sensitivity
@@ -381,6 +393,7 @@ func _physics_process(delta: float) -> void:
 		weapons.set_trigger(false)
 		weapons.set_aiming(false)
 	sync_weapon_index = weapons.current_index
+	_update_camera_fx(delta)
 	sync_pos = global_position
 	sync_yaw = rotation.y
 
@@ -589,10 +602,102 @@ func _climb(delta: float, l: Node) -> void:
 
 ## Apply fall damage for the speed built up while airborne, then reset. A landing
 ## faster than FALL_SAFE_SPEED hurts, scaling with the excess.
+# ---------------------------------------------------------------- gadgets (Adventure)
+# The Gadget slot holds one special item; Q activates it. Flashlight and night-vision
+# toggle on/off; binoculars toggle a zoom; the scanner pings on each press.
+
+var _gadget_on: bool = false       # flashlight / nvg / binoculars sustained state
+var glassing: bool = false         # binoculars zoom active (weapon_manager reads this)
+var reveal_until: int = 0          # msec until which the minimap reveals all enemies
+var _flashlight: SpotLight3D = null
+
+func equipped_gadget() -> String:
+	return String(equip.get("gadget", {}).get("gadget", ""))
+
+func _use_gadget() -> void:
+	var g := equipped_gadget()
+	if g == "":
+		return
+	match g:
+		"scanner":
+			reveal_until = Time.get_ticks_msec() + 5000   # 5 s radar sweep
+			Audio.play_3d("res://assets/audio/ui_click.ogg", global_position, -4.0)
+		_:
+			_gadget_on = not _gadget_on
+			_apply_gadget()
+
+## Push the current gadget's on/off state to its effect (light, zoom, overlay).
+func _apply_gadget() -> void:
+	var g := equipped_gadget()
+	# Flashlight.
+	if _flashlight == null:
+		_flashlight = SpotLight3D.new()
+		_flashlight.spot_range = 28.0
+		_flashlight.spot_angle = 32.0
+		_flashlight.light_energy = 6.0
+		_flashlight.rotation_degrees.x = 0.0
+		camera.add_child(_flashlight)
+	_flashlight.visible = _gadget_on and g == "flashlight"
+	# Binoculars zoom (handled in camera FX / weapon manager).
+	glassing = _gadget_on and g == "binoculars"
+	# Night-vision overlay on the HUD.
+	if hud and hud.has_method("set_nightvision"):
+		hud.set_nightvision(_gadget_on and g == "nvg")
+
+## Clear gadget state when the slot is emptied or changed.
+func _reset_gadget() -> void:
+	_gadget_on = false
+	_apply_gadget()
+
 func _apply_fall_landing() -> void:
+	# A perceptible landing: dip the camera (and shake hard for real falls).
+	if _air_speed > 5.0:
+		_cam_dip = minf(0.18, _air_speed * 0.012)
+		if _air_speed > FALL_SAFE_SPEED:
+			add_camera_shake(0.5)
 	if _air_speed > FALL_SAFE_SPEED:
 		receive_damage((_air_speed - FALL_SAFE_SPEED) * FALL_DAMAGE_PER, combatant_id)
 	_air_speed = 0.0
+
+## Add screen-shake trauma (0..1, clamped). Called by landings, blasts, and big hits.
+func add_camera_shake(amount: float) -> void:
+	_cam_shake = clampf(_cam_shake + amount, 0.0, 1.0)
+
+## Local view juice: subtle head bob while walking, landing dip, and decaying shake.
+## Only the authority owns a camera, so this is purely cosmetic and unsynced.
+func _update_camera_fx(delta: float) -> void:
+	if not is_multiplayer_authority() or driving != null:
+		return
+	var off := Vector3.ZERO
+	var rot := Vector3.ZERO
+	# Head bob while moving on the ground.
+	var horiz := Vector2(velocity.x, velocity.z).length()
+	var move_amt := clampf(horiz / 9.0, 0.0, 1.0)
+	if is_on_floor() and move_amt > 0.05:
+		_cam_bob_t += delta * 11.0
+		off.y += sin(_cam_bob_t * 2.0) * 0.018 * move_amt
+		off.x += sin(_cam_bob_t) * 0.012 * move_amt
+	else:
+		# Standing still: a faint breathing rise/fall so the view feels alive.
+		_cam_bob_t += delta * 1.5
+		off.y += sin(_cam_bob_t) * 0.004
+	# Landing dip eases back up.
+	_cam_dip = move_toward(_cam_dip, 0.0, delta * 0.9)
+	off.y -= _cam_dip
+	# Trauma-based shake (decays quickly; offset + roll scale with trauma squared).
+	if _cam_shake > 0.0:
+		_cam_shake = maxf(0.0, _cam_shake - delta * 1.8)
+		var s := _cam_shake * _cam_shake
+		off.x += (_rng_shake() ) * 0.06 * s
+		off.y += (_rng_shake()) * 0.06 * s
+		rot.z = _rng_shake() * 0.05 * s
+		rot.x = _rng_shake() * 0.03 * s
+	camera.position = camera.position.lerp(_cam_base_pos + off, clampf(18.0 * delta, 0.0, 1.0))
+	camera.rotation.z = lerpf(camera.rotation.z, rot.z, clampf(20.0 * delta, 0.0, 1.0))
+	camera.rotation.x = lerpf(camera.rotation.x, rot.x, clampf(20.0 * delta, 0.0, 1.0))
+
+func _rng_shake() -> float:
+	return randf() * 2.0 - 1.0
 
 var _tint: Color = Color.TRANSPARENT
 
@@ -805,6 +910,8 @@ func equip_item(index: int, gun_slot: int = -1) -> void:
 			_equip_slot(String(item.get("slot", "body")), index)
 		"grenade":
 			_equip_slot("extra", index)
+		"gadget":
+			_equip_slot("gadget", index)
 		_:
 			inv_use(index)  # not equippable -> consume it
 
@@ -819,6 +926,8 @@ func _equip_slot(slot: String, index: int) -> void:
 	equip[slot] = item
 	if slot == "extra":
 		_refresh_grenades()   # total = equipped + backpack
+	elif slot == "gadget":
+		_reset_gadget()       # new gadget starts off
 	inventory_changed.emit()
 	equipment_changed.emit()
 
@@ -849,6 +958,8 @@ func unequip(slot: String) -> void:
 		equip[slot] = {}
 		if slot == "extra":
 			_refresh_grenades()   # still counts the ones now back in the backpack
+		elif slot == "gadget":
+			_reset_gadget()       # turn it off when removed
 		equipment_changed.emit()
 
 ## Use/equip the item at `index`, applying its effect; consumed items are removed.
@@ -870,6 +981,9 @@ func inv_use(index: int) -> void:
 			weapons.refill()
 		"grenade":
 			_equip_slot("extra", index)   # using a grenade equips it to the Extra slot
+			return
+		"gadget":
+			_equip_slot("gadget", index)  # using a gadget equips it to the Gadget slot
 			return
 		"weapon":
 			weapons.give_weapon(String(item.get("weapon_id", "")))
@@ -903,7 +1017,7 @@ func _drop_loot_on_death() -> void:
 	if not is_multiplayer_authority():
 		return
 	var loot: Array = inventory.duplicate()
-	for slot in ["head", "body", "pants", "extra"]:
+	for slot in ["head", "body", "pants", "extra", "gadget"]:
 		var it: Dictionary = equip.get(slot, {})
 		if not it.is_empty():
 			loot.append(it)
@@ -912,7 +1026,7 @@ func _drop_loot_on_death() -> void:
 		_spawn_dropped_item.rpc(combatant_id, _drop_counter, loot[i], pos)
 		_drop_counter += 1
 	inventory.clear()
-	equip = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+	equip = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
 	weapons.set_loadout(["pistol"])
 	grenades = 0
 	inventory_changed.emit()
@@ -1134,7 +1248,10 @@ func _can_throw_grenade() -> bool:
 	return _grenade_equipped() if Game.is_adventure() else grenades > 0
 
 func _throw_grenade() -> void:
+	# The equipped grenade's type is what gets thrown (frag by default).
+	var gtype := "frag"
 	if Game.is_adventure():
+		gtype = String(equip.get("extra", {}).get("gtype", "frag"))
 		if not _consume_grenade():
 			return
 	else:
@@ -1143,13 +1260,14 @@ func _throw_grenade() -> void:
 	var fwd := -camera.global_transform.basis.z
 	var pos := camera.global_position + fwd * 0.6
 	var vel := fwd * 16.0 + Vector3.UP * 4.0 + Vector3(velocity.x, 0, velocity.z) * 0.5
-	_spawn_grenade.rpc(pos, vel)
+	_spawn_grenade.rpc(pos, vel, gtype)
 
 @rpc("any_peer", "call_local", "reliable")
-func _spawn_grenade(pos: Vector3, vel: Vector3) -> void:
+func _spawn_grenade(pos: Vector3, vel: Vector3, gtype: String = "frag") -> void:
 	var g := GRENADE_SCENE.instantiate()
 	g.thrower_id = combatant_id
 	g.thrower_team = team
+	g.gtype = gtype
 	g.authoritative = is_multiplayer_authority()
 	get_tree().current_scene.add_child(g)
 	g.global_position = pos
@@ -1175,6 +1293,7 @@ func receive_damage(amount: float, attacker_id: int, zone: String = "") -> void:
 		if sync_health > 0.0:
 			Audio.play_3d("res://assets/audio/hurt.ogg", global_position, -1.0, 0.05)
 			_emit_damage_direction(attacker_id)
+			add_camera_shake(clampf(amount / 50.0, 0.06, 0.45))   # hit flinch
 	if sync_health <= 0.0:
 		# In co-op you go down (revivable) instead of dying outright.
 		if Game.is_coop():
@@ -1274,7 +1393,7 @@ func _die(attacker_id: int) -> void:
 	died.emit(attacker_id)
 	# Report to host for scoring.
 	_report_death.rpc_id(1, attacker_id, combatant_id)
-	Audio.play_3d("res://assets/audio/death.ogg", global_position, 0.0, 0.05)
+	Audio.play_3d("res://assets/audio/death_body.wav", global_position, 0.0, 0.07)
 	body_model.visible = false
 	weapons.set_hidden(true)
 	name_label.visible = false

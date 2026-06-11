@@ -10,6 +10,11 @@ var mouse_sensitivity: float = 1.0   # multiplier (0.2 .. 3.0)
 var master_volume: float = 0.8       # linear 0 .. 1
 var fov: float = 75.0                # degrees (60 .. 110)
 var inventory_keycode: int = KEY_TAB # Adventure: key that opens the backpack
+var quality: int = 2                 # graphics: 0 Low, 1 Medium, 2 High (cinematic effects)
+const QUALITY_NAMES := ["Low", "Medium", "High"]
+
+func quality_label() -> String:
+	return QUALITY_NAMES[clampi(quality, 0, 2)]
 # Local LLM (Survival story). Defaults to LM Studio's OpenAI-compatible server.
 var llm_endpoint: String = "http://localhost:1234/v1/chat/completions"
 var llm_model: String = "local-model"
@@ -28,6 +33,7 @@ func load_settings() -> void:
 		mouse_sensitivity = clampf(cfg.get_value("input", "mouse_sensitivity", mouse_sensitivity), 0.2, 3.0)
 		master_volume = clampf(cfg.get_value("audio", "master_volume", master_volume), 0.0, 1.0)
 		fov = clampf(cfg.get_value("video", "fov", fov), 60.0, 110.0)
+		quality = clampi(int(cfg.get_value("video", "quality", quality)), 0, 2)
 		inventory_keycode = int(cfg.get_value("input", "inventory_key", inventory_keycode))
 		llm_endpoint = String(cfg.get_value("ai", "endpoint", llm_endpoint))
 		llm_model = String(cfg.get_value("ai", "model", llm_model))
@@ -46,6 +52,7 @@ func save() -> void:
 	cfg.set_value("ai", "model_file", llm_model_file)
 	cfg.set_value("audio", "master_volume", master_volume)
 	cfg.set_value("video", "fov", fov)
+	cfg.set_value("video", "quality", quality)
 	cfg.save(PATH)
 
 ## Apply settings that affect global systems (audio bus). Per-player look/FOV are

@@ -45,14 +45,61 @@ func build_level() -> void:
 
 func _build_environment() -> void:
 	var we := WorldEnvironment.new()
-	we.environment = load("res://resources/default_env.tres")
+	we.name = "WorldEnvironment"
+	# Duplicate so per-map/quality tweaks don't mutate the shared resource on disk.
+	var env: Environment = load("res://resources/default_env.tres").duplicate(true)
+	_apply_cinematic(env, Settings.quality)
+	we.environment = env
 	add_child(we)
 	var sun := DirectionalLight3D.new()
 	sun.name = "Sun"   # the world animates this for the Adventure day/night cycle
 	sun.rotation_degrees = Vector3(-55, -45, 0)
 	sun.light_energy = 1.1
 	sun.shadow_enabled = true
+	# Softer, longer shadows at higher quality; cheaper/shorter at Low.
+	sun.directional_shadow_max_distance = [60.0, 110.0, 180.0][clampi(Settings.quality, 0, 2)]
+	sun.shadow_blur = [1.0, 1.3, 1.6][clampi(Settings.quality, 0, 2)]
+	sun.light_angular_distance = 1.0   # soft penumbra
 	add_child(sun)
+
+## Configure a cinematic, moody look on `env`, scaled by quality (0 Low .. 2 High).
+## Higher tiers add the expensive bits (SSAO, glow, volumetric fog).
+func _apply_cinematic(env: Environment, q: int) -> void:
+	q = clampi(q, 0, 2)
+	# Filmic AGX tonemap + a slightly contrasty, desaturated-cool grade.
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	env.tonemap_white = 6.0
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 1.0
+	env.adjustment_contrast = 1.09
+	env.adjustment_saturation = 1.06
+	# Atmospheric depth fog — light, tinted toward the sky. Aerial perspective blends
+	# distant geometry into the haze so big maps read with depth.
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color(0.62, 0.68, 0.78)
+	env.fog_light_energy = 1.0
+	env.fog_sun_scatter = 0.25
+	env.fog_density = 0.0
+	env.fog_depth_begin = 35.0
+	env.fog_depth_end = 600.0
+	env.fog_aerial_perspective = 0.5
+	env.fog_sky_affect = 0.4
+	# SSAO + glow (bloom) from Medium up.
+	env.ssao_enabled = q >= 1
+	env.ssao_radius = 2.0
+	env.ssao_intensity = 2.2
+	env.glow_enabled = q >= 1
+	env.glow_intensity = 0.3
+	env.glow_bloom = 0.12
+	env.glow_hdr_threshold = 1.1
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	# Volumetric fog (god rays / sun shafts through the air) only at High.
+	env.volumetric_fog_enabled = q >= 2
+	env.volumetric_fog_density = 0.018
+	env.volumetric_fog_albedo = Color(0.85, 0.88, 0.95)
+	env.volumetric_fog_length = 96.0
+	env.volumetric_fog_gi_inject = 0.6
 
 # ---------------------------------------------------------------- geometry
 

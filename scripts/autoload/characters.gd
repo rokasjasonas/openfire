@@ -87,7 +87,7 @@ func create(cname: String, color: Color, kit: String, backstory: String) -> Dict
 		"created": Time.get_unix_time_from_system(),
 		"loadout": _pad_loadout(k["loadout"]),
 		"inventory": inv,
-		"equip": {"head": {}, "body": {}, "pants": {}, "extra": {}},
+		"equip": {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}},
 		"stats": _default_stats(),
 		"perks": [],
 		"coins": 15,

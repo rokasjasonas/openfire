@@ -1,6 +1,7 @@
 extends RigidBody3D
-## Thrown frag grenade. Every peer simulates a copy for visuals; only the
-## thrower's copy (authoritative) computes radius damage on detonation.
+## Thrown grenade. `gtype` selects the behaviour (frag/smoke/flashbang/incendiary/
+## impact/shockwave/blackhole). Every peer simulates a copy for visuals; only the
+## thrower's authoritative copy applies gameplay effects (damage, knockback, fire).
 
 const RADIUS := 6.0
 const MAX_DAMAGE := 120.0
@@ -10,14 +11,27 @@ const LOS_MASK := 1  # world blocks the blast
 var thrower_id: int = 0
 var thrower_team: int = -999
 var authoritative: bool = false
+var gtype: String = "frag"
 
 var _fuse: float = FUSE
 var _done: bool = false
+var _armed: bool = false   # impact grenades arm after a brief moment so they don't pop in-hand
+
+func _ready() -> void:
+	# Impact grenades need contact reporting to detonate on the first hit.
+	contact_monitor = true
+	max_contacts_reported = 4
 
 func _physics_process(delta: float) -> void:
 	if _done:
 		return
 	_fuse -= delta
+	# Impact/sticky: detonate on the first solid contact once armed.
+	if gtype == "impact":
+		_armed = _armed or _fuse < FUSE - 0.15
+		if _armed and get_contact_count() > 0:
+			_explode()
+			return
 	if _fuse <= 0.0:
 		_explode()
 
@@ -26,7 +40,13 @@ func _explode() -> void:
 	var pos := global_position
 	_spawn_fx(pos)
 	if authoritative:
-		_apply_damage(pos)
+		match gtype:
+			"smoke": pass   # smoke is pure cover — no gameplay effect
+			"flashbang": _apply_flash(pos)
+			"incendiary": _apply_incendiary(pos)
+			"shockwave": _apply_shockwave(pos)
+			"blackhole": _apply_blackhole(pos)
+			_: _apply_damage(pos)   # frag + impact
 	queue_free()
 
 func _apply_damage(pos: Vector3) -> void:
@@ -56,11 +76,93 @@ func _apply_damage(pos: Vector3) -> void:
 		if vd < RADIUS and v.has_method("hit"):
 			v.hit(MAX_DAMAGE * (1.0 - vd / RADIUS), thrower_id)
 
+func _enemies_near(pos: Vector3, radius: float) -> Array:
+	var out: Array = []
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if not is_instance_valid(c) or c.get("dead"):
+			continue
+		if c.get("team") == thrower_team:
+			continue
+		if c.global_position.distance_to(pos) <= radius:
+			out.append(c)
+	return out
+
+## Flashbang: blind/stun enemies in range, little damage. Bots stop fighting briefly;
+## a nearby local player gets a white-out.
+func _apply_flash(pos: Vector3) -> void:
+	for c in _enemies_near(pos, 11.0):
+		if c.has_method("stun"):
+			c.stun(3.0)
+		if c.has_method("hit"):
+			c.hit(8.0, thrower_id)
+
+## Incendiary: leave a burning patch that damages over time.
+func _apply_incendiary(pos: Vector3) -> void:
+	pass  # the field (spawned for everyone in _spawn_fx) carries the damage
+
+## Shockwave: hurl enemies away from the blast with a strong outward impulse.
+func _apply_shockwave(pos: Vector3) -> void:
+	for c in _enemies_near(pos, RADIUS * 1.4):
+		var away: Vector3 = (c.global_position - pos)
+		away.y = 0.0
+		var dir: Vector3 = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
+		if "velocity" in c:
+			c.velocity = dir * 22.0 + Vector3.UP * 7.0
+		if c.has_method("hit"):
+			c.hit(20.0, thrower_id)
+
+## Black hole: spawn a void well that pulls enemies inward, then implodes.
+func _apply_blackhole(_pos: Vector3) -> void:
+	pass  # the void field (spawned in _spawn_fx) does the pulling + final damage
+
+const FIELD_SCENE := preload("res://scenes/fx/grenade_field.tscn")
+
 func _spawn_fx(pos: Vector3) -> void:
-	Audio.play_3d("res://assets/audio/death.ogg", pos, 4.0, 0.05)
 	var scene := get_tree().current_scene
 	if scene == null:
 		return
+	# Lingering fields for the types that leave one behind.
+	var field_mode := ""
+	match gtype:
+		"smoke": field_mode = "smoke"
+		"incendiary": field_mode = "fire"
+		"blackhole": field_mode = "void"
+	if field_mode != "":
+		var fld := FIELD_SCENE.instantiate()
+		fld.mode = field_mode
+		fld.authoritative = authoritative
+		fld.thrower_id = thrower_id
+		fld.thrower_team = thrower_team
+		scene.add_child(fld)
+		fld.global_position = pos
+
+	match gtype:
+		"smoke":
+			Audio.play_3d("res://assets/audio/impact.ogg", pos, 2.0, 0.1, 120.0)
+			return   # the smoke field is the whole effect
+		"flashbang":
+			_flash_fx(pos)
+			return
+		"blackhole":
+			Audio.play_3d("res://assets/audio/death.ogg", pos, 1.0, 0.2, 300.0)
+			var dark := OmniLight3D.new()
+			dark.omni_range = VOID_VIS_RANGE
+			dark.light_color = Color(0.5, 0.1, 0.9)
+			dark.light_energy = 4.0
+			dark.light_negative = true   # a well of darkness
+			scene.add_child(dark)
+			dark.global_position = pos + Vector3.UP * 0.5
+			dark.create_tween().tween_property(dark, "light_energy", 0.0, 1.4).finished.connect(dark.queue_free)
+			return
+
+	# Frag / impact / incendiary / shockwave: an explosion flash.
+	Audio.play_3d("res://assets/audio/death.ogg", pos, 4.0, 0.05, 400.0)  # blast heard far off
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.is_multiplayer_authority() and p.has_method("add_camera_shake"):
+			var dd := pos.distance_to(p.global_position)
+			if dd < RADIUS * 2.5:
+				var amt := clampf(1.0 - dd / (RADIUS * 2.5), 0.15, 1.0)
+				p.add_camera_shake(amt * (1.6 if gtype == "shockwave" else 1.0))
 	var fx: Node3D = load("res://scenes/fx/impact.tscn").instantiate()
 	scene.add_child(fx)
 	fx.global_position = pos
@@ -86,6 +188,30 @@ func _spawn_fx(pos: Vector3) -> void:
 		"size": 1.1, "grow": 2.6, "additive": false,
 		"colors": [Color(0.32, 0.32, 0.32, 0.0), Color(0.28, 0.28, 0.28, 0.6), Color(0.18, 0.18, 0.18, 0.0)],
 	})
+
+const VOID_VIS_RANGE := 16.0
+
+## Flashbang: a brilliant white flash + bang, and a full white-out for a nearby
+## local player (handled by the HUD).
+func _flash_fx(pos: Vector3) -> void:
+	var scene := get_tree().current_scene
+	Audio.play_3d("res://assets/audio/impact.ogg", pos, 4.0, 0.05, 350.0)
+	var light := OmniLight3D.new()
+	light.omni_range = 22.0
+	light.light_energy = 16.0
+	light.light_color = Color(1, 1, 1)
+	scene.add_child(light)
+	light.global_position = pos + Vector3.UP * 0.5
+	light.create_tween().tween_property(light, "light_energy", 0.0, 0.5).finished.connect(light.queue_free)
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.is_multiplayer_authority():
+			var dd := pos.distance_to(p.global_position)
+			if dd < 16.0:
+				var hud := p.get_tree().get_first_node_in_group("hud")
+				if hud and hud.has_method("flashbang"):
+					hud.flashbang(clampf(1.0 - dd / 16.0, 0.2, 1.0))
+				if p.has_method("add_camera_shake"):
+					p.add_camera_shake(0.4)
 
 ## Build a one-shot GPUParticles3D burst from a spec dict, parent it, and free it
 ## once it has finished. Purely cosmetic, so it runs on every peer.

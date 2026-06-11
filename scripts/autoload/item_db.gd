@@ -17,7 +17,20 @@ const DEFS := {
 	"water":          {"name": "Water",      "kind": "water",    "w": 1, "h": 1, "amount": 50},
 	"medkit":         {"name": "Medkit",     "kind": "health",   "w": 1, "h": 2, "amount": 50},
 	"ammo":           {"name": "Ammo Box",   "kind": "ammo",     "w": 1, "h": 1},
-	"grenade":        {"name": "Grenade",    "kind": "grenade",  "w": 1, "h": 1, "amount": 1},
+	# Grenades all share kind "grenade" (one throw slot + one count); "gtype" picks the
+	# behaviour. The equipped grenade's gtype is what G throws.
+	"grenade":           {"name": "Frag Grenade",   "kind": "grenade", "gtype": "frag",       "w": 1, "h": 1, "amount": 1},
+	"grenade_smoke":     {"name": "Smoke Grenade",  "kind": "grenade", "gtype": "smoke",      "w": 1, "h": 1, "amount": 1},
+	"grenade_flash":     {"name": "Flashbang",      "kind": "grenade", "gtype": "flashbang",  "w": 1, "h": 1, "amount": 1},
+	"grenade_incendiary":{"name": "Incendiary",     "kind": "grenade", "gtype": "incendiary", "w": 1, "h": 1, "amount": 1},
+	"grenade_impact":    {"name": "Impact Grenade", "kind": "grenade", "gtype": "impact",     "w": 1, "h": 1, "amount": 1},
+	"grenade_shock":     {"name": "Shockwave Charge","kind": "grenade","gtype": "shockwave",  "w": 1, "h": 1, "amount": 1},
+	"grenade_void":      {"name": "Void Grenade",   "kind": "grenade", "gtype": "blackhole",  "w": 1, "h": 1, "amount": 1},
+	# Gadgets — special-slot gear, activated with Q.
+	"flashlight":     {"name": "Flashlight",      "kind": "gadget", "gadget": "flashlight", "w": 1, "h": 1},
+	"binoculars":     {"name": "Binoculars",      "kind": "gadget", "gadget": "binoculars", "w": 1, "h": 1},
+	"nvg":            {"name": "Night Vision",    "kind": "gadget", "gadget": "nvg",        "w": 1, "h": 1},
+	"scanner":        {"name": "Motion Scanner",  "kind": "gadget", "gadget": "scanner",    "w": 1, "h": 1},
 	"backpack_small": {"name": "Small Pack", "kind": "backpack", "w": 2, "h": 2, "grid_w": 3, "grid_h": 4},
 	"backpack_large": {"name": "Large Pack", "kind": "backpack", "w": 2, "h": 3, "grid_w": 4, "grid_h": 7},
 	# Armor: "slot" maps to an equip slot; "armor" is the fraction of damage cut on
@@ -28,6 +41,8 @@ const DEFS := {
 }
 
 const ARMOR_IDS := ["helmet", "vest", "leg_armor"]
+const GRENADE_IDS := ["grenade", "grenade_smoke", "grenade_flash", "grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void"]
+const GADGET_IDS := ["flashlight", "binoculars", "nvg", "scanner"]
 
 func _finalize(d: Dictionary) -> Dictionary:
 	d["w"] = int(d.get("w", 1))
@@ -106,14 +121,17 @@ func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
 
 const WEAPON_VALUE := {"pistol": 8, "smg": 14, "shotgun": 16, "rifle": 18, "sniper": 24}
 const ARMOR_VALUE := {"helmet": 10, "vest": 12, "leg_armor": 8}
+const GRENADE_VALUE := {"frag": 5, "smoke": 4, "flashbang": 5, "incendiary": 7, "impact": 7, "shockwave": 8, "blackhole": 12}
+const GADGET_VALUE := {"flashlight": 6, "binoculars": 9, "nvg": 14, "scanner": 12}
 
 ## Coin value of an item (Quartermaster trading). Buy at value, sell at half.
 func value_of(item: Dictionary) -> int:
 	match String(item.get("kind", "")):
 		"weapon": return int(WEAPON_VALUE.get(String(item.get("weapon_id", "")), 14))
 		"armor": return int(ARMOR_VALUE.get(String(item.get("id", "")), 10))
+		"grenade": return int(GRENADE_VALUE.get(String(item.get("gtype", "frag")), 5))
+		"gadget": return int(GADGET_VALUE.get(String(item.get("gadget", "")), 8))
 		"health": return 6
-		"grenade": return 5
 		"ammo": return 4
 		"food": return 3
 		"water": return 3
@@ -130,6 +148,7 @@ func color_for(kind: String) -> Color:
 		"health": return Color(0.3, 1.0, 0.4)
 		"ammo": return Color(1.0, 0.7, 0.2)
 		"grenade": return Color(0.9, 0.9, 0.35)
+		"gadget": return Color(0.4, 0.85, 0.9)
 		"weapon": return Color(0.7, 0.8, 1.0)
 		"backpack": return Color(0.6, 0.5, 0.35)
 		"armor": return Color(0.55, 0.58, 0.65)

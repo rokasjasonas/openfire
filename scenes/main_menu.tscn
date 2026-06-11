@@ -449,6 +449,19 @@ layout_mode = 2
 custom_minimum_size = Vector2(50, 0)
 text = "75"
 
+[node name="QualityRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/QualityRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "Graphics quality"
+
+[node name="QualityOption" type="OptionButton" parent="OptionsPanel/Center/Box/VBox/QualityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+
 [node name="InvKeyRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
 layout_mode = 2
 

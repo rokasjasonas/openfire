@@ -326,7 +326,12 @@ func _process(delta: float) -> void:
 						_remove_item(p, String(q["item"]))
 						changed = _complete(q) or changed
 			"collect":
-				if _player_with_count(players, String(q["item"]), int(q["count"])) != null:
+				# Track how many are carried so the log can show 2/4 etc.
+				var have := _max_carried(players, String(q["item"]))
+				if int(q.get("progress", 0)) != have:
+					q["progress"] = have
+					changed = true
+				if have >= int(q["count"]):
 					changed = _complete(q) or changed
 			"escort":
 				if q.has("escort_node") and is_instance_valid(q["escort_node"]) and q["escort_node"].get("arrived"):
@@ -450,6 +455,17 @@ func _player_with_item(players: Array, kind: String) -> Node:
 				return p
 	return null
 
+## The most of `kind` any single player is carrying (for collect-quest progress).
+func _max_carried(players: Array, kind: String) -> int:
+	var best := 0
+	for p in players:
+		var c := 0
+		for it in p.inventory:
+			if String(it.get("kind", "")) == kind:
+				c += int(it.get("amount", 1))
+		best = maxi(best, c)
+	return best
+
 func _player_with_count(players: Array, kind: String, n: int) -> Node:
 	for p in players:
 		var c := 0
@@ -483,7 +499,7 @@ func _qprog(q: Dictionary) -> String:
 		"hunt":
 			return "  (%d/%d)" % [int(q["progress"]), int(q["count"])]
 		"collect":
-			return "  (need %d)" % int(q["count"])
+			return "  (%d/%d)" % [int(q.get("progress", 0)), int(q["count"])]
 		"defend":
 			return "  (%ds)" % max(0, int(ceil(float(q["duration"]) - float(q["_timer"]))))
 		"recon":

@@ -219,10 +219,12 @@ func reload() -> void:
 func _process(delta: float) -> void:
 	if _cooldown > 0.0:
 		_cooldown -= delta
-	# Smoothly recover aim FOV + recoil kick.
+	# Smoothly recover aim FOV + recoil kick. Binoculars override with a deep zoom.
 	if camera and is_local:
 		var w := _current()
 		var target_fov: float = float(w["zoom_fov"]) if _aiming else _base_fov
+		if player != null and player.get("glassing"):
+			target_fov = 18.0
 		camera.fov = lerp(camera.fov, target_fov, 12.0 * delta)
 	if _recoil > 0.0:
 		_recoil = max(0.0, _recoil - delta * 6.0)
@@ -241,6 +243,8 @@ func _process(delta: float) -> void:
 		return
 
 	var w := _current()
+	if player.get("glassing"):
+		return   # can't fire while glassing through binoculars
 	if _trigger and _cooldown <= 0.0:
 		var can: bool = bool(w["automatic"]) or not _fired_this_press
 		if can:
@@ -309,6 +313,7 @@ func _fire() -> void:
 				dmg_dealt += dealt
 				last_hit = res.position
 				hit_combatant = true
+				_spawn_blood.rpc(res.position, res.normal)
 				if mult >= 2.0:
 					was_headshot = true
 			elif res.collider and res.collider.is_in_group("destructible") and not res.collider.destroyed and res.collider.has_method("hit"):
@@ -434,7 +439,7 @@ func _apply_spread(fwd: Vector3, spread: float) -> Vector3:
 func _play_fire_fx(hit_point: Vector3) -> void:
 	flash.visible = true
 	_make_tracer(muzzle.global_position, hit_point)
-	Audio.play_3d(String(_current().get("sfx", "")), muzzle.global_position, -2.0, 0.08)
+	Audio.play_3d(String(_current().get("sfx", "")), muzzle.global_position, -2.0, 0.08, 320.0)  # gunfire carries far
 
 @rpc("any_peer", "call_local", "unreliable")
 func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
@@ -445,6 +450,21 @@ func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
 		fx.look_at(pos + normal, Vector3.UP)
 	Audio.play_3d("res://assets/audio/impact.ogg", pos, -8.0, 0.12)
 	_spawn_bullet_hole(pos, normal)
+
+const BLOOD_SCENE := preload("res://scenes/fx/blood.tscn")
+
+## A red blood spray when a shot connects with flesh (every peer plays it).
+@rpc("any_peer", "call_local", "reliable")
+func _spawn_blood(pos: Vector3, normal: Vector3) -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var fx := BLOOD_SCENE.instantiate()
+	scene.add_child(fx)
+	fx.global_position = pos
+	if normal.length() > 0.01:
+		fx.look_at(pos + normal, Vector3.UP)
+	Audio.play_3d("res://assets/audio/impact.ogg", pos, -10.0, 0.15)
 
 ## A small fading scorch decal at the impact point. Capped + auto-removed.
 func _spawn_bullet_hole(pos: Vector3, normal: Vector3) -> void:

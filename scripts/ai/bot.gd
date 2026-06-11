@@ -79,6 +79,11 @@ var _last_seen: Vector3
 var _has_last_seen: bool = false
 var _search_time: float = 0.0
 var _reaction: float = 0.0       # delay before firing after acquiring a target
+var _stun: float = 0.0           # flashbang daze: can't act until it runs out
+
+## Daze this bot (flashbang) for `secs`, briefly halting its AI.
+func stun(secs: float) -> void:
+	_stun = maxf(_stun, secs)
 var _strafe_sign: float = 1.0
 var _strafe_timer: float = 0.0
 
@@ -157,6 +162,71 @@ func _apply_profile() -> void:
 	if ResourceLoader.exists(p["model"]):
 		var packed: PackedScene = load(p["model"])
 		body_model.add_child(packed.instantiate())
+	# The character meshes are taller than the original 1.8 m design, which left the
+	# head hitbox down at chest height. Re-fit the hitboxes to the real model once the
+	# mesh transforms are valid, so shots land where they look.
+	call_deferred("_fit_hitboxes")
+
+# Hitbox layout the scene was authored for (a 1.8 m humanoid). Scaled to the real
+# model height at runtime so head/torso/legs line up with whatever model is used.
+const HB_DESIGN_H := 1.8
+const HB_HEAD_Y := 1.6
+const HB_TORSO_Y := 1.15
+const HB_LEGS_Y := 0.5
+const HB_HEAD_R := 0.34
+
+func _fit_hitboxes() -> void:
+	if not has_node("Hitboxes") or body_model == null:
+		return
+	var h := _body_local_height()
+	if h < 0.5:
+		return
+	var f := h / HB_DESIGN_H
+	_set_hb_y($Hitboxes/Head, HB_HEAD_Y * f)
+	_set_hb_y($Hitboxes/Torso, HB_TORSO_Y * f)
+	_set_hb_y($Hitboxes/Legs, HB_LEGS_Y * f)
+	# Resize the shapes proportionally (duplicate first so we don't mutate the shared
+	# resources that every bot points at).
+	var head: CollisionShape3D = $Hitboxes/Head/Shape
+	head.shape = head.shape.duplicate()
+	head.shape.radius = HB_HEAD_R * f
+	for part in ["Torso", "Legs"]:
+		var cs: CollisionShape3D = get_node("Hitboxes/%s/Shape" % part)
+		cs.shape = cs.shape.duplicate()
+		cs.shape.size *= f
+
+func _set_hb_y(area: Node, y: float) -> void:
+	var s := area.get_node("Shape")
+	s.position.y = y
+
+## Visible model height in the bot's local frame (divides out the archetype scale,
+## which the Hitboxes node already applies separately).
+func _body_local_height() -> float:
+	var sc: float = maxf(0.001, body_model.scale.y)
+	var top := -1.0e20
+	var bot := 1.0e20
+	for m in _model_meshes(body_model):
+		var a: AABB = m.get_aabb()
+		var gt: Transform3D = m.global_transform
+		for i in 8:
+			var corner := a.position + Vector3(
+				a.size.x if (i & 1) else 0.0,
+				a.size.y if (i & 2) else 0.0,
+				a.size.z if (i & 4) else 0.0)
+			var wy := (gt * corner).y - global_position.y
+			top = maxf(top, wy)
+			bot = minf(bot, wy)
+	if top <= bot:
+		return 0.0
+	return (top - bot) / sc
+
+func _model_meshes(n: Node) -> Array:
+	var out: Array = []
+	if n is MeshInstance3D:
+		out.append(n)
+	for c in n.get_children():
+		out.append_array(_model_meshes(c))
+	return out
 
 func _process(delta: float) -> void:
 	# Remote copy: smoothly interpolate toward the replicated transform.
@@ -213,6 +283,14 @@ func _physics_process(delta: float) -> void:
 		velocity.y = 4.0   # climb the vertical link
 	elif not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
+
+	# Flashbang stun: stand dazed (no thinking/shooting) until it wears off.
+	if _stun > 0.0:
+		_stun -= delta
+		velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
+		move_and_slide()
+		return
 
 	_think_cd -= delta
 	if _think_cd <= 0.0:
@@ -692,7 +770,8 @@ func _set_dead_visual(is_dead: bool) -> void:
 	$CollisionShape3D.disabled = is_dead
 	if is_dead:
 		_clear_marker()   # no kill/quest marker over a corpse
-		Audio.play_3d("res://assets/audio/death.ogg", global_position, -2.0, 0.06)
+		# A body-drop thud, not the grenade explosion sound.
+		Audio.play_3d("res://assets/audio/death_body.wav", global_position, -1.0, 0.08)
 
 func _do_respawn() -> void:
 	sync_health = max_health

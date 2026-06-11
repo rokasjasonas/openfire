@@ -628,8 +628,21 @@ func _ready() -> void:
 	var rq := PhysicsRayQueryParameters3D.create(Vector3(0, 300, 0), Vector3(0, -300, 0))
 	rq.collision_mask = 1
 	var tcol: bool = not terr.get_world_3d().direct_space_state.intersect_ray(rq).is_empty()
-	terrain_ok = tpolys > 0 and tspawns >= 8 and tpoi >= 5 and twater >= 1 and tcol
-	print("SMOKE: terrain_ok=", terrain_ok, " bake_ms=", Time.get_ticks_msec() - tt0, " polys=", tpolys, " spawns=", tspawns, " poi=", tpoi, " water=", twater, " collision=", tcol)
+	# Medium+ maps park vehicles at villages; the world-map image bakes; ladders add
+	# navmesh links so bots can climb.
+	var tveh := 0
+	for m in terr.get_children():
+		if m.is_in_group("vehicle"):
+			tveh += 1
+	var tmap_ok: bool = terr.map_texture() != null and terr.world_size() > 100.0
+	var tlinks := 0
+	if treg:
+		for c in treg.get_children():
+			if c is NavigationLink3D:
+				tlinks += 1
+	terrain_ok = tpolys > 0 and tspawns >= 8 and tpoi >= 5 and twater >= 1 and tcol \
+		and tveh >= 1 and tmap_ok and tlinks >= 1
+	print("SMOKE: terrain_ok=", terrain_ok, " bake_ms=", Time.get_ticks_msec() - tt0, " polys=", tpolys, " spawns=", tspawns, " poi=", tpoi, " water=", twater, " collision=", tcol, " vehicles=", tveh, " map_tex=", tmap_ok, " navlinks=", tlinks)
 	terr.queue_free()
 	Game.config["map_size"] = prev_ms
 	Game.config["seed"] = prev_sd
@@ -876,6 +889,51 @@ func _ready() -> void:
 		# Quiet the unused-var warning path (elder keeps living in the world).
 		if dy_eid == -999999:
 			pass
+
+	# Improvements batch: perks, trade values + coin persistence, day/night tick,
+	# marker sync, save snapshot round-trip.
+	var improve_ok := false
+	if world and me:
+		# Perks: lifetime points earn perk points; buying applies to the player.
+		var imp: Dictionary = Characters.create("Improver", Color(0.5, 0.5, 0.9), "scout", "")
+		(imp["stats"] as Dictionary)["points"] = 9
+		var im_pts_ok: bool = Characters.perk_points(imp) == 3
+		var im_buy_ok: bool = Characters.buy_perk("tough") and Characters.has_perk("tough") and Characters.perk_points(imp) == 2
+		Characters.apply_perks(me)
+		var im_apply_ok: bool = (me.perks as Array).has("tough")
+		# Trade: item values + coins flow through apply/capture.
+		var im_val_ok: bool = ItemDB.value_of(ItemDB.make("medkit")) == 6 \
+			and ItemDB.sell_value(ItemDB.make("food")) >= 1 and ItemDB.value_of(ItemDB.make_weapon("sniper")) == 24
+		me.coins = 7
+		Characters.capture_from_player(me)
+		var im_coins_ok: bool = int(Characters.current.get("coins", 0)) == 7
+		# Day/night: a long tick moves the clock, finds the sun, and bounds night.
+		world._tick_environment(30.0)
+		var im_env_ok: bool = world.night >= 0.0 and world.night <= 1.0 and world._ambient != null
+		# Marker sync RPC path (call_local form runs the handler directly here).
+		var im_marker_ok := false
+		var im_bots := get_tree().get_nodes_in_group("bot")
+		for b in im_bots:
+			if not b.get("dead"):
+				world._sync_quest_markers([b.combatant_id], [])
+				im_marker_ok = b._quest_marker != null and b._quest_marker.visible and b._quest_marker.text == "▼"
+				b.set_marker_kind("")
+				break
+		# Save snapshot round-trip: capture -> restore puts the player back.
+		var im_snap: Dictionary = world.adventure_snapshot(me)
+		var im_snap_ok: bool = im_snap.has("seed") and im_snap.has("pos") and im_snap.has("killed")
+		var im_old_pos: Vector3 = me.global_position
+		Game.continue_data = {"points": 5, "pos": [im_old_pos.x + 3.0, im_old_pos.y + 1.0, im_old_pos.z], "health": 80.0, "hunger": 50.0, "thirst": 60.0, "day01": 0.5}
+		world._apply_continue()
+		var im_restore_ok: bool = me.global_position.distance_to(im_old_pos) > 1.0 \
+			and absf(me.hunger - 50.0) < 0.01 and Game.continue_data.is_empty()
+		me.sync_health = 100.0
+		me.hunger = 100.0
+		me.thirst = 100.0
+		me.global_position = im_old_pos
+		Characters.delete(String(imp["id"]))
+		improve_ok = im_pts_ok and im_buy_ok and im_apply_ok and im_val_ok and im_coins_ok and im_env_ok and im_marker_ok and im_snap_ok and im_restore_ok
+		print("SMOKE: improve_ok=", improve_ok, " perks=", im_pts_ok, " buy=", im_buy_ok, " papply=", im_apply_ok, " value=", im_val_ok, " coins=", im_coins_ok, " env=", im_env_ok, " marker=", im_marker_ok, " snap=", im_snap_ok, " restore=", im_restore_ok)
 
 	# Adventure story: offline fallback produces all keys, and the LLM-response parser
 	# extracts our story JSON from an OpenAI-style chat reply.
@@ -1287,7 +1345,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

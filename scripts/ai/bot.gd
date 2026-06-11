@@ -201,13 +201,16 @@ func _physics_process(delta: float) -> void:
 		_drive_bot_vehicle(delta)
 		return
 
-	# Gravity, or buoyancy when in water (bots float instead of sinking/glitching).
+	# Gravity, buoyancy when in water, or climbing when the nav path goes straight up
+	# (a ladder navmesh-link step — bots scale it instead of walking into the wall).
 	if _water_y < -1.0e19:
 		_update_water_level()
 	in_water = global_position.y < _water_y
 	if in_water:
 		var depth := _water_y - global_position.y
 		velocity.y = lerp(velocity.y, clampf(depth - 1.3, -1.0, 1.0) * 4.0, 4.0 * delta)
+	elif _ladder_step():
+		velocity.y = 4.0   # climb the vertical link
 	elif not is_on_floor():
 		velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity", 24.0) * delta
 
@@ -488,6 +491,8 @@ func _water_between_me_and(target: Node) -> bool:
 ## hunt / clear-camp / assassinate), or a gold "!" if it has a quest to offer — so the
 ## player can find who to fight and who to talk to.
 func _update_quest_marker() -> void:
+	if not Net.is_host():
+		return   # clients get markers via the world's _sync_quest_markers RPC
 	var text := ""
 	var col := Color.WHITE
 	if Game.is_adventure() and not dead:
@@ -543,6 +548,26 @@ func _set_marker(text: String, col: Color) -> void:
 func _clear_marker() -> void:
 	if _quest_marker != null:
 		_quest_marker.visible = false
+
+## Client-side marker control, driven by the host's quest state broadcast.
+func set_marker_kind(kind: String) -> void:
+	match kind:
+		"kill":
+			_set_marker("▼", Color(1.0, 0.3, 0.25))
+		"giver":
+			_set_marker("!", Color(1.0, 0.85, 0.2))
+		_:
+			_clear_marker()
+
+## True while the next nav-path point sits well above us but horizontally close —
+## i.e. we're at the bottom of a ladder navmesh-link and should climb, not walk.
+func _ladder_step() -> bool:
+	if nav == null or nav.is_navigation_finished():
+		return false
+	var next := nav.get_next_path_position()
+	var dy := next.y - global_position.y
+	var horiz := Vector2(next.x - global_position.x, next.z - global_position.z).length()
+	return dy > 1.2 and horiz < 2.5
 
 func _move_toward(world_pos: Vector3, speed: float) -> void:
 	nav.target_position = world_pos

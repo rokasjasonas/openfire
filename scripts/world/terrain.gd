@@ -53,6 +53,11 @@ func build_level() -> void:
 	_make_noise(sd)
 	_climate = _theme_climate(String(Game.config.get("theme", "")))
 	_water = 6.0 + float(_climate.get("water", 0.0))
+	# Expose the resolved climate for world systems (weather, ambience).
+	for key in CLIMATES:
+		if CLIMATES[key] == _climate:
+			set_meta("climate_key", key)
+			break
 
 	# Coarser, size-scaled navmesh cells so the bake stays bounded on huge terrain.
 	var cell := clampf(_size / 360.0, 1.0, 3.0)
@@ -73,6 +78,7 @@ func build_level() -> void:
 
 	_build_terrain_mesh()
 	_build_collision()
+	_bake_map_image()
 	_add_water()
 	_add_perimeter()
 	_scatter_vegetation(rng)
@@ -81,6 +87,7 @@ func build_level() -> void:
 	_build_watchtowers(rng)
 	_add_caves(rng)
 	_place_sites()
+	_place_vehicles(rng)
 
 func _size_for(idx: int) -> float:
 	match idx:
@@ -344,6 +351,31 @@ func _build_collision() -> void:
 	body.add_child(cs)
 	body.scale = Vector3(STEP, 1.0, STEP)  # heightmap spans (n-1) units -> size metres
 	region.add_child(body)   # under the region so the navmesh bakes from this collider
+
+# ---------------------------------------------------------------- world map bake
+
+var _map_tex: ImageTexture = null
+
+## Bake a top-down biome-colour image of the world for the full-screen map (M).
+func _bake_map_image() -> void:
+	var img := Image.create(_n, _n, false, Image.FORMAT_RGB8)
+	var half := (_n - 1) * STEP * 0.5
+	for j in _n:
+		for i in _n:
+			var wx := i * STEP - half
+			var wz := j * STEP - half
+			var h: float = _heights[j * _n + i]
+			var c := _biome_color(wx, wz, h, 1.0)
+			if h <= _water:
+				c = Color(0.16, 0.3, 0.5)   # show water as water, not lakebed
+			img.set_pixel(i, j, c)
+	_map_tex = ImageTexture.create_from_image(img)
+
+func map_texture() -> ImageTexture:
+	return _map_tex
+
+func world_size() -> float:
+	return _size
 
 # ---------------------------------------------------------------- prop helpers
 
@@ -656,6 +688,21 @@ func _build_cave(rng: RandomNumberGenerator, c: Vector3) -> void:
 	add_pickup("weapon", Vector3(c.x, c.y + 0.6, c.z), 0, ["sniper", "shotgun"][rng.randi() % 2])
 	if rng.randf() < 0.6:
 		add_pickup("armor", Vector3(c.x + 1.2, c.y + 0.6, c.z), 0, ItemDB.ARMOR_IDS[rng.randi() % ItemDB.ARMOR_IDS.size()])
+
+# ---------------------------------------------------------------- vehicles
+
+## Medium+ worlds get a buggy at every other village so crossing the map isn't a
+## kilometre on foot. Parked on the flattened plot edge, so it sits level.
+func _place_vehicles(rng: RandomNumberGenerator) -> void:
+	if _size < 600.0:
+		return   # tiny/small maps are walkable
+	for k in _sites.size():
+		if k % 2 != 0:
+			continue
+		var s: Dictionary = _sites[k]
+		var ang := rng.randf() * TAU
+		var rr := float(s.r) * 0.7
+		add_vehicle(Vector3(float(s.x) + cos(ang) * rr, float(s.h), float(s.z) + sin(ang) * rr), rng.randf_range(0.0, 360.0))
 
 # ---------------------------------------------------------------- sites / spawns
 

@@ -133,6 +133,7 @@ func _ready() -> void:
 	for kit_id in Characters.KIT_IDS:
 		%CreateKit.add_item(Characters.kit_name(kit_id))
 	%CharBtn.pressed.connect(_show_characters)
+	%ContinueBtn.pressed.connect(_on_continue)
 	%CharBackBtn.pressed.connect(_show_setup)
 	%NewCharBtn.pressed.connect(_show_create)
 	%DeleteCharBtn.pressed.connect(_on_delete_character)
@@ -261,6 +262,8 @@ func _capture_config() -> void:
 			Game.config["mission_id"] = m["id"]
 			Game.config["map"] = m["map"]
 	elif adventure:
+		Game.config.erase("climate")        # fresh world -> re-resolve from the theme
+		Game.continue_data = {}
 		Game.config["mission_points"] = int(mission_points_spin.value)
 		Game.config["map_size"] = map_size_option.selected
 		Game.config["map"] = ADVENTURE_MAP   # terrain.gd reads map_size + seed
@@ -357,6 +360,34 @@ func _show_lobby() -> void:
 
 func _update_char_label() -> void:
 	char_label.text = String(Characters.current.get("name", "(none)")) if Characters.has_current() else "(none)"
+	# Continue is only offered when the chosen character has a saved adventure.
+	%ContinueBtn.visible = Characters.has_current() and not (Characters.current.get("adventure", {}) as Dictionary).is_empty()
+
+## Resume the chosen character's saved adventure: rebuild the same world (seed +
+## climate) solo and restore the dynamic state once it's populated.
+func _on_continue() -> void:
+	var snap: Dictionary = Characters.current.get("adventure", {})
+	if snap.is_empty():
+		return
+	Game.player_name = String(Characters.current.get("name", "Player"))
+	Game.config["mode"] = Game.Mode.ADVENTURE
+	Game.config["map"] = ADVENTURE_MAP
+	Game.config["seed"] = int(snap.get("seed", 0))
+	Game.config["map_size"] = int(snap.get("map_size", 2))
+	Game.config["mission_points"] = int(snap.get("mission_points", 10))
+	Game.config["theme"] = String(snap.get("theme", ""))
+	Game.config["bot_skill"] = float(snap.get("bot_skill", 1.0))
+	Game.config["bot_count"] = 12
+	Game.config["frag_limit"] = 0
+	if String(snap.get("climate", "")) != "":
+		Game.config["climate"] = String(snap["climate"])
+	else:
+		Game.config.erase("climate")
+	Game.continue_data = snap
+	if Net.host_game():
+		Net.start_match()
+	else:
+		status_label.text = "Failed to start (port in use?)."
 
 func _show_characters() -> void:
 	setup_panel.visible = false

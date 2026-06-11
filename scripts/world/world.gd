@@ -117,6 +117,10 @@ func _begin_adventure() -> void:
 		Story.phase_changed.connect(_on_story_phase)
 	_set_loading_text.rpc(_loading("Preparing the world\u2026"))
 	var theme := String(Game.config.get("theme", "")).strip_edges()
+	# A continued adventure must rebuild the SAME world: reuse its saved climate.
+	if String(Game.config.get("climate", "")) != "":
+		_apply_climate.rpc(String(Game.config["climate"]))
+		return
 	# Only classify when the model is already downloaded \u2014 otherwise terrain would wait
 	# on a big first-run download. First adventure uses keyword climate; later ones LLM.
 	if theme != "" and LLM.embedded_ready():
@@ -482,6 +486,9 @@ func _start_survival() -> void:
 	_quest_manager.name = "QuestManager"
 	add_child(_quest_manager)
 	_quest_manager.start(self)
+	# Continuing a saved adventure: restore points/kills/player state on top.
+	if not Game.continue_data.is_empty():
+		call_deferred("_apply_continue")
 
 func _on_story_ready(s: Dictionary) -> void:
 	NameGen.set_pools(s.get("names", {}))
@@ -534,6 +541,28 @@ func _process_survival(delta: float) -> void:
 				break
 		b.set_active(near)
 	_maybe_ambush(delta, pps)
+	# Co-op: mirror the host-computed quest markers (▼ kill / ! giver) to clients.
+	if multiplayer.get_peers().size() > 0:
+		var kill_ids: Array = []
+		var giver_ids: Array = []
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b._quest_marker != null and b._quest_marker.visible:
+				if b._quest_marker.text == "▼":
+					kill_ids.append(b.combatant_id)
+				else:
+					giver_ids.append(b.combatant_id)
+		_sync_quest_markers.rpc(kill_ids, giver_ids)
+
+@rpc("authority", "reliable")
+func _sync_quest_markers(kill_ids: Array, giver_ids: Array) -> void:
+	for b in get_tree().get_nodes_in_group("bot"):
+		var id: int = b.combatant_id
+		if kill_ids.has(id):
+			b.set_marker_kind("kill")
+		elif giver_ids.has(id):
+			b.set_marker_kind("giver")
+		else:
+			b.set_marker_kind("")
 
 # World event: every so often a small raider party ambushes a random player, for
 # emergent encounters between missions.
@@ -542,7 +571,8 @@ func _maybe_ambush(delta: float, player_positions: Array) -> void:
 	if not Net.is_host() or player_positions.is_empty():
 		return
 	_ambush_t += delta + 0.5   # _process_survival ticks ~2x/sec; this accumulates wall time
-	if _ambush_t < _survival_rng.randf_range(80.0, 140.0):
+	# Raiders are bolder after dark: ambushes come up to ~40% sooner at night.
+	if _ambush_t < _survival_rng.randf_range(80.0, 140.0) * (1.0 - 0.4 * night):
 		return
 	_ambush_t = 0.0
 	var center: Vector3 = player_positions[_survival_rng.randi() % player_positions.size()]
@@ -583,6 +613,9 @@ func _start_domination() -> void:
 	set_process(true)
 
 func _process(delta: float) -> void:
+	# Atmosphere runs on EVERY peer (visual/audio only — no gameplay authority).
+	if Game.is_adventure() and Game.match_active:
+		_tick_environment(delta)
 	if not Net.is_host() or not Game.match_active:
 		return
 	if Game.is_domination():
@@ -591,6 +624,96 @@ func _process(delta: float) -> void:
 		_process_storm(delta)
 	elif Game.is_adventure():
 		_process_survival(delta)
+
+# ------------------------------------------------- adventure atmosphere (all peers)
+# Day/night sun cycle, climate weather particles, and ambient wind. Each peer ticks
+# its own clock from the same start value, so no sync traffic is needed.
+
+const DAY_SECS := 600.0          # one full day/night every 10 minutes
+var _day01: float = 0.35         # 0 = midnight, 0.5 = noon; start mid-morning
+var night: float = 0.0           # 0 day .. 1 deep night (host AI reads this)
+var _sun: DirectionalLight3D = null
+var _ambient: AudioStreamPlayer = null
+var _weather: GPUParticles3D = null
+var _weather_made: bool = false
+
+func _tick_environment(delta: float) -> void:
+	_day01 = fmod(_day01 + delta / DAY_SECS, 1.0)
+	var elev := sin(TAU * (_day01 - 0.25))          # -1..1, 1 at noon
+	var daylight := clampf(elev * 3.0, 0.0, 1.0)    # full dark only when the sun is down
+	night = 1.0 - daylight
+	if _sun == null or not is_instance_valid(_sun):
+		for m in map_holder.get_children():
+			_sun = m.get_node_or_null("Sun")
+			if _sun != null:
+				break
+	if _sun != null:
+		_sun.rotation_degrees.x = -12.0 - daylight * 65.0   # low warm sun -> high noon
+		_sun.light_energy = 0.07 + daylight * 1.05          # moonlight floor at night
+		_sun.light_color = Color(1.0, 0.75 + daylight * 0.25, 0.6 + daylight * 0.4)
+	_tick_ambience()
+	_tick_weather(delta)
+
+func _tick_ambience() -> void:
+	if _ambient == null:
+		_ambient = AudioStreamPlayer.new()
+		var st := load("res://assets/audio/ambient_wind.wav")
+		if st is AudioStreamWAV:
+			st.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			st.loop_end = st.data.size() / 2   # 16-bit mono frames
+		_ambient.stream = st
+		_ambient.volume_db = -12.0
+		add_child(_ambient)
+		_ambient.play()
+	# The wind leans in a little after dark.
+	_ambient.volume_db = lerpf(-12.0, -8.5, night)
+	_ambient.pitch_scale = 1.0 - night * 0.12
+
+## Climate-keyed precipitation that follows the local player.
+func _tick_weather(_delta: float) -> void:
+	if not _weather_made:
+		_weather_made = true
+		var key := _climate_key()
+		if key in ["frozen", "alpine"]:
+			_weather = _make_precip(Color(1, 1, 1, 0.9), Vector3(0, -2.6, 0), Vector2(0.08, 0.08), 350)
+		elif key in ["verdant", "isles"]:
+			_weather = _make_precip(Color(0.6, 0.7, 0.95, 0.7), Vector3(0, -26.0, 0), Vector2(0.02, 0.3), 500)
+		elif key == "volcanic":
+			_weather = _make_precip(Color(0.45, 0.42, 0.4, 0.8), Vector3(0, -1.2, 0), Vector2(0.07, 0.07), 250)
+	if _weather != null:
+		var me := _local_player()
+		if me != null:
+			_weather.global_position = me.global_position + Vector3(0, 14.0, 0)
+
+func _climate_key() -> String:
+	for m in map_holder.get_children():
+		if m.has_meta("climate_key"):
+			return String(m.get_meta("climate_key"))
+	return String(Game.config.get("climate", ""))
+
+func _make_precip(col: Color, gravity: Vector3, size: Vector2, amount: int) -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.amount = amount
+	p.lifetime = 5.0
+	p.visibility_aabb = AABB(Vector3(-40, -25, -40), Vector3(80, 50, 80))
+	var mat := ParticleProcessMaterial.new()
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mat.emission_box_extents = Vector3(32, 1, 32)
+	mat.gravity = gravity
+	mat.initial_velocity_min = 0.2
+	mat.initial_velocity_max = 1.2
+	p.process_material = mat
+	var quad := QuadMesh.new()
+	quad.size = size
+	var m2 := StandardMaterial3D.new()
+	m2.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m2.albedo_color = col
+	m2.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m2.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	quad.material = m2
+	p.draw_pass_1 = quad
+	add_child(p)
+	return p
 
 func _process_domination(delta: float) -> void:
 	_dom_sync_t += delta
@@ -921,9 +1044,9 @@ func _host_on_match_over(result: Dictionary) -> void:
 @rpc("authority", "call_local", "reliable")
 func _show_result(result: Dictionary) -> void:
 	Game.match_active = false
-	# Adventure: save the local character's gear + run stats into their profile.
+	# Adventure: save the character + a resumable world snapshot into their profile.
 	if Game.is_adventure() and Characters.has_current():
-		Characters.capture_from_player(_local_player())
+		save_adventure(_local_player())
 	if hud and hud.has_method("show_result"):
 		hud.show_result(result)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -935,6 +1058,67 @@ func _local_player() -> Node:
 		if p.is_multiplayer_authority():
 			return p
 	return null
+
+# ---------------------------------------------------------------- adventure saves
+
+## Snapshot everything needed to rebuild and resume this adventure. Worlds rebuild
+## deterministically from seed + climate, so we only store the dynamic state.
+func adventure_snapshot(me: Node) -> Dictionary:
+	var killed: Array = []
+	for b in get_tree().get_nodes_in_group("bot"):
+		if b.get("dead"):
+			killed.append(b.combatant_id)
+	var snap := {
+		"seed": int(Game.config.get("seed", 0)),
+		"map_size": int(Game.config.get("map_size", 2)),
+		"mission_points": int(Game.config.get("mission_points", 10)),
+		"theme": String(Game.config.get("theme", "")),
+		"climate": String(Game.config.get("climate", "")),
+		"bot_skill": float(Game.config.get("bot_skill", 1.0)),
+		"points": int(_quest_manager.points) if _quest_manager else 0,
+		"day01": _day01,
+		"killed": killed,
+	}
+	if me != null and is_instance_valid(me):
+		snap["pos"] = [me.global_position.x, me.global_position.y, me.global_position.z]
+		snap["health"] = float(me.sync_health)
+		snap["hunger"] = float(me.get("hunger"))
+		snap["thirst"] = float(me.get("thirst"))
+	return snap
+
+## Persist the run into the character profile (called on leave and on match end).
+func save_adventure(me: Node) -> void:
+	if not Game.is_adventure() or not Characters.has_current():
+		return
+	Characters.current["adventure"] = adventure_snapshot(me)
+	Characters.capture_from_player(me)
+
+## Restore a continued adventure once the world has been rebuilt and populated.
+func _apply_continue() -> void:
+	var snap: Dictionary = Game.continue_data
+	Game.continue_data = {}
+	if snap.is_empty():
+		return
+	if _quest_manager:
+		_quest_manager.points = int(snap.get("points", 0))
+	_day01 = float(snap.get("day01", _day01))
+	# Re-kill the NPCs that died last session (spawn order is seed-deterministic).
+	var killed: Array = snap.get("killed", [])
+	for b in get_tree().get_nodes_in_group("bot"):
+		if killed.has(b.combatant_id) and not b.get("dead"):
+			b._set_dead_visual(true)
+	# Put the local player back where they left off, with their old condition.
+	var me := _local_player()
+	if me != null and snap.has("pos"):
+		var p: Array = snap["pos"]
+		me.global_position = Vector3(float(p[0]), float(p[1]) + 0.5, float(p[2]))
+		me.sync_health = clampf(float(snap.get("health", 100.0)), 10.0, 100.0)
+		me.hunger = float(snap.get("hunger", 100.0))
+		me.thirst = float(snap.get("thirst", 100.0))
+		me.health_changed.emit(me.sync_health, me.MAX_HEALTH)
+		me.hunger_changed.emit(me.hunger, me.MAX_NEED)
+		me.thirst_changed.emit(me.thirst, me.MAX_NEED)
+	broadcast_event("↻ Adventure resumed — %d pts." % int(snap.get("points", 0)))
 
 func _leave_to_menu() -> void:
 	Net.disconnect_net()

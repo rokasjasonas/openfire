@@ -102,6 +102,27 @@ func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
 		_:
 			return _finalize({"id": kind, "name": kind.capitalize(), "kind": kind, "w": 1, "h": 1})
 
+# ---------------------------------------------------------------- trade values
+
+const WEAPON_VALUE := {"pistol": 8, "smg": 14, "shotgun": 16, "rifle": 18, "sniper": 24}
+const ARMOR_VALUE := {"helmet": 10, "vest": 12, "leg_armor": 8}
+
+## Coin value of an item (Quartermaster trading). Buy at value, sell at half.
+func value_of(item: Dictionary) -> int:
+	match String(item.get("kind", "")):
+		"weapon": return int(WEAPON_VALUE.get(String(item.get("weapon_id", "")), 14))
+		"armor": return int(ARMOR_VALUE.get(String(item.get("id", "")), 10))
+		"health": return 6
+		"grenade": return 5
+		"ammo": return 4
+		"food": return 3
+		"water": return 3
+		"backpack": return 12
+		_: return 2
+
+func sell_value(item: Dictionary) -> int:
+	return maxi(1, value_of(item) / 2)
+
 func color_for(kind: String) -> Color:
 	match kind:
 		"food": return Color(0.85, 0.6, 0.3)

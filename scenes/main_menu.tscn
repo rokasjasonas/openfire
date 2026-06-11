@@ -108,6 +108,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Characters…"
 
+[node name="ContinueBtn" type="Button" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "▶ Continue"
+
 [node name="MapRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
 unique_name_in_owner = true
 layout_mode = 2

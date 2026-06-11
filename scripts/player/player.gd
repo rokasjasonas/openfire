@@ -80,6 +80,8 @@ var _need_dmg_accum: float = 0.0
 # Swimming / oxygen / ladders (authority-owned).
 var oxygen: float = MAX_OXYGEN
 var in_water: bool = false
+var perks: Array = []            # character perk ids (Characters.PERKS), set on apply
+var coins: int = 0               # trade currency (persisted on the character)
 var near_ladder: Node = null
 var _water_y: float = -1.0e20    # cached water-surface height (sentinel = unknown)
 var _oxy_dmg_accum: float = 0.0
@@ -174,6 +176,7 @@ func _ready() -> void:
 		if is_multiplayer_authority() and Characters.has_current():
 			Characters.apply_to_player(self)
 			name_label.text = display_name
+			get_tree().create_timer(1.5).timeout.connect(_broadcast_tint)
 	else:
 		weapons.set_loadout(WeaponDB.default_loadout())
 	# Only the owning peer drives input and owns the camera.
@@ -428,7 +431,8 @@ func _update_water_level() -> void:
 func _update_oxygen(delta: float, head_under: bool) -> void:
 	var o0 := oxygen
 	if head_under:
-		oxygen = maxf(0.0, oxygen - OXYGEN_DRAIN * delta)
+		var drain := OXYGEN_DRAIN * (0.6 if perks.has("lungs") else 1.0)
+		oxygen = maxf(0.0, oxygen - drain * delta)
 		if oxygen <= 0.0:
 			_oxy_dmg_accum += delta
 			if _oxy_dmg_accum >= 1.0:
@@ -533,13 +537,27 @@ func _apply_fall_landing() -> void:
 		receive_damage((_air_speed - FALL_SAFE_SPEED) * FALL_DAMAGE_PER, combatant_id)
 	_air_speed = 0.0
 
+var _tint: Color = Color.TRANSPARENT
+
 ## Tint the body model to the character's colour (Adventure appearance).
 func set_body_tint(c: Color) -> void:
+	_tint = c
 	for mi in _mesh_instances(body_model):
 		var m := StandardMaterial3D.new()
 		m.albedo_color = c
 		m.roughness = 0.9
 		mi.material_override = m
+
+## Replicate the local character's tint to every peer (their copy of us spawns with
+## the default body). Called a beat after spawn so remote instances exist.
+func _broadcast_tint() -> void:
+	if _tint.a > 0.0:
+		_share_tint.rpc(_tint)
+
+@rpc("any_peer", "reliable")
+func _share_tint(c: Color) -> void:
+	if not is_multiplayer_authority():
+		set_body_tint(c)
 
 func _mesh_instances(n: Node) -> Array:
 	var out: Array = []
@@ -908,6 +926,10 @@ func _talk_to(npc: Node) -> void:
 	var facs = Game.story.get("factions", {})
 	if typeof(facs) == TYPE_DICTIONARY and facs.has(info["faction"]):
 		info["lore"] = String(facs[info["faction"]])
+	# Quartermasters of factions that tolerate you will trade.
+	if String(npc.get("role")) == "Quartermaster" \
+			and String(Game.adventure_stance.get(String(npc.get("faction")), "neutral")) != "hostile":
+		info["can_trade"] = true
 	var qm := get_tree().get_first_node_in_group("quest_manager")
 	if qm != null:
 		var offer: Dictionary = qm.offer_for(int(npc.get("combatant_id")))
@@ -1078,6 +1100,8 @@ func receive_damage(amount: float, attacker_id: int, zone: String = "") -> void:
 	if dead or downed or fully_dead:
 		return
 	amount *= 1.0 - armor_reduction(zone)  # worn armor cuts this zone's damage
+	if perks.has("tough"):
+		amount *= 0.9
 	sync_health = max(0.0, sync_health - amount)
 	if is_multiplayer_authority():
 		health_changed.emit(sync_health, MAX_HEALTH)

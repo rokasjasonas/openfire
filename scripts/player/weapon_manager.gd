@@ -212,6 +212,8 @@ func reload() -> void:
 		return
 	_reloading = true
 	_reload_left = float(w["reload_time"])
+	if player.get("perks") != null and (player.perks as Array).has("reload"):
+		_reload_left *= 0.75   # Fast hands perk
 	Audio.play_3d("res://assets/audio/reload.ogg", player.global_position, -3.0, 0.04)
 
 func _process(delta: float) -> void:

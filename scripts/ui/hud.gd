@@ -21,6 +21,7 @@ extends CanvasLayer
 @onready var celebration: Label = %Celebration
 @onready var tabs: TabContainer = %Tabs
 @onready var stats_list: VBoxContainer = %StatsList
+@onready var skills_list: VBoxContainer = %SkillsList
 @onready var team_score_label: Label = %TeamScoreLabel
 @onready var lives_label: Label = %LivesLabel
 @onready var vehicle_prompt: Label = %VehiclePrompt
@@ -43,7 +44,17 @@ extends CanvasLayer
 @onready var npc_body: Label = %NpcBody
 @onready var quest_tracker: Label = %QuestTracker
 @onready var generating_panel: Panel = %GeneratingPanel
+@onready var trade_panel: Panel = %TradePanel
+@onready var sell_list: VBoxContainer = %SellList
+@onready var buy_list: VBoxContainer = %BuyList
+@onready var coins_label: Label = %CoinsLabel
 var _offer_quest_id: int = -1
+var _npc_info: Dictionary = {}   # the NPC currently in the talk dialog
+var _ask_pending: bool = false
+
+# Quartermaster stock: item ids (ItemDB) and weapon ids, bought at full value.
+const TRADE_ITEMS := ["medkit", "food", "water", "ammo", "grenade", "helmet", "vest", "leg_armor", "backpack_small"]
+const TRADE_WEAPONS := ["pistol", "smg", "shotgun", "rifle"]
 
 var _player: Node = null
 var _last_health: float = -1.0
@@ -75,7 +86,7 @@ func _ready() -> void:
 	oxygen_label.visible = false
 	inventory_panel.visible = false
 	celebration.visible = false
-	tabs.tab_changed.connect(func(_i): _refresh_stats())
+	tabs.tab_changed.connect(func(_i): _refresh_stats(); _refresh_skills())
 	npc_dialog.visible = false
 	npc_prompt.text = ""
 	quest_tracker.text = ""
@@ -83,6 +94,12 @@ func _ready() -> void:
 	generating_panel.visible = false
 	%NpcClose.pressed.connect(_close_npc_dialog)
 	%NpcAccept.pressed.connect(_on_accept_quest)
+	trade_panel.visible = false
+	%WorldMap.visible = false
+	%NpcTrade.pressed.connect(_open_trade)
+	%TradeClose.pressed.connect(_close_trade)
+	%NpcAskBtn.pressed.connect(_on_npc_ask)
+	%NpcAsk.text_submitted.connect(func(_t): _on_npc_ask())
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -130,6 +147,9 @@ func _update_npc_prompt() -> void:
 		npc_prompt.text = ""
 
 func _on_talk(info: Dictionary) -> void:
+	_npc_info = info
+	%NpcTrade.visible = bool(info.get("can_trade", false))
+	%NpcAsk.text = ""
 	npc_name.text = String(info.get("name", "?"))
 	var role_line := "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
 	if String(info.get("persona", "")) != "":
@@ -160,8 +180,118 @@ func _on_accept_quest() -> void:
 
 func _close_npc_dialog() -> void:
 	npc_dialog.visible = false
+	if not pause_panel.visible and not inventory_panel.visible and not result_panel.visible \
+			and not trade_panel.visible:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+# ---------------------------------------------------------------- live NPC dialogue
+
+## Free-text question to the NPC, answered in-persona by the on-device LLM.
+func _on_npc_ask() -> void:
+	var q: String = %NpcAsk.text.strip_edges()
+	if q == "" or _ask_pending:
+		return
+	%NpcAsk.text = ""
+	var who := String(_npc_info.get("name", "Stranger"))
+	npc_body.text += "\n\nYou: %s" % q
+	var sys := ("You are %s, a %s of the %s faction. Persona: %s. World: %s\n"
+		+ "Stay in character. Reply with 1-2 short spoken sentences only — no narration, no quotes.") % [
+		who, String(_npc_info.get("role", "villager")), String(_npc_info.get("faction", "")),
+		String(_npc_info.get("persona", "wary survivor")), String(Game.story.get("briefing", ""))]
+	if LLM.embedded_ready() and LLM.chat(sys, q):
+		_ask_pending = true
+		%NpcAskBtn.disabled = true
+		npc_body.text += "\n%s: …" % who
+		LLM.chat_done.connect(_on_npc_answer, CONNECT_ONE_SHOT)
+	else:
+		npc_body.text += "\n%s: (just shrugs)" % who
+
+func _on_npc_answer(text: String) -> void:
+	_ask_pending = false
+	%NpcAskBtn.disabled = false
+	var who := String(_npc_info.get("name", "Stranger"))
+	var reply := text.strip_edges()
+	if reply == "":
+		reply = "(says nothing)"
+	# Replace the "…" placeholder line with the actual answer.
+	var i := npc_body.text.rfind("\n%s: …" % who)
+	if i >= 0:
+		npc_body.text = npc_body.text.substr(0, i)
+	npc_body.text += "\n%s: %s" % [who, reply]
+
+# ---------------------------------------------------------------- trading
+
+func _open_trade() -> void:
+	npc_dialog.visible = false
+	trade_panel.visible = true
+	%TradeTitle.text = "TRADE — %s" % String(_npc_info.get("name", "Quartermaster"))
+	_refresh_trade()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _close_trade() -> void:
+	trade_panel.visible = false
 	if not pause_panel.visible and not inventory_panel.visible and not result_panel.visible:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _refresh_trade() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	coins_label.text = "Coins: %d" % int(_player.coins)
+	for c in sell_list.get_children():
+		c.queue_free()
+	for c in buy_list.get_children():
+		c.queue_free()
+	# Sell column: everything in the backpack, at half value.
+	if _player.inventory.is_empty():
+		var empty := Label.new()
+		empty.text = "(backpack is empty)"
+		empty.modulate = Color(1, 1, 1, 0.5)
+		sell_list.add_child(empty)
+	for i in _player.inventory.size():
+		var it: Dictionary = _player.inventory[i]
+		var b := Button.new()
+		b.text = "%s   +%d c" % [String(it.get("name", "?")), ItemDB.sell_value(it)]
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var idx: int = i
+		b.pressed.connect(func(): _sell_item(idx))
+		sell_list.add_child(b)
+	# Buy column: fixed Quartermaster stock at full value.
+	for id in TRADE_ITEMS:
+		_add_buy_row(ItemDB.make(String(id)))
+	for wid in TRADE_WEAPONS:
+		_add_buy_row(ItemDB.make_weapon(String(wid)))
+
+func _add_buy_row(item: Dictionary) -> void:
+	if item.is_empty():
+		return
+	var cost := ItemDB.value_of(item)
+	var b := Button.new()
+	b.text = "%s   -%d c" % [String(item.get("name", "?")), cost]
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.disabled = _player != null and int(_player.coins) < cost
+	b.pressed.connect(func(): _buy_item(item, cost))
+	buy_list.add_child(b)
+
+func _sell_item(index: int) -> void:
+	if _player == null or index < 0 or index >= _player.inventory.size():
+		return
+	var it: Dictionary = _player.inventory[index]
+	_player.coins += ItemDB.sell_value(it)
+	_player.inventory.remove_at(index)
+	_player.inventory_changed.emit()
+	Audio.play_ui("res://assets/audio/ui_click.ogg", -6.0)
+	_refresh_trade()
+
+func _buy_item(item: Dictionary, cost: int) -> void:
+	if _player == null or int(_player.coins) < cost:
+		return
+	if not _player.inv_add(item.duplicate(true)):
+		%TradeTitle.text = "TRADE — no room in your backpack!"
+		return
+	_player.coins -= cost
+	_player.inventory_changed.emit()
+	Audio.play_ui("res://assets/audio/ui_click.ogg", -6.0)
+	_refresh_trade()
 
 func set_quest_tracker(t: String) -> void:
 	quest_tracker.text = t
@@ -366,6 +496,7 @@ func _toggle_inventory() -> void:
 		tabs.current_tab = 0   # always open on the Inventory tab, not the last-used one
 		_refresh_inventory()
 		_refresh_stats()
+		_refresh_skills()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -379,6 +510,56 @@ func _refresh_inventory() -> void:
 
 func _refresh_equip() -> void:
 	equip_panel.refresh()
+
+# ---------------------------------------------------------------- skills tab
+
+## Build the perk shop: 1 perk point per 3 lifetime quest points, one-time buys.
+func _refresh_skills() -> void:
+	if skills_list == null:
+		return
+	for c in skills_list.get_children():
+		c.queue_free()
+	if not Characters.has_current():
+		var l := Label.new()
+		l.text = "Create a character to earn and spend perk points."
+		l.modulate = Color(1, 1, 1, 0.6)
+		skills_list.add_child(l)
+		return
+	var pts := Characters.perk_points(Characters.current)
+	var head := Label.new()
+	head.text = "Perk points: %d   (earn 1 per 3 quest points)" % pts
+	head.add_theme_color_override("font_color", Color(1.0, 0.8, 0.4))
+	skills_list.add_child(head)
+	for id in Characters.PERK_IDS:
+		var perk: Dictionary = Characters.PERKS[id]
+		var row := HBoxContainer.new()
+		var name_l := Label.new()
+		name_l.text = String(perk["name"])
+		name_l.custom_minimum_size.x = 130
+		var desc_l := Label.new()
+		desc_l.text = String(perk["desc"])
+		desc_l.custom_minimum_size.x = 230
+		desc_l.modulate = Color(1, 1, 1, 0.7)
+		row.add_child(name_l)
+		row.add_child(desc_l)
+		if Characters.has_perk(id):
+			var owned := Label.new()
+			owned.text = "OWNED"
+			owned.add_theme_color_override("font_color", Color(0.4, 0.9, 0.5))
+			row.add_child(owned)
+		else:
+			var buy := Button.new()
+			buy.text = "Buy (1)"
+			buy.disabled = pts <= 0
+			var pid := String(id)
+			buy.pressed.connect(func(): _buy_perk(pid))
+			row.add_child(buy)
+		skills_list.add_child(row)
+
+func _buy_perk(id: String) -> void:
+	if Characters.buy_perk(id) and _player != null and is_instance_valid(_player):
+		Characters.apply_perks(_player)   # takes effect immediately
+	_refresh_skills()
 
 # ---------------------------------------------------------------- stats tab
 
@@ -474,6 +655,12 @@ func _input(event: InputEvent) -> void:
 	# it is Tab, takes precedence over the scoreboard).
 	if Game.is_adventure() and _is_inventory_key(event):
 		_toggle_inventory()
+		get_viewport().set_input_as_handled()
+		return
+	# Full-screen world map on M (Adventure only, view-only overlay).
+	if Game.is_adventure() and event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_M:
+		%WorldMap.visible = not %WorldMap.visible
 		get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("scoreboard"):
@@ -604,8 +791,12 @@ func _resume() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _leave() -> void:
-	# Adventure: persist the character's gear + progress before quitting the run.
+	# Adventure: persist the character AND the world snapshot so the run can resume.
 	if Game.is_adventure() and Characters.has_current() and _player != null and is_instance_valid(_player):
-		Characters.capture_from_player(_player)
+		var w := get_tree().get_first_node_in_group("world")
+		if w and w.has_method("save_adventure"):
+			w.save_adventure(_player)
+		else:
+			Characters.capture_from_player(_player)
 	Net.disconnect_net()
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")

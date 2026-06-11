@@ -48,6 +48,7 @@ func _build_environment() -> void:
 	we.environment = load("res://resources/default_env.tres")
 	add_child(we)
 	var sun := DirectionalLight3D.new()
+	sun.name = "Sun"   # the world animates this for the Adventure day/night cycle
 	sun.rotation_degrees = Vector3(-55, -45, 0)
 	sun.light_energy = 1.1
 	sun.shadow_enabled = true
@@ -175,6 +176,13 @@ func add_ladder(bottom: Vector3, top: Vector3, normal: Vector3 = Vector3(0, 0, -
 	node.set_meta("normal", normal.normalized())   # horizontal dir from wall toward the climber
 	node.set_meta("radius", 1.9)                    # generous so you can grab it from the platform edge
 	add_child(node)
+	# Navmesh link so bot paths can route up/down the ladder (bots climb the vertical
+	# step when the next path point is far above them — see bot._ladder_climbing).
+	var link := NavigationLink3D.new()
+	link.start_position = bottom + normal.normalized() * 0.6
+	link.end_position = top - normal.normalized() * 0.8   # over the deck edge at the top
+	link.bidirectional = true
+	region.add_child(link)
 	var height := top.y - bottom.y
 	if height <= 0.1:
 		return

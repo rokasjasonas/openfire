@@ -29,6 +29,10 @@ const TEAM_COLORS := { 0: Color(0.35, 0.6, 1.0), 1: Color(1.0, 0.4, 0.3) }
 
 var player_name: String = "Player"
 
+# Adventure continue: a saved world snapshot to restore once the world rebuilds
+# (set by the menu's Continue button; consumed and cleared by the world).
+var continue_data: Dictionary = {}
+
 # Default match configuration; overwritten by the lobby / host.
 var config: Dictionary = {
 	"mode": Mode.ADVENTURE,

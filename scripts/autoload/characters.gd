@@ -21,6 +21,16 @@ const KITS := {
 }
 const KIT_IDS := ["scout", "soldier", "forager"]
 
+# Perks bought with perk points (1 point per 3 lifetime quest points). One-time buys,
+# applied to the player on spawn.
+const PERKS := {
+	"reload": {"name": "Fast hands", "desc": "Reload 25% faster"},
+	"carry":  {"name": "Pack mule", "desc": "Bigger backpack (5x4)"},
+	"tough":  {"name": "Thick skin", "desc": "Take 10% less damage"},
+	"lungs":  {"name": "Deep lungs", "desc": "Air lasts 40% longer underwater"},
+}
+const PERK_IDS := ["reload", "carry", "tough", "lungs"]
+
 var profiles: Array = []      # Array[Dictionary], oldest first
 var current: Dictionary = {}  # the chosen character for the next/active adventure
 
@@ -79,6 +89,8 @@ func create(cname: String, color: Color, kit: String, backstory: String) -> Dict
 		"inventory": inv,
 		"equip": {"head": {}, "body": {}, "pants": {}, "extra": {}},
 		"stats": _default_stats(),
+		"perks": [],
+		"coins": 15,
 	}
 	save(p)
 	profiles.append(p)
@@ -124,6 +136,34 @@ func color_of(p: Dictionary) -> Color:
 func kit_name(kit: String) -> String:
 	return String((KITS.get(kit, KITS["scout"]) as Dictionary)["name"])
 
+# ---------------------------------------------------------------- perks
+
+## Perk points earned over the character's lifetime: 1 per 3 quest points.
+func perk_points(p: Dictionary) -> int:
+	var st: Dictionary = p.get("stats", {})
+	return int(st.get("points", 0)) / 3 - (p.get("perks", []) as Array).size()
+
+func has_perk(id: String) -> bool:
+	return (current.get("perks", []) as Array).has(id)
+
+## Buy a perk for the current character (1 perk point each). Saves immediately.
+func buy_perk(id: String) -> bool:
+	if current.is_empty() or not PERKS.has(id) or has_perk(id) or perk_points(current) <= 0:
+		return false
+	var owned: Array = current.get("perks", [])
+	owned.append(id)
+	current["perks"] = owned
+	save(current)
+	profiles_changed.emit()
+	return true
+
+## Push the current character's perks onto a live player (also used mid-run on buy).
+func apply_perks(player: Node) -> void:
+	var owned: Array = current.get("perks", [])
+	player.perks = owned.duplicate()
+	if owned.has("carry") and int(player.backpack_w) <= ItemDB.DEFAULT_GRID_W:
+		player.backpack_w = 5   # Pack mule: one extra column
+
 ## Apply the current character to the freshly-spawned local player (Adventure start).
 func apply_to_player(player: Node) -> void:
 	if current.is_empty():
@@ -134,6 +174,8 @@ func apply_to_player(player: Node) -> void:
 	player.weapons.set_loadout((current.get("loadout", ["pistol"]) as Array).duplicate())
 	if player.has_method("set_body_tint"):
 		player.set_body_tint(color_of(current))
+	player.coins = int(current.get("coins", 0))
+	apply_perks(player)
 	player.inventory_changed.emit()
 	player.equipment_changed.emit()
 
@@ -145,6 +187,7 @@ func capture_from_player(player: Node) -> void:
 	current["inventory"] = player.inventory.duplicate(true)
 	current["equip"] = player.equip.duplicate(true)
 	current["loadout"] = player.weapons.loadout.duplicate()
+	current["coins"] = int(player.get("coins"))
 	var st: Dictionary = current.get("stats", _default_stats())
 	var sc: Dictionary = Game.scores.get(player.combatant_id, {})
 	st["kills"] = int(st.get("kills", 0)) + int(sc.get("kills", 0))

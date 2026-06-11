@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://chud00000001"]
+[gd_scene load_steps=8 format=3 uid="uid://chud00000001"]
 
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/ui/crosshair.gd" id="2_cross"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="4_minimap"]
 [ext_resource type="Script" path="res://scripts/ui/backpack_grid.gd" id="5_bgrid"]
 [ext_resource type="Script" path="res://scripts/ui/equip_panel.gd" id="6_equip"]
+[ext_resource type="Script" path="res://scripts/ui/world_map.gd" id="7_wmap"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -384,17 +385,12 @@ modulate = Color(1, 1, 1, 0.55)
 text = "Double-click or drag left to equip • drag out (right) to drop • double-click a slot to unequip"
 horizontal_alignment = 1
 
-[node name="Skills" type="CenterContainer" parent="InventoryPanel/VBox/Tabs"]
+[node name="Skills" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
 
-[node name="SkillsLabel" type="Label" parent="InventoryPanel/VBox/Tabs/Skills"]
-modulate = Color(1, 1, 1, 0.6)
-text = "Skills — coming soon
-
-Earn XP from quests and kills to unlock perks
-(faster reload, tougher armor, more carry space…)
-in a future update."
-horizontal_alignment = 1
-vertical_alignment = 1
+[node name="SkillsList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Skills"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
 
 [node name="Stats" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
 
@@ -470,6 +466,23 @@ autowrap_mode = 3
 horizontal_alignment = 1
 text = "..."
 
+[node name="AskRow" type="HBoxContainer" parent="NpcDialog/VBox"]
+theme_override_constants/separation = 6
+
+[node name="NpcAsk" type="LineEdit" parent="NpcDialog/VBox/AskRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 0)
+size_flags_horizontal = 3
+placeholder_text = "Say something…"
+
+[node name="NpcAskBtn" type="Button" parent="NpcDialog/VBox/AskRow"]
+unique_name_in_owner = true
+text = "Ask"
+
+[node name="NpcTrade" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Trade"
+
 [node name="NpcAccept" type="Button" parent="NpcDialog/VBox"]
 unique_name_in_owner = true
 text = "Accept Task"
@@ -509,3 +522,75 @@ text = "Resume"
 [node name="LeaveButton" type="Button" parent="PausePanel/VBox"]
 unique_name_in_owner = true
 text = "Leave Match"
+
+[node name="TradePanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -310.0
+offset_top = -230.0
+offset_right = 310.0
+offset_bottom = 230.0
+
+[node name="VBox" type="VBoxContainer" parent="TradePanel"]
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 606.0
+offset_bottom = 450.0
+theme_override_constants/separation = 6
+
+[node name="TradeTitle" type="Label" parent="TradePanel/VBox"]
+unique_name_in_owner = true
+text = "TRADE"
+horizontal_alignment = 1
+
+[node name="CoinsLabel" type="Label" parent="TradePanel/VBox"]
+unique_name_in_owner = true
+text = "Coins: 0"
+horizontal_alignment = 1
+
+[node name="TradeHBox" type="HBoxContainer" parent="TradePanel/VBox"]
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="SellCol" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox"]
+size_flags_horizontal = 3
+
+[node name="SellHead" type="Label" parent="TradePanel/VBox/TradeHBox/SellCol"]
+text = "Your goods (sell)"
+
+[node name="SellScroll" type="ScrollContainer" parent="TradePanel/VBox/TradeHBox/SellCol"]
+size_flags_vertical = 3
+custom_minimum_size = Vector2(280, 300)
+
+[node name="SellList" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox/SellCol/SellScroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="BuyCol" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox"]
+size_flags_horizontal = 3
+
+[node name="BuyHead" type="Label" parent="TradePanel/VBox/TradeHBox/BuyCol"]
+text = "Quartermaster stock (buy)"
+
+[node name="BuyScroll" type="ScrollContainer" parent="TradePanel/VBox/TradeHBox/BuyCol"]
+size_flags_vertical = 3
+custom_minimum_size = Vector2(280, 300)
+
+[node name="BuyList" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox/BuyCol/BuyScroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="TradeClose" type="Button" parent="TradePanel/VBox"]
+unique_name_in_owner = true
+text = "Close"
+
+[node name="WorldMap" type="Control" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("7_wmap")

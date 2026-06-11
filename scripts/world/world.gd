@@ -408,6 +408,21 @@ func _spawn_loot(idx: int, pos: Vector3, kind: String, subtype: String) -> void:
 	get_tree().current_scene.add_child(p)
 	p.global_position = pos
 
+## Host-only: spill `n` pieces of mixed loot around a point (treasure caches, rewards).
+func drop_loot_at(pos: Vector3, n: int) -> void:
+	if not Net.is_host():
+		return
+	for i in n:
+		_loot_counter += 1
+		var kind: String = ["weapon", "armor", "health", "ammo"][randi() % 4]
+		var subtype := ""
+		if kind == "weapon":
+			subtype = ["rifle", "shotgun", "smg", "sniper", "pistol"][randi() % 5]
+		elif kind == "armor":
+			subtype = String(ItemDB.ARMOR_IDS[randi() % ItemDB.ARMOR_IDS.size()])
+		var off := Vector3(randf_range(-1.4, 1.4), 0.5, randf_range(-1.4, 1.4))
+		_spawn_loot.rpc(_loot_counter, pos + off, kind, subtype)
+
 # ---------------------------------------------------------------- modes
 
 # ---------------------------------------------------------------- adventure

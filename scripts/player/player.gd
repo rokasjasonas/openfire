@@ -28,8 +28,8 @@ const REVIVE_HEALTH := 40.0
 # Adventure needs (only active in Adventure mode). Hunger/thirst drain over time
 # (faster while sprinting) and chip health once either hits zero.
 const MAX_NEED := 100.0
-const HUNGER_RATE := 0.45        # points/sec
-const THIRST_RATE := 0.7         # points/sec (thirst drains a bit faster)
+const HUNGER_RATE := 0.1125      # points/sec (4x slower than the original 0.45)
+const THIRST_RATE := 0.175       # points/sec (4x slower; thirst drains a bit faster)
 const NEED_SPRINT_MULT := 1.8
 const NEED_DAMAGE := 2.0         # health/sec while starving or dehydrated
 

@@ -800,6 +800,83 @@ func _ready() -> void:
 		missions_ok = diff_pts_ok and types_ok and label_ok
 		print("SMOKE: missions_ok=", missions_ok, " diff_pts=", diff_pts_ok, " types=", types_ok, " label=", label_ok)
 
+	# Dynamic quests: nothing auto-assigned at start, offers trickle in / expire, a
+	# timed delivery can fail, distress calls complete when the attackers fall, and
+	# the new mission types are registered.
+	var dynamic_ok := false
+	if world and me:
+		var dy_prev_mode = Game.config["mode"]
+		var dy_prev_active: bool = Game.match_active
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.match_active = false
+		Game.adventure_setup(5)
+		Game.adventure_stance["Ridgeback Clan"] = "friendly"
+		# An Elder to hold offers + a poi marker for site-based quests.
+		var dy_eid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(-14, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "DynElder", "role": "Elder"})
+		await get_tree().process_frame
+		var dy_marker := Node3D.new()
+		dy_marker.add_to_group("poi_site")
+		dy_marker.set_meta("radius", 10.0)
+		dy_marker.set_meta("index", 90)
+		get_tree().root.add_child(dy_marker)
+		dy_marker.global_position = me.global_position + Vector3(30, 0, 30)
+		var dyqm = load("res://scripts/world/quest_manager.gd").new()
+		dyqm.name = "QM_dyn"
+		add_child(dyqm)
+		dyqm.target_points = 99
+		dyqm.start(world)
+		var dy_active := 0
+		var dy_avail := 0
+		for q in dyqm.quests:
+			if q["state"] == "active":
+				dy_active += 1
+			elif q["state"] == "available":
+				dy_avail += 1
+		var dy_clean_start: bool = dy_active == 0 and dy_avail >= 1
+		var dy_trickle: bool = dyqm._new_offer() >= 0
+		# Expiry: age an available offer past the TTL.
+		var dy_expired := false
+		for q in dyqm.quests:
+			if q["state"] == "available":
+				q["_age"] = 1.0e6
+				break
+		dyqm._expire_offers(0.1)
+		for q in dyqm.quests:
+			if q["state"] == "expired":
+				dy_expired = true
+		# Courier fail: deadline already passed -> a process tick marks it failed.
+		var dy_cid = dyqm._make("courier", "Rush", "", {"item": "food", "poi": dy_marker, "deadline": 0.01}, false, 0, 0)
+		dyqm._activate(dy_cid)
+		Game.match_active = true
+		dyqm._process(0.5)   # tick deterministically (awaiting frames races _process)
+		Game.match_active = false
+		var dy_failed := false
+		for q in dyqm.quests:
+			if int(q["id"]) == dy_cid:
+				dy_failed = q["state"] == "failed"
+		# Distress: spawns attackers + auto-active quest; killing them all completes it.
+		var dy_did: int = dyqm._spawn_distress()
+		var dy_distress := false
+		if dy_did >= 0:
+			var dq := {}
+			for q in dyqm.quests:
+				if int(q["id"]) == dy_did:
+					dq = q
+			var dy_ids: Array = (dq.get("attacker_ids", []) as Array).duplicate()
+			for aid in dy_ids:
+				dyqm.notify_kill(int(aid))
+			dy_distress = dq.get("state", "") == "complete"
+		var dy_types: bool = dyqm.PTS.has("rescue") and dyqm.PTS.has("holdout") and dyqm.PTS.has("treasure") and dyqm.PTS.has("courier")
+		dynamic_ok = dy_clean_start and dy_trickle and dy_expired and dy_failed and dy_distress and dy_types
+		print("SMOKE: dynamic_ok=", dynamic_ok, " clean_start=", dy_clean_start, " trickle=", dy_trickle, " expire=", dy_expired, " courier_fail=", dy_failed, " distress=", dy_distress, " types=", dy_types)
+		dyqm.queue_free()
+		dy_marker.queue_free()
+		Game.config["mode"] = dy_prev_mode
+		Game.match_active = dy_prev_active
+		# Quiet the unused-var warning path (elder keeps living in the world).
+		if dy_eid == -999999:
+			pass
+
 	# Adventure story: offline fallback produces all keys, and the LLM-response parser
 	# extracts our story JSON from an OpenAI-style chat reply.
 	var story_ok := false
@@ -928,6 +1005,10 @@ func _ready() -> void:
 		qm2.world = world
 		qm2.target_points = 999   # don't trigger the victory scene change
 		var qzid = qm2._make("hunt", "Banner test", "", {"faction": "raiders", "count": 1})
+		# Clear the events log first — earlier tests may have filled it to its cap,
+		# where adding a line frees the oldest and the count stops growing.
+		for c in hud.event_log.get_children():
+			c.free()
 		var ev0: int = hud.event_log.get_child_count()
 		hud.celebration.visible = false
 		for q in qm2.quests:
@@ -1091,7 +1172,8 @@ func _ready() -> void:
 			kill_mark_ok = rbot._quest_marker != null and rbot._quest_marker.visible and rbot._quest_marker.text == "▼"
 			rbot._set_dead_visual(true)            # killed -> marker must clear
 			cleared_ok = not rbot._quest_marker.visible
-		# Quest giver gets a "!" marker.
+		# Quest giver gets a "!" marker (offers are stance-filtered, so force friendly).
+		Game.adventure_stance["Ridgeback Clan"] = "friendly"
 		var gbid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(-10, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "Giver", "role": "Elder"})
 		await get_tree().process_frame
 		var gbot: Node = null
@@ -1205,7 +1287,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

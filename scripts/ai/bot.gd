@@ -13,23 +13,28 @@ const LOS_MASK := 1   # only world geometry blocks line of sight
 ## when spawning (world.spawn_enemy) or in a mission's enemy_types list.
 const PROFILES := {
 	"soldier": {"name": "Soldier", "health": 100.0, "speed": 5.5, "cooldown": 0.9, "damage": 11.0,
-		"sight": 45.0, "attack": 26.0, "spread_far": 10.0, "spread_near": 1.8,
+		"sight": 45.0, "attack": 26.0, "spread_far": 10.0, "spread_near": 1.8, "behavior": "balanced",
 		"model": "res://assets/models/characters/character-m.glb", "color": Color(1, 0.5, 0.45), "scale": 1.0},
 	"rusher": {"name": "Rusher", "health": 55.0, "speed": 8.5, "cooldown": 0.5, "damage": 7.0,
-		"sight": 42.0, "attack": 16.0, "spread_far": 12.0, "spread_near": 3.2,
+		"sight": 42.0, "attack": 16.0, "spread_far": 12.0, "spread_near": 3.2, "behavior": "rush",
 		"model": "res://assets/models/characters/character-c.glb", "color": Color(1, 0.8, 0.3), "scale": 0.9},
 	"sniper": {"name": "Sniper", "health": 70.0, "speed": 4.0, "cooldown": 2.1, "damage": 55.0,
-		"sight": 95.0, "attack": 85.0, "spread_far": 2.6, "spread_near": 0.4,
+		"sight": 95.0, "attack": 85.0, "spread_far": 2.6, "spread_near": 0.4, "behavior": "kite",
 		"model": "res://assets/models/characters/character-h.glb", "color": Color(0.5, 0.8, 1.0), "scale": 1.0},
 	"heavy": {"name": "Heavy", "health": 210.0, "speed": 3.6, "cooldown": 0.7, "damage": 14.0,
-		"sight": 42.0, "attack": 22.0, "spread_far": 9.0, "spread_near": 2.2,
+		"sight": 42.0, "attack": 22.0, "spread_far": 9.0, "spread_near": 2.2, "behavior": "balanced",
 		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.3, 0.3), "scale": 1.18},
+	"grenadier": {"name": "Grenadier", "health": 80.0, "speed": 5.0, "cooldown": 1.1, "damage": 8.0,
+		"sight": 50.0, "attack": 34.0, "spread_far": 13.0, "spread_near": 2.6, "behavior": "grenadier",
+		"model": "res://assets/models/characters/character-d.glb", "color": Color(0.9, 0.55, 0.2), "scale": 1.05},
 	"boss": {"name": "WARLORD", "health": 1500.0, "speed": 4.2, "cooldown": 0.5, "damage": 22.0,
-		"sight": 72.0, "attack": 45.0, "spread_far": 5.0, "spread_near": 1.2,
+		"sight": 72.0, "attack": 45.0, "spread_far": 5.0, "spread_near": 1.2, "behavior": "balanced",
 		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.15, 0.55), "scale": 1.9},
 }
 # Spawn weighting (soldiers common, others rarer).
-const SPAWN_WEIGHTS := {"soldier": 5, "rusher": 3, "sniper": 2, "heavy": 1}
+const SPAWN_WEIGHTS := {"soldier": 5, "rusher": 3, "sniper": 2, "heavy": 1, "grenadier": 1}
+
+var behavior: String = "balanced"   # set from the profile in _apply_profile
 
 @export var skill: float = 1.0          # set by world; scales accuracy/cadence/damage
 @export var respawns: bool = false      # deathmatch bots respawn; coop enemies don't
@@ -138,6 +143,7 @@ func _apply_profile() -> void:
 	move_speed = p["speed"]
 	fire_cooldown = p["cooldown"]
 	shoot_damage = p["damage"]
+	behavior = String(p.get("behavior", "balanced"))
 	# Sight scales with skill so Easy bots spot you much later than Hard ones.
 	sight_range = float(p["sight"]) * clampf(0.45 + skill * 0.4, 0.5, 1.0)
 	attack_range = p["attack"]
@@ -163,9 +169,9 @@ func _apply_profile() -> void:
 		var packed: PackedScene = load(p["model"])
 		body_model.add_child(packed.instantiate())
 	# The character meshes are taller than the original 1.8 m design, which left the
-	# head hitbox down at chest height. Re-fit the hitboxes to the real model once the
-	# mesh transforms are valid, so shots land where they look.
-	call_deferred("_fit_hitboxes")
+	# head hitbox down at chest height. Set up animation + re-fit the hitboxes to the
+	# real model once the mesh transforms are valid, so shots land where they look.
+	call_deferred("_setup_model")
 
 # Hitbox layout the scene was authored for (a 1.8 m humanoid). Scaled to the real
 # model height at runtime so head/torso/legs line up with whatever model is used.
@@ -175,13 +181,14 @@ const HB_TORSO_Y := 1.15
 const HB_LEGS_Y := 0.5
 const HB_HEAD_R := 0.34
 
+# The shared Kenney character models stand ~2.7 m tall at scale 1.0. Fit against this
+# constant rather than the live mesh AABB, which the auto-playing idle clip perturbs.
+const MODEL_LOCAL_H := 2.7
+
 func _fit_hitboxes() -> void:
 	if not has_node("Hitboxes") or body_model == null:
 		return
-	var h := _body_local_height()
-	if h < 0.5:
-		return
-	var f := h / HB_DESIGN_H
+	var f := MODEL_LOCAL_H / HB_DESIGN_H   # ~1.5, deterministic (pose-independent)
 	_set_hb_y($Hitboxes/Head, HB_HEAD_Y * f)
 	_set_hb_y($Hitboxes/Torso, HB_TORSO_Y * f)
 	_set_hb_y($Hitboxes/Legs, HB_LEGS_Y * f)
@@ -236,6 +243,66 @@ func _process(delta: float) -> void:
 	else:
 		global_position = global_position.lerp(sync_pos, t)
 	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
+	_update_anim(delta)
+
+# ---------------------------------------------------------------- animation
+# The character models ship a full clip set (idle/walk/sprint/die/holding-*-shoot).
+# Driven on every peer from locally-visible state (position delta + dead + a
+# replicated shoot pulse), so it needs no extra syncing.
+var _anim: AnimationPlayer = null
+var _anim_pos := Vector3.ZERO
+var _anim_speed: float = 0.0
+var _shoot_anim_t: float = 0.0
+var _died_anim: bool = false
+
+## Grab the model's animation player, then measure the hitboxes against a FIXED pose
+## (idle frame 0) — the glb auto-plays a clip, so measuring the live pose would vary.
+func _setup_model() -> void:
+	_anim = _find_anim(body_model)
+	_anim_pos = global_position
+	if _anim != null:
+		for clip in ["walk", "sprint", "idle"]:
+			if _anim.has_animation(clip):
+				_anim.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
+		if _anim.has_animation("idle"):
+			_anim.play("idle")
+			_anim.seek(0.0, true)   # apply the neutral pose now, so the fit is stable
+	_fit_hitboxes()
+
+func _find_anim(n: Node) -> AnimationPlayer:
+	if n is AnimationPlayer:
+		return n
+	for c in n.get_children():
+		var r := _find_anim(c)
+		if r != null:
+			return r
+	return null
+
+func _update_anim(delta: float) -> void:
+	if _anim == null:
+		return
+	if dead:
+		if not _died_anim:
+			_died_anim = true
+			if _anim.has_animation("die"):
+				_anim.get_animation("die").loop_mode = Animation.LOOP_NONE
+				_anim.play("die", 0.1)
+		return
+	_died_anim = false
+	var d := global_position - _anim_pos
+	d.y = 0.0
+	_anim_speed = lerpf(_anim_speed, d.length() / maxf(delta, 0.001), 0.25)
+	_anim_pos = global_position
+	_shoot_anim_t = maxf(0.0, _shoot_anim_t - delta)
+	var want := "idle"
+	if _shoot_anim_t > 0.0 and _anim.has_animation("holding-both-shoot"):
+		want = "holding-both-shoot"
+	elif _anim_speed > 6.5 and _anim.has_animation("sprint"):
+		want = "sprint"
+	elif _anim_speed > 0.6 and _anim.has_animation("walk"):
+		want = "walk"
+	if _anim.current_animation != want and _anim.has_animation(want):
+		_anim.play(want, 0.18)
 
 func configure(id: int, t: int, sk: float, respawn_on_death: bool, label: String, type_id: String = "soldier", faction_id: String = "") -> void:
 	combatant_id = id
@@ -344,6 +411,8 @@ func _acquire_target() -> void:
 	for c in get_tree().get_nodes_in_group("combatant"):
 		if c == self or not is_instance_valid(c):
 			continue
+		if c.is_in_group("animal"):
+			continue   # bots don't hunt wildlife
 		if c.get("dead") or c.get("downed") or c.get("fully_dead"):
 			continue
 		if Game.is_adventure():
@@ -496,25 +565,79 @@ func _do_attack(delta: float) -> void:
 		if _shoot_cd <= 0.0 and _reaction <= 0.0 and _can_see(_target):
 			_shoot_at(_target)
 		return
-	# Close to preferred range, otherwise strafe sideways to be harder to hit.
+	# Movement depends on archetype behaviour.
 	var to_target := _target.global_position - global_position
 	to_target.y = 0
+	var dist := to_target.length()
 	if in_water or _water_ahead:
 		_steer_direct(_target.global_position, move_speed * 0.9)
-	elif to_target.length() > attack_range * 0.7:
-		_move_toward(_target.global_position, move_speed * 0.85)
 	else:
-		_strafe_timer -= delta
-		if _strafe_timer <= 0.0:
-			_strafe_timer = randf_range(0.7, 1.6)
-			_strafe_sign = -_strafe_sign
-		var sv := global_transform.basis.x * _strafe_sign * move_speed * 0.55
-		velocity.x = sv.x
-		velocity.z = sv.z
+		match behavior:
+			"rush":
+				# Charge straight in until almost on top of the target; barely strafes.
+				if dist > 4.0:
+					_move_toward(_target.global_position, move_speed)
+				else:
+					velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
+					velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+			"kite":
+				# Snipers keep their distance: back off if the target gets close, else hold.
+				if dist < attack_range * 0.45:
+					_move_toward(global_position - to_target.normalized() * 8.0, move_speed)
+				else:
+					_attack_strafe(delta, 0.4)
+			"grenadier":
+				# Hold mid-range and lob grenades; close in only if very far.
+				if dist > attack_range * 0.85:
+					_move_toward(_target.global_position, move_speed * 0.8)
+				else:
+					_attack_strafe(delta, 0.5)
+				_grenade_cd -= delta
+				if _grenade_cd <= 0.0 and dist < attack_range and dist > 6.0 and _can_see(_target):
+					_grenade_cd = randf_range(3.5, 6.0)
+					_throw_bot_grenade(_target.global_position)
+			_:
+				# Balanced: close to preferred range, then strafe to be harder to hit.
+				if dist > attack_range * 0.7:
+					_move_toward(_target.global_position, move_speed * 0.85)
+				else:
+					_attack_strafe(delta, 0.55)
 	_face(_target.global_position)
 	# Reaction delay before the first shot makes them feel human, not instant.
 	if _shoot_cd <= 0.0 and _reaction <= 0.0 and _can_see(_target):
 		_shoot_at(_target)
+
+func _attack_strafe(delta: float, factor: float) -> void:
+	_strafe_timer -= delta
+	if _strafe_timer <= 0.0:
+		_strafe_timer = randf_range(0.7, 1.6)
+		_strafe_sign = -_strafe_sign
+	var sv := global_transform.basis.x * _strafe_sign * move_speed * factor
+	velocity.x = sv.x
+	velocity.z = sv.z
+
+var _grenade_cd: float = 3.0
+
+## Grenadier: lob a frag grenade on an arc toward a target point.
+func _throw_bot_grenade(target: Vector3) -> void:
+	if not is_multiplayer_authority():
+		return
+	var from := muzzle.global_position
+	var flat := target - from
+	flat.y = 0.0
+	var vel := flat.normalized() * 12.0 + Vector3.UP * 6.0
+	_spawn_bot_grenade.rpc(from, vel)
+
+@rpc("authority", "call_local", "reliable")
+func _spawn_bot_grenade(pos: Vector3, vel: Vector3) -> void:
+	var g = load("res://scenes/grenade.tscn").instantiate()
+	g.thrower_id = combatant_id
+	g.thrower_team = team
+	g.gtype = "frag"
+	g.authoritative = is_multiplayer_authority()
+	get_tree().current_scene.add_child(g)
+	g.global_position = pos
+	g.linear_velocity = vel
 
 func _do_search(delta: float) -> void:
 	_search_time -= delta
@@ -712,6 +835,7 @@ func _shoot_at(target: Node3D) -> void:
 
 @rpc("any_peer", "call_local", "unreliable")
 func _fire_fx(hit_point: Vector3) -> void:
+	_shoot_anim_t = 0.35   # play the shooting pose on every peer
 	Audio.play_3d("res://assets/audio/fire_bot.ogg", muzzle.global_position, -3.0, 0.1)
 	var from := muzzle.global_position
 	var mesh := MeshInstance3D.new()
@@ -751,8 +875,7 @@ func _die(attacker_id: int) -> void:
 	if dead:
 		return
 	dead = true
-	body_model.visible = false
-	name_label.visible = false
+	name_label.visible = false       # body stays for the death animation / corpse
 	$CollisionShape3D.disabled = true
 	if is_multiplayer_authority():
 		velocity = Vector3.ZERO
@@ -765,13 +888,19 @@ func _die(attacker_id: int) -> void:
 @rpc("authority", "call_local", "reliable")
 func _set_dead_visual(is_dead: bool) -> void:
 	dead = is_dead
-	body_model.visible = not is_dead
+	# Keep the body visible so the "die" animation plays and the corpse lingers; only
+	# the name tag + collision come off. _update_anim plays "die" once when dead.
 	name_label.visible = not is_dead
 	$CollisionShape3D.disabled = is_dead
 	if is_dead:
-		_clear_marker()   # no kill/quest marker over a corpse
+		_died_anim = false   # let _update_anim trigger the death clip
+		_clear_marker()      # no kill/quest marker over a corpse
 		# A body-drop thud, not the grenade explosion sound.
 		Audio.play_3d("res://assets/audio/death_body.wav", global_position, -1.0, 0.08)
+	else:
+		body_model.visible = true
+		if _anim != null and _anim.has_animation("idle"):
+			_anim.play("idle")
 
 func _do_respawn() -> void:
 	sync_health = max_health

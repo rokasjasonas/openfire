@@ -15,6 +15,12 @@ const DEFAULT_GRID_H := 4   # default backpack = 4x4 = 16 cells
 const DEFS := {
 	"food":           {"name": "Rations",    "kind": "food",     "w": 1, "h": 1, "amount": 40},
 	"water":          {"name": "Water",      "kind": "water",    "w": 1, "h": 1, "amount": 50},
+	# Hunting: raw meat barely helps (and risks nothing fancy); cook it at a campfire.
+	"raw_meat":       {"name": "Raw Meat",    "kind": "food", "w": 1, "h": 1, "amount": 15, "cookable": true},
+	"cooked_meat":    {"name": "Cooked Meat", "kind": "food", "w": 1, "h": 1, "amount": 55},
+	"hide":           {"name": "Animal Hide", "kind": "material", "w": 1, "h": 1},
+	"wood":           {"name": "Wood",        "kind": "material", "w": 1, "h": 1},
+	"scrap":          {"name": "Scrap Metal", "kind": "material", "w": 1, "h": 1},
 	"medkit":         {"name": "Medkit",     "kind": "health",   "w": 1, "h": 2, "amount": 50},
 	"ammo":           {"name": "Ammo Box",   "kind": "ammo",     "w": 1, "h": 1},
 	# Grenades all share kind "grenade" (one throw slot + one count); "gtype" picks the
@@ -41,6 +47,15 @@ const DEFS := {
 }
 
 const ARMOR_IDS := ["helmet", "vest", "leg_armor"]
+
+# Crafting recipes: consume material/food items from the backpack, produce an item
+# (or a deployable like "_campfire"). "fire" recipes need a lit campfire nearby.
+const RECIPES := [
+	{"id": "cook",     "name": "Cook Meat",   "in": {"raw_meat": 1}, "out": "cooked_meat", "fire": true},
+	{"id": "bandage",  "name": "Bandage",     "in": {"hide": 2},     "out": "medkit",      "fire": false},
+	{"id": "makeammo", "name": "Craft Ammo",  "in": {"scrap": 1},    "out": "ammo",        "fire": false},
+	{"id": "campfire", "name": "Campfire",    "in": {"wood": 3},     "out": "_campfire",   "fire": false},
+]
 const GRENADE_IDS := ["grenade", "grenade_smoke", "grenade_flash", "grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void"]
 const GADGET_IDS := ["flashlight", "binoculars", "nvg", "scanner"]
 
@@ -135,6 +150,7 @@ func value_of(item: Dictionary) -> int:
 		"ammo": return 4
 		"food": return 3
 		"water": return 3
+		"material": return 2
 		"backpack": return 12
 		_: return 2
 
@@ -149,6 +165,7 @@ func color_for(kind: String) -> Color:
 		"ammo": return Color(1.0, 0.7, 0.2)
 		"grenade": return Color(0.9, 0.9, 0.35)
 		"gadget": return Color(0.4, 0.85, 0.9)
+		"material": return Color(0.7, 0.6, 0.45)
 		"weapon": return Color(0.7, 0.8, 1.0)
 		"backpack": return Color(0.6, 0.5, 0.35)
 		"armor": return Color(0.55, 0.58, 0.65)

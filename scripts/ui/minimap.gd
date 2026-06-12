@@ -112,6 +112,10 @@ func _draw() -> void:
 	for cm in get_tree().get_nodes_in_group("combatant"):
 		if cm == me or cm.get("dead") or cm.get("fully_dead"):
 			continue
+		if cm.is_in_group("animal"):
+			# Wildlife: a small muted dot, only when nearby (no faction/objective logic).
+			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(0.7, 0.75, 0.5, 0.7), 2.0, false, false)
+			continue
 		var enemy := int(cm.get("team")) != my_team
 		var is_objective: bool = enemy and (active_factions.has(String(cm.get("faction"))) or assassinate.has(int(cm.get("combatant_id"))))
 		if is_objective:
@@ -134,9 +138,11 @@ func _draw() -> void:
 			hostile = enemy
 		if cm.get("downed"):
 			col = col.darkened(0.4)
-		# Revealed hostiles get a brighter, larger blip pinned to the rim if off-area.
+		# Combatants are only ever drawn inside the visible area — never pinned to the
+		# rim (that's reserved for quest objectives). Scanner/binoculars just brighten
+		# and enlarge the hostiles already in range.
 		if revealing and hostile:
-			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(1.0, 0.5, 0.2), 4.5, false, true)
+			_blip(c, cm.global_position - ppos, fwd, right, scale, Color(1.0, 0.5, 0.2), 4.5, false, false)
 		else:
 			_blip(c, cm.global_position - ppos, fwd, right, scale, col, 3.0, false, false)
 

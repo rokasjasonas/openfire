@@ -84,6 +84,7 @@ var perks: Array = []            # character perk ids (Characters.PERKS), set on
 var coins: int = 0               # trade currency (persisted on the character)
 var _input_enabled: bool = true  # false while a menu/text field has the cursor (no gameplay input)
 var near_ladder: Node = null
+var is_climbing: bool = false    # on a ladder right now (out of melee reach)
 var _water_y: float = -1.0e20    # cached water-surface height (sentinel = unknown)
 var _oxy_dmg_accum: float = 0.0
 var _ladder_detach: float = 0.0  # brief no-grab window after jumping off a ladder
@@ -172,6 +173,14 @@ func _ready() -> void:
 		name_label.modulate = Game.team_color(team)
 	camera.fov = Settings.fov
 	_cam_base_pos = camera.position
+	_body_anim = _find_body_anim(body_model)
+	_body_anim_pos = global_position
+	if _body_anim != null:
+		for clip in ["walk", "sprint", "idle"]:
+			if _body_anim.has_animation(clip):
+				_body_anim.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
+		if _body_anim.has_animation("idle"):
+			_body_anim.play("idle")
 	weapons.setup(self, camera)
 	# Equip weapons on every peer (so remote players also show a gun and the
 	# local player can actually fire). Runs before set_local/_emit_hud below.
@@ -282,6 +291,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			global_position = global_position.lerp(sync_pos, t)
 		rotation.y = lerp_angle(rotation.y, sync_yaw, t)
+		_update_body_anim(delta)   # animate the third-person body others see
 		return
 
 	if dead:
@@ -327,9 +337,10 @@ func _physics_process(delta: float) -> void:
 	_update_oxygen(delta, head.global_position.y < _water_y)
 
 	_ladder_detach = maxf(0.0, _ladder_detach - delta)
+	is_climbing = not in_water and near_ladder != null and _ladder_detach <= 0.0 and _wants_climb()
 	if in_water:
 		_swim(delta)
-	elif near_ladder != null and _ladder_detach <= 0.0 and _wants_climb():
+	elif is_climbing:
 		_climb(delta, near_ladder)
 	else:
 		# Crouch (hold). Can't stand back up if something is overhead.
@@ -394,6 +405,7 @@ func _physics_process(delta: float) -> void:
 		weapons.set_aiming(false)
 	sync_weapon_index = weapons.current_index
 	_update_camera_fx(delta)
+	_update_body_anim(delta)
 	sync_pos = global_position
 	sync_yaw = rotation.y
 
@@ -602,6 +614,70 @@ func _climb(delta: float, l: Node) -> void:
 
 ## Apply fall damage for the speed built up while airborne, then reset. A landing
 ## faster than FALL_SAFE_SPEED hurts, scaling with the excess.
+# ---------------------------------------------------------------- crafting (Adventure)
+const CAMPFIRE_SCENE := preload("res://scenes/campfire.tscn")
+
+## How many of an item id the backpack holds.
+func _count_material(id: String) -> int:
+	var n := 0
+	for it in inventory:
+		if String(it.get("id", "")) == id:
+			n += int(it.get("amount", 1))
+	return n
+
+func near_campfire() -> bool:
+	for f in get_tree().get_nodes_in_group("campfire"):
+		if is_instance_valid(f) and f.global_position.distance_to(global_position) < 5.0:
+			return true
+	return false
+
+## Whether the recipe's inputs (and fire requirement) are currently satisfied.
+func can_craft(recipe: Dictionary) -> bool:
+	if bool(recipe.get("fire", false)) and not near_campfire():
+		return false
+	for id in (recipe.get("in", {}) as Dictionary):
+		if _count_material(String(id)) < int(recipe["in"][id]):
+			return false
+	return true
+
+## Consume the recipe's inputs and produce its output (item or a deployed campfire).
+func craft(recipe: Dictionary) -> bool:
+	if not is_multiplayer_authority() or not can_craft(recipe):
+		return false
+	for id in (recipe.get("in", {}) as Dictionary):
+		var need := int(recipe["in"][id])
+		var i := 0
+		while need > 0 and i < inventory.size():
+			if String(inventory[i].get("id", "")) == String(id):
+				inventory.remove_at(i)
+				need -= 1
+			else:
+				i += 1
+	var out := String(recipe["out"])
+	if out == "_campfire":
+		_deploy_campfire()
+	else:
+		if not inv_add(ItemDB.make(out)):
+			_drop_item_world(ItemDB.make(out))   # no room — drop it at your feet
+	inventory_changed.emit()
+	return true
+
+func _deploy_campfire() -> void:
+	_place_campfire.rpc(global_position - global_transform.basis.z * 1.5)
+
+@rpc("any_peer", "call_local", "reliable")
+func _place_campfire(pos: Vector3) -> void:
+	var f := CAMPFIRE_SCENE.instantiate()
+	get_tree().current_scene.add_child(f)
+	f.global_position = pos
+
+func _drop_item_world(item: Dictionary) -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.kind = "food"
+	p.item_data = item
+	get_tree().current_scene.add_child(p)
+	p.global_position = global_position + Vector3(0, 0.4, 0)
+
 # ---------------------------------------------------------------- gadgets (Adventure)
 # The Gadget slot holds one special item; Q activates it. Flashlight and night-vision
 # toggle on/off; binoculars toggle a zoom; the scanner pings on each press.
@@ -698,6 +774,36 @@ func _update_camera_fx(delta: float) -> void:
 
 func _rng_shake() -> float:
 	return randf() * 2.0 - 1.0
+
+# ---------------------------------------------------------------- body animation
+# The third-person body (what other players see) plays idle/walk/sprint from speed.
+var _body_anim: AnimationPlayer = null
+var _body_anim_pos := Vector3.ZERO
+var _body_anim_speed: float = 0.0
+
+func _find_body_anim(n: Node) -> AnimationPlayer:
+	if n is AnimationPlayer:
+		return n
+	for c in n.get_children():
+		var r := _find_body_anim(c)
+		if r != null:
+			return r
+	return null
+
+func _update_body_anim(delta: float) -> void:
+	if _body_anim == null:
+		return
+	var d := global_position - _body_anim_pos
+	d.y = 0.0
+	_body_anim_speed = lerpf(_body_anim_speed, d.length() / maxf(delta, 0.001), 0.25)
+	_body_anim_pos = global_position
+	var want := "idle"
+	if _body_anim_speed > 7.5 and _body_anim.has_animation("sprint"):
+		want = "sprint"
+	elif _body_anim_speed > 0.6 and _body_anim.has_animation("walk"):
+		want = "walk"
+	if _body_anim.current_animation != want and _body_anim.has_animation(want):
+		_body_anim.play(want, 0.18)
 
 var _tint: Color = Color.TRANSPARENT
 

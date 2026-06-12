@@ -37,6 +37,7 @@ func _ready() -> void:
 	spawner.spawn_function = Callable(self, "_spawn_combatant")
 	_load_map()
 	Game.match_active = true
+	Music.start()   # adaptive score: calm bed now, combat layer fades in near enemies
 
 	if Net.is_host():
 		Game.reset_scores()
@@ -405,7 +406,11 @@ func _spawn_loot(idx: int, pos: Vector3, kind: String, subtype: String) -> void:
 	var p := PICKUP_SCENE.instantiate()
 	p.name = "Loot_%d" % idx
 	p.kind = kind
-	if subtype != "":
+	if kind == "material":
+		# Materials carry their exact item (wood/scrap) so cooking/crafting can use them.
+		p.kind = "food"   # generic collectable pickup behaviour
+		p.item_data = ItemDB.make(subtype if subtype != "" else "wood")
+	elif subtype != "":
 		p.weapon_id = subtype
 	if kind == "health":
 		p.amount = 50
@@ -418,12 +423,14 @@ func drop_loot_at(pos: Vector3, n: int) -> void:
 		return
 	for i in n:
 		_loot_counter += 1
-		var kind: String = ["weapon", "armor", "health", "ammo"][randi() % 4]
+		var kind: String = ["weapon", "armor", "health", "ammo", "material", "material"][randi() % 6]
 		var subtype := ""
 		if kind == "weapon":
 			subtype = ["rifle", "shotgun", "smg", "sniper", "pistol"][randi() % 5]
 		elif kind == "armor":
 			subtype = String(ItemDB.ARMOR_IDS[randi() % ItemDB.ARMOR_IDS.size()])
+		elif kind == "material":
+			subtype = ["wood", "scrap"][randi() % 2]
 		var off := Vector3(randf_range(-1.4, 1.4), 0.5, randf_range(-1.4, 1.4))
 		_spawn_loot.rpc(_loot_counter, pos + off, kind, subtype)
 
@@ -480,6 +487,7 @@ func _start_survival() -> void:
 		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
 		var rperson := NameGen.npc_person(Game.RAIDER_FACTION)
 		spawn_enemy(skill, false, spot, _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": rperson["name"], "role": rrole, "persona": rperson["trait"]})
+	_spawn_wildlife()
 	set_process(true)
 	# Quests reference the villages/NPCs we just spawned, so build them last.
 	_quest_manager = QUEST_MANAGER.new()
@@ -489,6 +497,24 @@ func _start_survival() -> void:
 	# Continuing a saved adventure: restore points/kills/player state on top.
 	if not Game.continue_data.is_empty():
 		call_deferred("_apply_continue")
+
+const ANIMAL_SCENE := preload("res://scenes/animal.tscn")
+
+## Scatter wildlife across the terrain: mostly grazers, a few wolves. Scales with map
+## size. Host-only spawn (ambient; not a gameplay-critical entity).
+func _spawn_wildlife() -> void:
+	var size := int(Game.config.get("map_size", 2))
+	var count: int = [3, 6, 10, 16][clampi(size, 0, 3)]
+	for i in count:
+		var ang := _survival_rng.randf() * TAU
+		var rad := _survival_rng.randf_range(20.0, 90.0 + size * 30.0)
+		var pos := _snap_to_nav(Vector3(cos(ang) * rad, 0, sin(ang) * rad))
+		pos.y += 1.0
+		var a := ANIMAL_SCENE.instantiate()
+		var roll := _survival_rng.randf()
+		a.species = "wolf" if roll < 0.22 else ("boar" if roll < 0.5 else "deer")
+		add_child(a)
+		a.global_position = pos
 
 func _on_story_ready(s: Dictionary) -> void:
 	NameGen.set_pools(s.get("names", {}))
@@ -616,6 +642,7 @@ func _process(delta: float) -> void:
 	# Atmosphere runs on EVERY peer (visual/audio only — no gameplay authority).
 	if Game.is_adventure() and Game.match_active:
 		_tick_environment(delta)
+	_tick_music()
 	if not Net.is_host() or not Game.match_active:
 		return
 	if Game.is_domination():
@@ -634,6 +661,7 @@ var _day01: float = 0.35         # 0 = midnight, 0.5 = noon; start mid-morning
 var night: float = 0.0           # 0 day .. 1 deep night (host AI reads this)
 var _sun: DirectionalLight3D = null
 var _ambient: AudioStreamPlayer = null
+var _birds: AudioStreamPlayer = null
 var _weather: GPUParticles3D = null
 var _weather_made: bool = false
 
@@ -654,6 +682,27 @@ func _tick_environment(delta: float) -> void:
 	_tick_ambience()
 	_tick_weather(delta)
 
+## Local combat-music trigger: a living enemy within 35 m of the local player.
+func _tick_music() -> void:
+	var me := _local_player()
+	if me == null or not Game.match_active:
+		Music.set_combat(false)
+		return
+	var combat := false
+	for b in get_tree().get_nodes_in_group("bot"):
+		if b.get("dead"):
+			continue
+		var enemy: bool
+		if Game.is_adventure():
+			var fac := String(b.get("faction"))
+			enemy = fac == Game.RAIDER_FACTION or String(Game.adventure_stance.get(fac, "neutral")) == "hostile"
+		else:
+			enemy = int(b.get("team")) != me.team
+		if enemy and b.global_position.distance_to(me.global_position) < 35.0:
+			combat = true
+			break
+	Music.set_combat(combat)
+
 func _tick_ambience() -> void:
 	if _ambient == null:
 		_ambient = AudioStreamPlayer.new()
@@ -668,6 +717,18 @@ func _tick_ambience() -> void:
 	# The wind leans in a little after dark.
 	_ambient.volume_db = lerpf(-12.0, -8.5, night)
 	_ambient.pitch_scale = 1.0 - night * 0.12
+	# Birdsong in warm biomes during the day; fades to silence at night.
+	if _birds == null and _climate_key() in ["verdant", "isles", "temperate", ""]:
+		_birds = AudioStreamPlayer.new()
+		var bst := load("res://assets/audio/ambient_birds.wav")
+		if bst is AudioStreamWAV:
+			bst.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			bst.loop_end = bst.data.size() / 2
+		_birds.stream = bst
+		add_child(_birds)
+		_birds.play()
+	if _birds != null:
+		_birds.volume_db = lerpf(-10.0, -80.0, clampf(night * 1.6, 0.0, 1.0))
 
 ## Climate-keyed precipitation that follows the local player.
 func _tick_weather(_delta: float) -> void:

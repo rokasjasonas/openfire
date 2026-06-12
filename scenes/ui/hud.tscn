@@ -392,6 +392,13 @@ unique_name_in_owner = true
 size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
+[node name="Crafting" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
+
+[node name="CraftList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Crafting"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
 [node name="Stats" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
 
 [node name="StatsList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Stats"]

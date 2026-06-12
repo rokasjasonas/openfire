@@ -22,6 +22,7 @@ extends CanvasLayer
 @onready var tabs: TabContainer = %Tabs
 @onready var stats_list: VBoxContainer = %StatsList
 @onready var skills_list: VBoxContainer = %SkillsList
+@onready var craft_list: VBoxContainer = %CraftList
 @onready var team_score_label: Label = %TeamScoreLabel
 @onready var lives_label: Label = %LivesLabel
 @onready var vehicle_prompt: Label = %VehiclePrompt
@@ -57,7 +58,7 @@ var _ask_pending: bool = false
 const TRADE_ITEMS := ["medkit", "food", "water", "ammo", "grenade", "grenade_smoke", "grenade_flash",
 	"grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void",
 	"flashlight", "binoculars", "nvg", "scanner",
-	"helmet", "vest", "leg_armor", "backpack_small"]
+	"wood", "scrap", "helmet", "vest", "leg_armor", "backpack_small"]
 const TRADE_WEAPONS := ["pistol", "smg", "shotgun", "rifle"]
 
 var _player: Node = null
@@ -99,7 +100,7 @@ func _ready() -> void:
 	oxygen_label.visible = false
 	inventory_panel.visible = false
 	celebration.visible = false
-	tabs.tab_changed.connect(func(_i): _refresh_stats(); _refresh_skills())
+	tabs.tab_changed.connect(func(_i): _refresh_stats(); _refresh_skills(); _refresh_crafting())
 	npc_dialog.visible = false
 	npc_prompt.text = ""
 	quest_tracker.text = ""
@@ -628,6 +629,7 @@ func _toggle_inventory() -> void:
 		_refresh_inventory()
 		_refresh_stats()
 		_refresh_skills()
+		_refresh_crafting()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -691,6 +693,47 @@ func _buy_perk(id: String) -> void:
 	if Characters.buy_perk(id) and _player != null and is_instance_valid(_player):
 		Characters.apply_perks(_player)   # takes effect immediately
 	_refresh_skills()
+
+# ---------------------------------------------------------------- crafting tab
+
+## List crafting recipes with their cost; Craft button enabled when you can make it.
+func _refresh_crafting() -> void:
+	if craft_list == null:
+		return
+	for c in craft_list.get_children():
+		c.queue_free()
+	var near_fire: bool = _player != null and is_instance_valid(_player) and _player.near_campfire()
+	var hint := Label.new()
+	hint.text = "Cooking needs a campfire nearby.  " + ("(campfire in range)" if near_fire else "(no campfire)")
+	hint.modulate = Color(1, 1, 1, 0.6)
+	craft_list.add_child(hint)
+	for recipe in ItemDB.RECIPES:
+		var row := HBoxContainer.new()
+		var cost := PackedStringArray()
+		for id in (recipe["in"] as Dictionary):
+			cost.append("%dx %s" % [int(recipe["in"][id]), ItemDB.DEFS.get(id, {}).get("name", id)])
+		var name_l := Label.new()
+		name_l.text = String(recipe["name"])
+		name_l.custom_minimum_size.x = 120
+		var cost_l := Label.new()
+		cost_l.text = " ".join(cost) + (" + fire" if recipe.get("fire", false) else "")
+		cost_l.custom_minimum_size.x = 230
+		cost_l.modulate = Color(1, 1, 1, 0.7)
+		row.add_child(name_l)
+		row.add_child(cost_l)
+		var btn := Button.new()
+		btn.text = "Craft"
+		btn.disabled = not (_player != null and is_instance_valid(_player) and _player.can_craft(recipe))
+		var rec: Dictionary = recipe
+		btn.pressed.connect(func(): _do_craft(rec))
+		row.add_child(btn)
+		craft_list.add_child(row)
+
+func _do_craft(recipe: Dictionary) -> void:
+	if _player != null and is_instance_valid(_player) and _player.craft(recipe):
+		Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0)
+	_refresh_crafting()
+	_refresh_inventory()
 
 # ---------------------------------------------------------------- stats tab
 
@@ -951,5 +994,6 @@ func _leave() -> void:
 			w.save_adventure(_player)
 		else:
 			Characters.capture_from_player(_player)
+	Music.stop()
 	Net.disconnect_net()
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")

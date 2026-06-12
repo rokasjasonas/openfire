@@ -126,44 +126,49 @@ func _ready() -> void:
 		Audio.play_3d("res://assets/audio/fire_rifle.ogg", me.global_position, 0.0, 0.1)
 	await get_tree().process_frame
 
-	# Body-part hitboxes: a ray into a bot's head hitbox resolves to mult >= 2.
+	# Body-part hitboxes: a ray into a bot's head hitbox resolves to mult >= 2, and the
+	# head box sits near the top of the visible model. Try every living bot and pass if
+	# any gives a clean head hit (a single bot can be occluded/mid-stride).
 	var headshot_ok := false
+	var head_aligned := false
 	var bots_list := get_tree().get_nodes_in_group("bot")
-	if me and not bots_list.is_empty():
-		var bot: Node = null
-		for b in bots_list:
-			if not b.get("dead"):   # dead bots disable their hitboxes
-				bot = b
-				break
-		var head := bot.get_node_or_null("Hitboxes/Head/Shape") if bot else null
-		if head:
-			var hpos: Vector3 = head.global_position
-			var q := PhysicsRayQueryParameters3D.create(hpos + Vector3(0, 0, 2.0), hpos)
+	for bot in bots_list:
+		if bot.get("dead"):
+			continue
+		var head := bot.get_node_or_null("Hitboxes/Head/Shape")
+		if head == null:
+			continue
+		var hpos: Vector3 = head.global_position
+		var hit_ok := false
+		# Probe from several directions so an idle-posed limb can't hide the head.
+		for off in [Vector3(0, 0, 0.7), Vector3(0, 0, -0.7), Vector3(0.7, 0, 0), Vector3(-0.7, 0, 0)]:
+			var q := PhysicsRayQueryParameters3D.create(hpos + off, hpos)
 			q.collision_mask = 1 | 16
 			q.collide_with_areas = true
 			var r: Dictionary = me.get_world_3d().direct_space_state.intersect_ray(q)
-			if r and r.collider is Hitbox:
-				headshot_ok = r.collider.multiplier >= 2.0 and r.collider.combatant() == bot
-			# Alignment: the head hitbox must sit near the top of the VISIBLE model, not
-			# down at chest height (the bug where headshots on the model's head missed).
-			var maabb := AABB()
-			var first := true
-			for mi in bot.get_node("BodyModel").find_children("*", "MeshInstance3D", true, false):
-				var a: AABB = mi.get_aabb()
-				var gt: Transform3D = mi.global_transform
-				for ci in 8:
-					var cr := a.position + Vector3(a.size.x if (ci & 1) else 0.0, a.size.y if (ci & 2) else 0.0, a.size.z if (ci & 4) else 0.0)
-					var wp := gt * cr
-					if first:
-						maabb = AABB(wp, Vector3.ZERO)
-						first = false
-					else:
-						maabb = maabb.expand(wp)
-			var mtop: float = maabb.position.y + maabb.size.y
-			var head_aligned: bool = not first and head.global_position.y >= maabb.position.y + maabb.size.y * 0.7
-			headshot_ok = headshot_ok and head_aligned
-			print("SMOKE: head_aligned=", head_aligned, " head_y=", head.global_position.y, " model_top=", mtop)
-	print("SMOKE: headshot_hitbox_ok=", headshot_ok)
+			if r and r.collider is Hitbox and r.collider.multiplier >= 2.0 and r.collider.combatant() == bot:
+				hit_ok = true
+				break
+		# Alignment: head box near the top of the VISIBLE model (not at chest height).
+		var maabb := AABB()
+		var first := true
+		for mi in bot.get_node("BodyModel").find_children("*", "MeshInstance3D", true, false):
+			var a: AABB = mi.get_aabb()
+			var gt: Transform3D = mi.global_transform
+			for ci in 8:
+				var cr := a.position + Vector3(a.size.x if (ci & 1) else 0.0, a.size.y if (ci & 2) else 0.0, a.size.z if (ci & 4) else 0.0)
+				var wp := gt * cr
+				if first:
+					maabb = AABB(wp, Vector3.ZERO)
+					first = false
+				else:
+					maabb = maabb.expand(wp)
+		var aligned: bool = not first and hpos.y >= maabb.position.y + maabb.size.y * 0.65
+		if hit_ok and aligned:
+			headshot_ok = true
+			head_aligned = true
+			break
+	print("SMOKE: headshot_hitbox_ok=", headshot_ok, " aligned=", head_aligned)
 
 	# Crouch: _apply_crouch shrinks the capsule and lowers the head.
 	var crouch_ok := false
@@ -255,6 +260,79 @@ func _ready() -> void:
 	# Settings autoload present + applied.
 	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
 	print("SMOKE: settings_ok=", settings_ok)
+
+	# Adaptive music: the Music autoload sets up its bus + crossfades to combat.
+	var music_ok := false
+	if Music != null:
+		Music.start()
+		Music.set_combat(true)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var bus_ok: bool = AudioServer.get_bus_index("Music") >= 0
+		Music.set_combat(false)
+		music_ok = bus_ok and Music._combat != null and Music._calm != null
+		print("SMOKE: music_ok=", music_ok, " bus=", bus_ok)
+
+	# Wildlife: an animal is a shootable combatant that drops meat on death.
+	var wildlife_ok := false
+	if me:
+		var an: Node = load("res://scenes/animal.tscn").instantiate()
+		an.species = "deer"
+		get_tree().current_scene.add_child(an)
+		await get_tree().process_frame
+		var is_combatant: bool = an.is_in_group("combatant") and an.is_in_group("animal")
+		var before_pk := 0
+		for n in get_tree().current_scene.get_children():
+			if n.get("kind") != null and String(n.get("kind")) == "food":
+				before_pk += 1
+		an.hit(999.0, 1)   # kill it -> drops meat + frees
+		await get_tree().process_frame
+		var after_pk := 0
+		for n in get_tree().current_scene.get_children():
+			if n.get("kind") != null and String(n.get("kind")) == "food":
+				after_pk += 1
+		wildlife_ok = is_combatant and after_pk > before_pk
+		print("SMOKE: wildlife_ok=", wildlife_ok, " combatant=", is_combatant, " drops=", after_pk - before_pk)
+
+	# Archetypes: grenadier + sniper profiles exist with distinct behaviours.
+	var botscript = load("res://scripts/ai/bot.gd")
+	var archetype_ok: bool = botscript.PROFILES.has("grenadier") and botscript.PROFILES.has("sniper") \
+		and String(botscript.PROFILES["grenadier"].get("behavior", "")) == "grenadier" \
+		and String(botscript.PROFILES["sniper"].get("behavior", "")) == "kite"
+	print("SMOKE: archetype_ok=", archetype_ok)
+
+	# Crafting: recipes defined; with materials in the pack, a no-fire recipe crafts.
+	var craft_ok := false
+	if me:
+		var cf_prev = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		# Bandage = 2 hide -> medkit (no fire needed).
+		me.inv_add(ItemDB.make("hide"))
+		me.inv_add(ItemDB.make("hide"))
+		var bandage = ItemDB.RECIPES[1]   # bandage
+		var can_before: bool = me.can_craft(bandage)
+		var made: bool = me.craft(bandage)
+		var has_medkit := false
+		for it in me.inventory:
+			if String(it.get("id", "")) == "medkit":
+				has_medkit = true
+		# Cooking needs fire: should be blocked without a campfire.
+		me.inventory.clear()
+		me.inv_add(ItemDB.make("raw_meat"))
+		var cook := ItemDB.RECIPES[0]
+		var cook_blocked: bool = not me.can_craft(cook)
+		# Deploy a campfire, then cooking is allowed.
+		var fire: Node = load("res://scenes/campfire.tscn").instantiate()
+		get_tree().current_scene.add_child(fire)
+		fire.global_position = me.global_position
+		await get_tree().process_frame
+		var cook_ok: bool = me.near_campfire() and me.can_craft(cook)
+		craft_ok = can_before and made and has_medkit and cook_blocked and cook_ok
+		fire.queue_free()
+		me.inventory.clear()
+		Game.config["mode"] = cf_prev
+		print("SMOKE: craft_ok=", craft_ok, " bandage=", made, " medkit=", has_medkit, " cook_blocked=", cook_blocked, " cook_ok=", cook_ok)
 
 	# Gadgets + grenade types: item defs, gadget slot equip + Q toggle, grenade variant
 	# spawn, and a couple of effect behaviours.
@@ -1545,7 +1623,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

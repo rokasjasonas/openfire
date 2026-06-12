@@ -343,6 +343,12 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			e.position = data["pos"]
 			e.setup(int(data["id"]), data["dest"], float(data["speed"]))
 			return e
+		"animal":
+			var a := ANIMAL_SCENE.instantiate()
+			a.name = "A%d" % absi(int(data["id"]))
+			a.species = String(data.get("species", "deer"))
+			a.position = data["pos"]
+			return a   # authority stays with the host, which drives the AI
 		_:
 			var b := BOT_SCENE.instantiate()
 			b.name = "B%d" % absi(int(data["id"]))
@@ -414,6 +420,23 @@ func _spawn_loot(idx: int, pos: Vector3, kind: String, subtype: String) -> void:
 		p.weapon_id = subtype
 	if kind == "health":
 		p.amount = 50
+	get_tree().current_scene.add_child(p)
+	p.global_position = pos
+
+## Host-only: drop a specific item as a world pickup, replicated to all peers (used by
+## wildlife dropping meat/hide). Falls back to a local pickup outside multiplayer.
+func spawn_item_pickup(pos: Vector3, item_id: String) -> void:
+	if not Net.is_host():
+		return
+	_loot_counter += 1
+	_spawn_item_pickup.rpc(_loot_counter, pos, item_id)
+
+@rpc("authority", "call_local", "reliable")
+func _spawn_item_pickup(idx: int, pos: Vector3, item_id: String) -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.name = "Loot_%d" % idx
+	p.kind = "food"
+	p.item_data = ItemDB.make(item_id)
 	get_tree().current_scene.add_child(p)
 	p.global_position = pos
 
@@ -510,11 +533,11 @@ func _spawn_wildlife() -> void:
 		var rad := _survival_rng.randf_range(20.0, 90.0 + size * 30.0)
 		var pos := _snap_to_nav(Vector3(cos(ang) * rad, 0, sin(ang) * rad))
 		pos.y += 1.0
-		var a := ANIMAL_SCENE.instantiate()
 		var roll := _survival_rng.randf()
-		a.species = "wolf" if roll < 0.22 else ("boar" if roll < 0.5 else "deer")
-		add_child(a)
-		a.global_position = pos
+		var sp := "wolf" if roll < 0.22 else ("boar" if roll < 0.5 else "deer")
+		_bot_counter += 1
+		# Spawn through the MultiplayerSpawner so co-op clients see the wildlife too.
+		spawner.spawn({"type": "animal", "id": -5000 - _bot_counter, "pos": pos, "species": sp})
 
 func _on_story_ready(s: Dictionary) -> void:
 	NameGen.set_pools(s.get("names", {}))

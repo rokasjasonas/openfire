@@ -12,6 +12,6 @@ script = ExtResource("1_world")
 
 [node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="."]
 spawn_path = NodePath("../Combatants")
-_spawnable_scenes = PackedStringArray("res://scenes/player.tscn", "res://scenes/bot.tscn")
+_spawnable_scenes = PackedStringArray("res://scenes/player.tscn", "res://scenes/bot.tscn", "res://scenes/animal.tscn")
 
 [node name="HUD" parent="." instance=ExtResource("2_hud")]

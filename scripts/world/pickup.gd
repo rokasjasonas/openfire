@@ -144,7 +144,8 @@ func collect(body: Node) -> bool:
 		return false
 	var item: Dictionary = item_data if not item_data.is_empty() else ItemDB.from_pickup(kind, amount, weapon_id)
 	if body.has_method("inv_add") and body.inv_add(item):
-		Audio.play_3d("res://assets/audio/reload.ogg", global_position, 0.0, 0.05)
+		if body.is_multiplayer_authority():
+			Audio.play_ui("res://assets/audio/pickup.wav", -8.0)   # local collect chime
 		_take.rpc()
 		return true
 	return false

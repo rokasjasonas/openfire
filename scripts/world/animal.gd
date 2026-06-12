@@ -9,6 +9,8 @@ const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 
 var team: int = 99          # neutral: not on anyone's side, so player shots always land
 var dead: bool = false
+var sync_pos: Vector3 = Vector3.ZERO   # host-driven transform, replicated to clients
+var sync_yaw: float = 0.0
 var health: float = 40.0
 var predator: bool = false
 var _speed: float = 4.0
@@ -38,7 +40,20 @@ func _ready() -> void:
 	predator = bool(s["predator"])
 	_build_body(float(s["size"]))
 	_anim_pos = global_position
+	sync_pos = global_position
+	sync_yaw = rotation.y
 	_new_wander()
+
+func _process(delta: float) -> void:
+	# Clients don't run the AI; smoothly follow the host-replicated transform.
+	if is_multiplayer_authority():
+		return
+	var t := clampf(15.0 * delta, 0.0, 1.0)
+	if global_position.distance_to(sync_pos) > 8.0:
+		global_position = sync_pos
+	else:
+		global_position = global_position.lerp(sync_pos, t)
+	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 
 func _build_body(size: float) -> void:
 	_body = Node3D.new()
@@ -123,6 +138,8 @@ func _physics_process(delta: float) -> void:
 		var yaw := atan2(move.x, move.z)
 		rotation.y = lerp_angle(rotation.y, yaw, 8.0 * delta)
 	move_and_slide()
+	sync_pos = global_position
+	sync_yaw = rotation.y
 	# A little gait bob.
 	if _body != null and Vector2(velocity.x, velocity.z).length() > 0.5:
 		_bob += delta * 12.0
@@ -141,26 +158,29 @@ func _new_wander() -> void:
 	var ang := randf() * TAU
 	_wander = Vector3(cos(ang), 0, sin(ang))
 
-## Shot resolution routes here (animal is in group "combatant"). Host-authoritative.
+## Shot resolution routes here (animal is in group "combatant"). A client's hit is
+## forwarded to the host, which owns the animal's health (like bots).
 func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
+	if dead:
+		return
+	receive_damage.rpc_id(get_multiplayer_authority(), amount, attacker_id)
+
+@rpc("any_peer", "call_local", "reliable")
+func receive_damage(amount: float, _attacker_id: int) -> void:
 	if dead or not is_multiplayer_authority():
 		return
 	health -= amount
-	# A wounded predator turns aggressive; grazers just keep fleeing (handled in AI).
 	if health <= 0.0:
 		_die()
 
 func _die() -> void:
 	dead = true
-	_drop(ItemDB.make("raw_meat"))
-	if randf() < 0.6:
-		_drop(ItemDB.make("hide"))
-	Audio.play_3d("res://assets/audio/death_body.wav", global_position, -3.0, 0.1)
+	# Drop via the world so the meat/hide pickups replicate to co-op clients.
+	var world := get_tree().get_first_node_in_group("world")
+	var here := global_position
+	if world != null and world.has_method("spawn_item_pickup"):
+		world.spawn_item_pickup(here + Vector3(0.3, 0.4, 0.0), "raw_meat")
+		if randf() < 0.6:
+			world.spawn_item_pickup(here + Vector3(-0.3, 0.4, 0.0), "hide")
+	Audio.play_3d("res://assets/audio/death_body.wav", here, -3.0, 0.1)
 	queue_free()
-
-func _drop(item: Dictionary) -> void:
-	var p := PICKUP_SCENE.instantiate()
-	p.kind = "food"
-	p.item_data = item
-	get_tree().current_scene.add_child(p)
-	p.global_position = global_position + Vector3(randf_range(-0.6, 0.6), 0.4, randf_range(-0.6, 0.6))

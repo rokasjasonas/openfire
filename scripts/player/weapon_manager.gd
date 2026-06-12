@@ -336,6 +336,7 @@ func _fire() -> void:
 	# Damage feedback for the shooter only.
 	if hit_combatant and is_local:
 		_show_damage_number(last_hit, dmg_dealt, was_headshot)
+		Audio.play_ui("res://assets/audio/hitmarker.wav", -10.0 if not was_headshot else -6.0)
 		player.dealt_damage.emit(dmg_dealt)
 		player.shots_hit += 1  # any shot that connected with a target (for accuracy)
 	# Local recoil kick.

@@ -475,6 +475,7 @@ func _add_event_line(bbcode: String) -> void:
 
 ## A little top-centre celebration banner when a quest/mission is completed.
 func celebrate(title: String) -> void:
+	Audio.play_ui("res://assets/audio/quest_complete.wav", -5.0)
 	celebration.text = "★  MISSION COMPLETE  ★\n%s" % title
 	celebration.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	celebration.visible = true

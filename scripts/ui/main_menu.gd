@@ -21,6 +21,20 @@ const SKILLS := [
 # Adventure uses one procedurally-generated terrain map, sized by map_size + seed.
 const ADVENTURE_MAP := "res://maps/terrain.tscn"
 
+# Saved map templates: each is a fixed (seed + size + theme + climate) that regenerates
+# the exact same world every time. "Custom" uses the fields below instead. size:
+# 0 Tiny, 1 Small, 2 Medium, 3 Large.
+const MAP_PRESETS := [
+	{"name": "Custom (use fields below)", "preset": false},
+	{"name": "★ Showoff — Grand Vista (huge)", "preset": true, "seed": 73501, "size": 3,
+		"theme": "a majestic valley of snow-capped peaks, winding rivers, lakes and deep forests", "climate": "verdant"},
+	{"name": "Test — Frozen North", "preset": true, "seed": 1001, "size": 2, "theme": "frozen arctic tundra", "climate": "frozen"},
+	{"name": "Test — Desert Wastes", "preset": true, "seed": 1002, "size": 2, "theme": "scorching desert wasteland", "climate": "desert"},
+	{"name": "Test — Tropic Isles", "preset": true, "seed": 1003, "size": 2, "theme": "tropical island archipelago", "climate": "isles"},
+	{"name": "Test — Volcanic Ashlands", "preset": true, "seed": 1004, "size": 2, "theme": "volcanic ashlands", "climate": "volcanic"},
+	{"name": "Test — Verdant Lowlands", "preset": true, "seed": 1005, "size": 2, "theme": "lush green wilderness", "climate": "verdant"},
+]
+
 @onready var setup_panel: Control = %SetupPanel
 @onready var lobby_panel: Control = %LobbyPanel
 @onready var name_edit: LineEdit = %NameEdit
@@ -47,6 +61,8 @@ const ADVENTURE_MAP := "res://maps/terrain.tscn"
 @onready var theme_edit: LineEdit = %ThemeEdit
 @onready var map_size_row: Control = %MapSizeRow
 @onready var map_size_option: OptionButton = %MapSizeOption
+@onready var template_row: Control = %TemplateRow
+@onready var template_option: OptionButton = %TemplateOption
 @onready var inv_key_option: OptionButton = %InvKeyOption
 @onready var character_row: Control = %CharacterRow
 @onready var char_label: Label = %CharLabel
@@ -105,6 +121,11 @@ func _ready() -> void:
 	mode_option.add_item("Battle Royale")
 	mode_option.add_item("Adventure")
 	mode_option.selected = Game.Mode.ADVENTURE  # Adventure is the default mode
+	template_option.clear()
+	for p in MAP_PRESETS:
+		template_option.add_item(String(p["name"]))
+	template_option.selected = 0
+	template_option.item_selected.connect(func(_i): _on_mode_changed(mode_option.selected))
 	map_size_option.clear()
 	for size_name in ["Tiny", "Small", "Medium", "Large"]:
 		map_size_option.add_item(size_name)
@@ -246,9 +267,12 @@ func _on_mode_changed(_idx: int) -> void:
 	frag_row.visible = not coop and not br and not adventure
 	mission_row.visible = coop
 	mission_points_row.visible = adventure
-	seed_row.visible = adventure
-	map_size_row.visible = adventure
-	theme_row.visible = adventure
+	# A chosen template pins seed/size/theme, so hide those fields then.
+	var custom: bool = adventure and template_option.selected == 0
+	template_row.visible = adventure
+	seed_row.visible = custom
+	map_size_row.visible = custom
+	theme_row.visible = custom
 	character_row.visible = adventure
 	# Adventure hides the manual NPC count, but keeps the difficulty (Bot skill) selector.
 	bots_spin.get_parent().visible = not adventure
@@ -275,11 +299,19 @@ func _capture_config() -> void:
 		Game.config.erase("climate")        # fresh world -> re-resolve from the theme
 		Game.continue_data = {}
 		Game.config["mission_points"] = int(mission_points_spin.value)
-		Game.config["map_size"] = map_size_option.selected
 		Game.config["map"] = ADVENTURE_MAP   # terrain.gd reads map_size + seed
 		Game.config["frag_limit"] = 0
-		Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
-		Game.config["theme"] = theme_edit.text.strip_edges()
+		var preset: Dictionary = MAP_PRESETS[clampi(template_option.selected, 0, MAP_PRESETS.size() - 1)]
+		if bool(preset.get("preset", false)):
+			# A saved template: load its exact world (seed + size + theme + pinned climate).
+			Game.config["seed"] = int(preset["seed"])
+			Game.config["map_size"] = int(preset["size"])
+			Game.config["theme"] = String(preset["theme"])
+			Game.config["climate"] = String(preset["climate"])
+		else:
+			Game.config["map_size"] = map_size_option.selected
+			Game.config["seed"] = _parse_seed(seed_edit.text.strip_edges())
+			Game.config["theme"] = theme_edit.text.strip_edges()
 		# NPC count is fixed (scaled by the world); difficulty comes from the skill
 		# selector (bot_skill is already set from skill_option above).
 		Game.config["bot_count"] = 12

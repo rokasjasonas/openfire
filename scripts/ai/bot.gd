@@ -282,12 +282,7 @@ func _update_anim(delta: float) -> void:
 	if _anim == null:
 		return
 	if dead:
-		if not _died_anim:
-			_died_anim = true
-			if _anim.has_animation("die"):
-				_anim.get_animation("die").loop_mode = Animation.LOOP_NONE
-				_anim.play("die", 0.1)
-		return
+		return   # corpse pose is handled by _tip_over (physical fall), not a clip
 	_died_anim = false
 	var d := global_position - _anim_pos
 	d.y = 0.0
@@ -888,19 +883,39 @@ func _die(attacker_id: int) -> void:
 @rpc("authority", "call_local", "reliable")
 func _set_dead_visual(is_dead: bool) -> void:
 	dead = is_dead
-	# Keep the body visible so the "die" animation plays and the corpse lingers; only
-	# the name tag + collision come off. _update_anim plays "die" once when dead.
+	# Keep the body visible so the corpse lingers; only the name tag + collision come
+	# off. The body physically topples over (see _tip_over) so it lies on the ground.
 	name_label.visible = not is_dead
 	$CollisionShape3D.disabled = is_dead
+	# Take the hit areas off the ray layer when dead, so shooting a corpse does nothing
+	# (no damage numbers / blood / hit marker).
+	if has_node("Hitboxes"):
+		for a in $Hitboxes.get_children():
+			if a is Area3D:
+				a.collision_layer = 0 if is_dead else 16
 	if is_dead:
-		_died_anim = false   # let _update_anim trigger the death clip
 		_clear_marker()      # no kill/quest marker over a corpse
+		_tip_over()
 		# A body-drop thud, not the grenade explosion sound.
 		Audio.play_3d("res://assets/audio/death_body.wav", global_position, -1.0, 0.08)
 	else:
+		# Respawn: stand the body back up and resume animating.
 		body_model.visible = true
+		body_model.rotation = Vector3(0, PI, 0)   # the model's default facing
+		body_model.position = Vector3.ZERO
 		if _anim != null and _anim.has_animation("idle"):
 			_anim.play("idle")
+
+## Topple the body to lie flat on the ground (a ragdoll-ish death). Freezes the pose
+## and tweens a fall to one side, lowering it so it rests on the floor.
+func _tip_over() -> void:
+	if _anim != null:
+		_anim.stop()   # freeze the current pose; we rotate the whole body instead
+	var side := 1.0 if (absi(combatant_id) % 2 == 0) else -1.0
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(body_model, "rotation:x", PI * 0.5 * side, 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(body_model, "rotation:z", randf_range(-0.25, 0.25), 0.45)
+	tw.tween_property(body_model, "position:y", 0.1, 0.45)
 
 func _do_respawn() -> void:
 	sync_health = max_health

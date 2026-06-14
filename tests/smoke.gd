@@ -261,6 +261,63 @@ func _ready() -> void:
 	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
 	print("SMOKE: settings_ok=", settings_ok)
 
+	# Choppable trees: a tree is destructible; felling it drops wood + can regrow.
+	var tree_ok := false
+	if world:
+		var tterr: Node = load("res://maps/terrain.tscn").instantiate()
+		get_tree().root.add_child(tterr)
+		await get_tree().physics_frame
+		var a_tree: Node = null
+		for t in get_tree().get_nodes_in_group("tree"):
+			a_tree = t
+			break
+		if a_tree != null:
+			var groups_ok: bool = a_tree.is_in_group("destructible") and a_tree.has_method("hit") and a_tree.has_method("set_felled")
+			var tid: int = int(a_tree.get_meta("tree_id", -1))
+			var wood_before := 0
+			for n in get_tree().current_scene.get_children():
+				if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "wood":
+					wood_before += 1
+			world.damage_tree(tid, 999.0, 1)
+			await get_tree().process_frame
+			var wood_after := 0
+			for n in get_tree().current_scene.get_children():
+				if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "wood":
+					wood_after += 1
+			a_tree.set_felled(false)   # regrow restores it
+			tree_ok = groups_ok and a_tree.destroyed == false and a_tree.visible and wood_after > wood_before
+			print("SMOKE: tree_ok=", tree_ok, " groups=", groups_ok, " wood_dropped=", wood_after - wood_before)
+		tterr.queue_free()
+
+	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
+	# world — same seed -> same terrain.
+	var preset_ok := false
+	var mm = load("res://scripts/ui/main_menu.gd")
+	var showoff: Dictionary = {}
+	for p in mm.MAP_PRESETS:
+		if bool(p.get("preset", false)) and String(p["name"]).begins_with("★"):
+			showoff = p
+	var preset_defs_ok: bool = mm.MAP_PRESETS.size() >= 5 and not showoff.is_empty() and int(showoff["size"]) == 3
+	var pv_prev_seed = Game.config.get("seed", 0)
+	var pv_prev_size = Game.config.get("map_size", 2)
+	var pv_prev_clim = Game.config.get("climate", "")
+	Game.config["seed"] = int(showoff["seed"])
+	Game.config["map_size"] = int(showoff["size"])
+	Game.config["climate"] = String(showoff["climate"])
+	var pterr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(pterr)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var preg = pterr.get_node_or_null("NavRegion")
+	var ppolys: int = preg.navigation_mesh.get_polygon_count() if preg and preg.navigation_mesh else 0
+	var ppoi := get_tree().get_nodes_in_group("poi_site").size()
+	preset_ok = preset_defs_ok and ppolys > 0 and ppoi >= 3
+	print("SMOKE: preset_ok=", preset_ok, " defs=", preset_defs_ok, " polys=", ppolys, " poi=", ppoi)
+	pterr.queue_free()
+	Game.config["seed"] = pv_prev_seed
+	Game.config["map_size"] = pv_prev_size
+	Game.config["climate"] = pv_prev_clim
+
 	# Adaptive music: the Music autoload sets up its bus + crossfades to combat.
 	var music_ok := false
 	if Music != null:
@@ -1623,7 +1680,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

@@ -440,6 +440,46 @@ func _spawn_item_pickup(idx: int, pos: Vector3, item_id: String) -> void:
 	get_tree().current_scene.add_child(p)
 	p.global_position = pos
 
+# ---------------------------------------------------------------- trees (chop + regrow)
+const TREE_HEALTH := 28.0
+var _tree_hp: Dictionary = {}   # tree_id -> remaining health (host-only)
+
+## A tree took damage (from the destructible weapon path). Host owns the health; when
+## it drops, the tree is felled on every peer, drops wood, and is scheduled to regrow.
+func damage_tree(id: int, amount: float, _attacker_id: int) -> void:
+	if not Net.is_host():
+		return
+	var hp := float(_tree_hp.get(id, TREE_HEALTH)) - amount
+	if hp <= 0.0:
+		_tree_hp.erase(id)
+		var t := _find_tree(id)
+		if t != null:
+			var base: Vector3 = t.global_position
+			spawn_item_pickup(base + Vector3(0.7, 0.5, 0.0), "wood")
+			if randf() < 0.7:
+				spawn_item_pickup(base + Vector3(-0.7, 0.5, 0.4), "wood")
+		_set_tree_felled.rpc(id, true)
+		# Regrow after a while — trees come back like in real life.
+		get_tree().create_timer(randf_range(90.0, 180.0)).timeout.connect(func(): _regrow_tree(id))
+	else:
+		_tree_hp[id] = hp
+
+func _regrow_tree(id: int) -> void:
+	if Net.is_host():
+		_set_tree_felled.rpc(id, false)
+
+@rpc("authority", "call_local", "reliable")
+func _set_tree_felled(id: int, felled: bool) -> void:
+	var t := _find_tree(id)
+	if t != null and t.has_method("set_felled"):
+		t.set_felled(felled)
+
+func _find_tree(id: int) -> Node:
+	for t in get_tree().get_nodes_in_group("tree"):
+		if int(t.get_meta("tree_id", -1)) == id:
+			return t
+	return null
+
 ## Host-only: spill `n` pieces of mixed loot around a point (treasure caches, rewards).
 func drop_loot_at(pos: Vector3, n: int) -> void:
 	if not Net.is_host():

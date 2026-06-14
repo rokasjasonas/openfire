@@ -55,7 +55,7 @@ var _npc_info: Dictionary = {}   # the NPC currently in the talk dialog
 var _ask_pending: bool = false
 
 # Quartermaster stock: item ids (ItemDB) and weapon ids, bought at full value.
-const TRADE_ITEMS := ["medkit", "food", "water", "ammo", "grenade", "grenade_smoke", "grenade_flash",
+const TRADE_ITEMS := ["medkit", "food", "water", "raw_meat", "ammo", "grenade", "grenade_smoke", "grenade_flash",
 	"grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void",
 	"flashlight", "binoculars", "nvg", "scanner",
 	"wood", "scrap", "helmet", "vest", "leg_armor", "backpack_small"]

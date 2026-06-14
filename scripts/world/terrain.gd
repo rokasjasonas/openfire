@@ -505,31 +505,63 @@ func _scatter_vegetation(rng: RandomNumberGenerator) -> void:
 		_add_boulder(rng, Vector3(x, h, z))
 		placed += 1
 
+const TREE_SCRIPT := preload("res://scripts/world/tree.gd")
+var _tree_counter: int = 0
+
+## Build a single choppable tree node (trunk collider + canopy) rooted at `pos`. The
+## tree carries a deterministic id so felling/regrowth can replicate across peers.
 func _add_tree(rng: RandomNumberGenerator, pos: Vector3, biome: String) -> void:
 	var th := rng.randf_range(3.6, 8.0)
 	if biome == "tundra" or biome == "snow":
 		th *= 0.7
 	var trunk_w := clampf(th * 0.09, 0.35, 0.8)
-	var trunk_col := Color(0.34, 0.24, 0.15)
-	_collider_box(Vector3(trunk_w, th, trunk_w), pos + Vector3(0, th * 0.5, 0), trunk_col)
+	var tree: StaticBody3D = TREE_SCRIPT.new()
+	tree.collision_layer = 1
+	tree.collision_mask = 0
+	tree.add_to_group("tree")
+	tree.add_to_group("destructible")
+	tree.tree_id = _tree_counter
+	tree.set_meta("tree_id", _tree_counter)
+	_tree_counter += 1
+	region.add_child(tree)
+	tree.position = pos
+	# Trunk: collider + visual (local coords, since the tree is positioned at `pos`).
+	_tree_box(tree, Vector3(trunk_w, th, trunk_w), Vector3(0, th * 0.5, 0), Color(0.34, 0.24, 0.15), true)
 	if biome == "desert":
-		# Cactus: a tall green column + a stubby arm.
 		var cc := Color(0.24, 0.42, 0.22)
-		_visual_box(Vector3(0.7, th * 0.9, 0.7), pos + Vector3(0, th * 0.45, 0), cc)
-		_visual_box(Vector3(0.5, 1.4, 0.5), pos + Vector3(trunk_w + 0.4, th * 0.6, 0), cc)
+		_tree_box(tree, Vector3(0.7, th * 0.9, 0.7), Vector3(0, th * 0.45, 0), cc, false)
+		_tree_box(tree, Vector3(0.5, 1.4, 0.5), Vector3(trunk_w + 0.4, th * 0.6, 0), cc, false)
 		return
 	if biome == "snow" or biome == "tundra":
-		# Conifer: stacked dark-green tiers.
 		var fc := Color(0.16, 0.34, 0.20)
-		_visual_box(Vector3(th * 0.6, th * 0.5, th * 0.6), pos + Vector3(0, th * 0.78, 0), fc)
-		_visual_box(Vector3(th * 0.4, th * 0.4, th * 0.4), pos + Vector3(0, th * 1.08, 0), fc)
+		_tree_box(tree, Vector3(th * 0.6, th * 0.5, th * 0.6), Vector3(0, th * 0.78, 0), fc, false)
+		_tree_box(tree, Vector3(th * 0.4, th * 0.4, th * 0.4), Vector3(0, th * 1.08, 0), fc, false)
 		return
-	# Broadleaf: a rounded canopy (two offset blocks), greener when lush.
 	var fr := rng.randf_range(2.2, 3.8)
 	var leaf := Color(0.20, 0.42, 0.18) if biome == "forest" else Color(0.26, 0.48, 0.22)
 	leaf = _vary(leaf, pos.x, pos.z, 0.04)
-	_visual_box(Vector3(fr, fr * 0.85, fr), pos + Vector3(0, th + fr * 0.2, 0), leaf)
-	_visual_box(Vector3(fr * 0.75, fr * 0.7, fr * 0.75), pos + Vector3(fr * 0.2, th + fr * 0.55, 0), leaf.darkened(0.08))
+	_tree_box(tree, Vector3(fr, fr * 0.85, fr), Vector3(0, th + fr * 0.2, 0), leaf, false)
+	_tree_box(tree, Vector3(fr * 0.75, fr * 0.7, fr * 0.75), Vector3(fr * 0.2, th + fr * 0.55, 0), leaf.darkened(0.08), false)
+
+## A box under a tree node: a mesh, plus a collider when `solid` (the trunk).
+func _tree_box(tree: Node3D, size: Vector3, local_pos: Vector3, col: Color, solid: bool) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.roughness = 1.0
+	mi.material_override = m
+	mi.position = local_pos
+	tree.add_child(mi)
+	if solid:
+		var cs := CollisionShape3D.new()
+		var sh := BoxShape3D.new()
+		sh.size = size
+		cs.shape = sh
+		cs.position = local_pos
+		tree.add_child(cs)
 
 func _add_boulder(rng: RandomNumberGenerator, pos: Vector3) -> void:
 	var rs := rng.randf_range(1.4, 3.6)

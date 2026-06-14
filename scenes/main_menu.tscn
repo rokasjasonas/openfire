@@ -177,6 +177,20 @@ max_value = 100.0
 step = 1.0
 value = 10.0
 
+[node name="TemplateRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/TemplateRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "Map template"
+
+[node name="TemplateOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/TemplateRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
 [node name="ThemeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
 unique_name_in_owner = true
 layout_mode = 2

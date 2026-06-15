@@ -695,16 +695,25 @@ func _ready() -> void:
 	var bots2 := get_tree().get_nodes_in_group("bot")
 	if not bots2.is_empty() and world:
 		var b: Node = bots2[0]
+		# Isolate the bot high in the air and freeze it, so nothing (other bots, terrain)
+		# sits between its muzzle and the target — otherwise the shot can hit a teammate
+		# and the check is flaky.
+		b.set_physics_process(false)
+		b.global_position = Vector3(500, 120, 500)
+		await get_tree().physics_frame
 		var tv: Node = load("res://scenes/vehicle.tscn").instantiate()
 		world.add_child(tv)
-		tv.global_position = b.global_position + Vector3(0, 0.8, 0) + b.global_transform.basis.z * 2.5
+		# Place the target directly in front of the muzzle (bot faces -Z), clear LOS.
+		tv.global_position = b.global_position + Vector3(0, 1.0, 0) - b.global_transform.basis.z * 4.0
 		tv.driver_id = 99
 		tv.driver_team = 0  # enemy to the bot (team 1 in coop)
 		await get_tree().physics_frame
 		await get_tree().physics_frame
 		var vh0: float = tv.health
-		# Fire a few times: a single shot can miss on the random spread cone.
-		for _i in 8:
+		# Zero spread => dead-centre shot; deterministic.
+		b.spread_far = 0.0
+		b.spread_near = 0.0
+		for _i in 3:
 			b._shoot_cd = 0.0
 			b._shoot_at(tv)
 			await get_tree().physics_frame

@@ -62,7 +62,7 @@ func _draw() -> void:
 	# Co-op objective entities: destructible quest targets + the escort VIP. Harvestable
 	# props (trees/rocks) are also "destructible" but must NOT clutter the minimap.
 	for t in get_tree().get_nodes_in_group("destructible"):
-		if t.get("destroyed") or t.is_in_group("tree") or t.is_in_group("rock"):
+		if t.get("destroyed") or t.is_in_group("tree") or t.is_in_group("rock") or t.is_in_group("trash"):
 			continue
 		_blip(c, t.global_position - ppos, fwd, right, scale, Color(1, 0.3, 0.2), 4.0, true)
 	for e in get_tree().get_nodes_in_group("escort"):

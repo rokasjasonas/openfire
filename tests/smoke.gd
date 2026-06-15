@@ -309,8 +309,19 @@ func _ready() -> void:
 			for rcp in ItemDB.RECIPES:
 				if (rcp["in"] as Dictionary).has("stone"):
 					stone_recipe_ok = true
-			tree_ok = tree_ok and rock_ok and stone_recipe_ok
-			print("SMOKE: tree_ok=", tree_ok, " groups=", groups_ok, " wood_dropped=", wood_after - wood_before, " rock=", rock_ok, " stone_recipe=", stone_recipe_ok)
+			# Trash piles: destructible, spill random loot (count total pickups grow).
+			var trash_ok := false
+			var a_trash: Node = null
+			for tp in get_tree().get_nodes_in_group("trash"):
+				a_trash = tp
+				break
+			if a_trash != null:
+				var pk_before := get_tree().get_nodes_in_group("pickup").size()
+				world.damage_prop(int(a_trash.get_meta("prop_id", -1)), 999.0, 1)
+				await get_tree().process_frame
+				trash_ok = a_trash.is_in_group("destructible") and get_tree().get_nodes_in_group("pickup").size() > pk_before
+			tree_ok = tree_ok and rock_ok and stone_recipe_ok and trash_ok
+			print("SMOKE: tree_ok=", tree_ok, " wood=", wood_after - wood_before, " rock=", rock_ok, " stone_recipe=", stone_recipe_ok, " trash=", trash_ok)
 		tterr.queue_free()
 
 	# Torch / jetpack / campfire fuel / money / follower recruiting.
@@ -1524,8 +1535,12 @@ func _ready() -> void:
 	var propc := 0
 	for ch in terA.get_node("NavRegion").get_children():
 		if ch is MeshInstance3D and ch.name != "TerrainMesh":
-			propc += 1
+			propc += 1   # built structures (cave/village/wall boxes)
+	# Trees/rocks render via a shared MultiMesh now; count the prop bodies themselves.
+	propc += get_tree().get_nodes_in_group("tree").size() + get_tree().get_nodes_in_group("rock").size()
 	var props_ok: bool = propc >= 50
+	# The MultiMesh batches all prop visuals into one instance.
+	var mm_ok := terA.get_node_or_null("PropVisuals") != null
 	var cave_loot := get_tree().get_nodes_in_group("pickup").size()
 	var terB: Node = load("res://maps/terrain.tscn").instantiate()
 	get_tree().root.add_child(terB)
@@ -1540,8 +1555,8 @@ func _ready() -> void:
 	terB.queue_free()
 	Game.config["map_size"] = pms2
 	Game.config["seed"] = psd2
-	terrain_depth_ok = biome_variety_ok and props_ok and det_ok and cave_loot > 0 and climate_ok
-	print("SMOKE: terrain_depth_ok=", terrain_depth_ok, " biomes=", biomes.size(), " props=", propc, " determinism=", det_ok)
+	terrain_depth_ok = biome_variety_ok and props_ok and det_ok and cave_loot > 0 and climate_ok and mm_ok
+	print("SMOKE: terrain_depth_ok=", terrain_depth_ok, " biomes=", biomes.size(), " props=", propc, " mm=", mm_ok, " determinism=", det_ok)
 
 	# Swimming + oxygen: air drains underwater, refills at the surface, and you drown
 	# (take damage) once it hits zero.

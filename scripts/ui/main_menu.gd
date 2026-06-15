@@ -26,13 +26,13 @@ const ADVENTURE_MAP := "res://maps/terrain.tscn"
 # 0 Tiny, 1 Small, 2 Medium, 3 Large.
 const MAP_PRESETS := [
 	{"name": "Custom (use fields below)", "preset": false},
-	{"name": "★ Showoff — Grand Vista (huge)", "preset": true, "seed": 73501, "size": 3,
+	{"name": "★ Showoff — Grand Vista (huge)", "preset": true, "seed": 820447, "size": 3,
 		"theme": "a majestic valley of snow-capped peaks, winding rivers, lakes and deep forests", "climate": "verdant"},
-	{"name": "Test — Frozen North", "preset": true, "seed": 1001, "size": 2, "theme": "frozen arctic tundra", "climate": "frozen"},
-	{"name": "Test — Desert Wastes", "preset": true, "seed": 1002, "size": 2, "theme": "scorching desert wasteland", "climate": "desert"},
-	{"name": "Test — Tropic Isles", "preset": true, "seed": 1003, "size": 2, "theme": "tropical island archipelago", "climate": "isles"},
-	{"name": "Test — Volcanic Ashlands", "preset": true, "seed": 1004, "size": 2, "theme": "volcanic ashlands", "climate": "volcanic"},
-	{"name": "Test — Verdant Lowlands", "preset": true, "seed": 1005, "size": 2, "theme": "lush green wilderness", "climate": "verdant"},
+	{"name": "Test — Frozen North", "preset": true, "seed": 30211, "size": 2, "theme": "frozen arctic tundra", "climate": "frozen"},
+	{"name": "Test — Desert Wastes", "preset": true, "seed": 30222, "size": 2, "theme": "scorching desert wasteland", "climate": "desert"},
+	{"name": "Test — Tropic Isles", "preset": true, "seed": 30233, "size": 2, "theme": "tropical island archipelago", "climate": "isles"},
+	{"name": "Test — Volcanic Ashlands", "preset": true, "seed": 30244, "size": 2, "theme": "volcanic ashlands", "climate": "volcanic"},
+	{"name": "Test — Verdant Lowlands", "preset": true, "seed": 30255, "size": 2, "theme": "lush green wilderness", "climate": "verdant"},
 ]
 
 @onready var setup_panel: Control = %SetupPanel

@@ -90,6 +90,8 @@ func build_level() -> void:
 	_build_watchtowers(rng)
 	_add_caves(rng)
 	_maybe_tunnels(rng)
+	_scatter_trash(rng)
+	_finalize_props()   # batch all tree/rock visuals into one MultiMesh
 	_place_sites()
 	# Vehicles are placed in post_bake() (after the navmesh bake) so their tops never
 	# become walkable / a snap target — otherwise bots end up standing on them.
@@ -448,11 +450,23 @@ func _add_perimeter() -> void:
 	add_wall(Vector3(t, h, _size), Vector3(-half, h * 0.5 - 40.0, 0), "Dark", 13)
 	add_wall(Vector3(t, h, _size), Vector3(half, h * 0.5 - 40.0, 0), "Dark", 13)
 
+## Bilinearly interpolate the surface height (matching the rendered mesh) so props and
+## buildings sit flush — nearest-vertex sampling left them floating/sunk on slopes.
 func _sample_height(wx: float, wz: float) -> float:
 	var half := (_n - 1) * STEP * 0.5
-	var i := clampi(int(round((wx + half) / STEP)), 0, _n - 1)
-	var j := clampi(int(round((wz + half) / STEP)), 0, _n - 1)
-	return _heights[j * _n + i]
+	var fx := (wx + half) / STEP
+	var fz := (wz + half) / STEP
+	var i0 := clampi(int(floor(fx)), 0, _n - 1)
+	var j0 := clampi(int(floor(fz)), 0, _n - 1)
+	var i1 := mini(i0 + 1, _n - 1)
+	var j1 := mini(j0 + 1, _n - 1)
+	var tx := clampf(fx - float(i0), 0.0, 1.0)
+	var tz := clampf(fz - float(j0), 0.0, 1.0)
+	var h00: float = _heights[j0 * _n + i0]
+	var h10: float = _heights[j0 * _n + i1]
+	var h01: float = _heights[j1 * _n + i0]
+	var h11: float = _heights[j1 * _n + i1]
+	return lerpf(lerpf(h00, h10, tx), lerpf(h01, h11, tx), tz)
 
 # ---------------------------------------------------------------- vegetation
 
@@ -512,6 +526,12 @@ func _scatter_vegetation(rng: RandomNumberGenerator) -> void:
 
 const PROP_SCRIPT := preload("res://scripts/world/tree.gd")
 var _prop_counter: int = 0
+# All prop visuals (trunks/canopies/rocks) render from ONE MultiMesh of unit cubes with
+# per-instance transform+colour — a single draw call instead of ~2000. Colliders stay
+# per-prop so they're still shootable/destructible. Filled during scatter, built after.
+var _prop_xf: Array = []        # Transform3D per visual box
+var _prop_cols: Array = []      # Color per visual box
+var _props_list: Array = []     # the prop StaticBody nodes, for wiring the MultiMesh
 
 ## Create a harvestable prop node (group "destructible" + `group`) with a deterministic
 ## id so breaking/regrowth replicates. Returns the node for the caller to fill in.
@@ -528,6 +548,7 @@ func _new_prop(pos: Vector3, group: String, drop_item: String, regrow: float) ->
 	_prop_counter += 1
 	region.add_child(p)
 	p.position = pos
+	_props_list.append(p)
 	return p
 
 ## Build a single choppable tree (trunk collider + canopy), dropping wood.
@@ -557,16 +578,13 @@ func _add_tree(rng: RandomNumberGenerator, pos: Vector3, biome: String) -> void:
 
 ## A box under a prop node: a mesh, plus a collider when `solid` (the trunk / boulder).
 func _prop_box(prop: Node3D, size: Vector3, local_pos: Vector3, col: Color, solid: bool) -> void:
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.roughness = 1.0
-	mi.material_override = m
-	mi.position = local_pos
-	prop.add_child(mi)
+	# Register the visual as a MultiMesh instance (unit cube scaled by `size`).
+	var xf := Transform3D(Basis().scaled(size), prop.position + local_pos)
+	var idx := _prop_xf.size()
+	_prop_xf.append(xf)
+	_prop_cols.append(col)
+	prop.mm_items.append({"idx": idx, "xf": xf})
+	# A collider stays on the prop for trunks/boulders so it blocks + can be shot.
 	if solid:
 		var cs := CollisionShape3D.new()
 		var sh := BoxShape3D.new()
@@ -574,6 +592,53 @@ func _prop_box(prop: Node3D, size: Vector3, local_pos: Vector3, col: Color, soli
 		cs.shape = sh
 		cs.position = local_pos
 		prop.add_child(cs)
+
+## After all props are scattered, bake their visuals into one MultiMesh and hand each
+## prop a reference so it can hide/show its instances when felled/regrown.
+func _finalize_props() -> void:
+	if _prop_xf.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var bm := BoxMesh.new()
+	bm.size = Vector3.ONE
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 1.0
+	bm.material = mat
+	mm.mesh = bm
+	mm.instance_count = _prop_xf.size()
+	for i in _prop_xf.size():
+		mm.set_instance_transform(i, _prop_xf[i])
+		mm.set_instance_color(i, _prop_cols[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "PropVisuals"
+	mmi.multimesh = mm
+	add_child(mmi)   # under terrain (not the nav region) — visual only, never baked
+	for p in _props_list:
+		p.mm = mm
+
+## Trash piles: flimsy destructible heaps that spill random salvage (incl. scrap metal).
+## Scattered on dry ground (often near settlements). They restock after a while.
+func _scatter_trash(rng: RandomNumberGenerator) -> void:
+	var span := _size * 0.42
+	var want := clampi(int(_size / 280.0), 3, 16)
+	var made := 0
+	var att := 0
+	while made < want and att < want * 8:
+		att += 1
+		var x := rng.randf_range(-span, span)
+		var z := rng.randf_range(-span, span)
+		var h := _sample_height(x, z)
+		var b := _biome_at(x, z, h)
+		if b == "water" or b == "beach" or h < _water + 1.0:
+			continue
+		var pile := _new_prop(Vector3(x, h, z), "trash", "scrap", rng.randf_range(150.0, 260.0))
+		_prop_box(pile, Vector3(1.0, 0.6, 1.0), Vector3(0, 0.3, 0), Color(0.3, 0.28, 0.24), true)
+		_prop_box(pile, Vector3(0.5, 0.4, 0.6), Vector3(0.35, 0.7, 0.1), Color(0.46, 0.4, 0.3), false)
+		_prop_box(pile, Vector3(0.4, 0.3, 0.4), Vector3(-0.3, 0.58, -0.2), Color(0.5, 0.5, 0.55), false)
+		made += 1
 
 ## Boulders are choppable props that drop stone (and regrow slowly).
 func _add_boulder(rng: RandomNumberGenerator, pos: Vector3) -> void:
@@ -624,15 +689,15 @@ func _build_villages(rng: RandomNumberGenerator) -> void:
 		Color(0.66, 0.60, 0.48),  # sandstone
 	]
 	for s in _sites:
-		var huts := rng.randi_range(3, 6)
-		for b in huts:
-			var ang := TAU * float(b) / float(huts) + rng.randf_range(-0.35, 0.35)
-			var rr := float(s.r) * rng.randf_range(0.40, 0.82)
+		var n := rng.randi_range(4, 7)
+		for b in n:
+			var ang := TAU * float(b) / float(n) + rng.randf_range(-0.3, 0.3)
+			# Stay inside the fully-flattened core (< 0.55 r) so buildings sit level.
+			var rr := float(s.r) * rng.randf_range(0.26, 0.5)
 			var bx := float(s.x) + cos(ang) * rr
 			var bz := float(s.z) + sin(ang) * rr
-			var by := _sample_height(bx, bz)
-			var col: Color = palette[rng.randi() % palette.size()]
-			_add_hut(rng, Vector3(bx, by, bz), col, ang)
+			var by := _sample_height(bx, bz) - 0.3   # sink the foundation a touch
+			_add_building(rng, Vector3(bx, by, bz), palette[rng.randi() % palette.size()], ang)
 
 ## A watchtower (with a climbable ladder) at roughly every other village — a vantage
 ## point and a clear use for the new ladder-climbing.
@@ -643,54 +708,86 @@ func _build_watchtowers(rng: RandomNumberGenerator) -> void:
 		var s: Dictionary = _sites[k]
 		var bx := float(s.x) + rng.randf_range(-8.0, 8.0)
 		var bz := float(s.z) + rng.randf_range(-8.0, 8.0)
-		add_watchtower(Vector3(bx, _sample_height(bx, bz), bz), rng.randf_range(7.0, 10.0))
+		add_watchtower(Vector3(bx, _sample_height(bx, bz) - 0.3, bz), rng.randf_range(7.0, 10.0))
 
-## One hut: four walls (a doorway gap facing the village centre) + a flat roof.
-func _add_hut(rng: RandomNumberGenerator, c: Vector3, col: Color, face: float) -> void:
-	var w := rng.randf_range(5.0, 8.0)
-	var d := rng.randf_range(5.0, 8.0)
-	var ht := rng.randf_range(3.0, 4.2)
+## Pick a building variant for variety: small hut, long house (peaked roof), watch
+## tower (tall, crenellated), or a roofless ruin.
+func _add_building(rng: RandomNumberGenerator, c: Vector3, col: Color, face: float) -> void:
+	var door_dir := Vector2(cos(face + PI), sin(face + PI))  # toward the village centre
+	match rng.randi() % 6:
+		0, 1:  # hut
+			_building(rng, c, col, door_dir, rng.randf_range(5.0, 8.0), rng.randf_range(5.0, 8.0), rng.randf_range(3.0, 4.2), "flat", false)
+		2:     # long house
+			_building(rng, c, col, door_dir, rng.randf_range(10.0, 14.0), rng.randf_range(6.0, 9.0), rng.randf_range(3.4, 4.4), "peak", false)
+		3:     # stone tower
+			_building(rng, c, col, door_dir, rng.randf_range(3.6, 4.6), rng.randf_range(3.6, 4.6), rng.randf_range(7.0, 10.0), "rim", false)
+		_:     # ruin
+			_building(rng, c, col, door_dir, rng.randf_range(5.0, 8.0), rng.randf_range(5.0, 8.0), rng.randf_range(2.4, 3.2), "none", true)
+
+func _building(rng: RandomNumberGenerator, c: Vector3, col: Color, door_dir: Vector2, w: float, d: float, ht: float, roof: String, ruin: bool) -> void:
 	var t := 0.4
+	_walls_box(rng, c, w, d, ht, t, col, door_dir, ruin)
+	match roof:
+		"flat":
+			_collider_box(Vector3(w + t, 0.4, d + t), Vector3(c.x, c.y + ht + 0.2, c.z), col.darkened(0.25))
+		"peak":
+			_peaked_roof(c, w + t, d + t, c.y + ht, col.darkened(0.3))
+		"rim":  # tower crown: a slab + corner merlons
+			_collider_box(Vector3(w + t, 0.4, d + t), Vector3(c.x, c.y + ht + 0.2, c.z), col.darkened(0.25))
+			for sx in [-1.0, 1.0]:
+				for sz in [-1.0, 1.0]:
+					_collider_box(Vector3(0.5, 0.9, 0.5), Vector3(c.x + sx * w * 0.5, c.y + ht + 0.65, c.z + sz * d * 0.5), col)
+		"none":
+			pass  # ruins are open to the sky
+
+## Four walls with a doorway on the wall facing `door_dir`. Ruins are shorter and may
+## be missing walls.
+func _walls_box(rng: RandomNumberGenerator, c: Vector3, w: float, d: float, ht: float, t: float, col: Color, door_dir: Vector2, ruin: bool) -> void:
 	var hw := w * 0.5
 	var hd := d * 0.5
-	var y0 := c.y
-	var roof := col.darkened(0.25)
-	# Doorway on the wall facing the centre (back toward `face`).
-	var door_w := 2.4
-	var seg := (w - door_w) * 0.5
-	var off := door_w * 0.5 + seg * 0.5
-	var door_dir := Vector2(cos(face + PI), sin(face + PI))  # toward centre
-	# Pick the wall whose outward normal is closest to door_dir.
 	var south := absf(door_dir.y) >= absf(door_dir.x) and door_dir.y < 0.0
 	var north := absf(door_dir.y) >= absf(door_dir.x) and door_dir.y >= 0.0
 	var west := absf(door_dir.x) > absf(door_dir.y) and door_dir.x < 0.0
-	# South / North walls (run along X).
-	_hut_wall_x(c, hd, w, ht, t, seg, off, door_w, south, false, col)
-	_hut_wall_x(c, -hd, w, ht, t, seg, off, door_w, north, true, col)
-	# West / East walls (run along Z).
-	_hut_wall_z(c, -hw, d, ht, t, seg, off, door_w, west, col)
-	_hut_wall_z(c, hw, d, ht, t, seg, off, door_w, not west and not north and not south, col)
-	_collider_box(Vector3(w + t, 0.4, d + t), Vector3(c.x, y0 + ht + 0.2, c.z), roof)
+	var east := absf(door_dir.x) > absf(door_dir.y) and door_dir.x >= 0.0
+	_wall_run(rng, Vector3(c.x, c.y, c.z + hd), true, w, ht, t, south, col, ruin)
+	_wall_run(rng, Vector3(c.x, c.y, c.z - hd), true, w, ht, t, north, col, ruin)
+	_wall_run(rng, Vector3(c.x - hw, c.y, c.z), false, d, ht, t, west, col, ruin)
+	_wall_run(rng, Vector3(c.x + hw, c.y, c.z), false, d, ht, t, east, col, ruin)
 
-func _hut_wall_x(c: Vector3, dz: float, w: float, ht: float, t: float, seg: float, off: float, door_w: float, door: bool, _north: bool, col: Color) -> void:
-	var y0 := c.y
-	var z := c.z + dz
-	if not door:
-		_collider_box(Vector3(w, ht, t), Vector3(c.x, y0 + ht * 0.5, z), col)
+## One wall along X or Z, optionally with a centred doorway gap.
+func _wall_run(rng: RandomNumberGenerator, pos: Vector3, along_x: bool, length: float, ht: float, t: float, door: bool, col: Color, ruin: bool) -> void:
+	var wh := ht
+	if ruin:
+		if rng.randf() < 0.3:
+			return                              # collapsed wall
+		wh = ht * rng.randf_range(0.35, 0.8)    # crumbled to varying heights
+	var y0 := pos.y
+	var dw := 2.4
+	if not door or length <= dw + 1.2:
+		if along_x:
+			_collider_box(Vector3(length, wh, t), Vector3(pos.x, y0 + wh * 0.5, pos.z), col)
+		else:
+			_collider_box(Vector3(t, wh, length), Vector3(pos.x, y0 + wh * 0.5, pos.z), col)
 		return
-	_collider_box(Vector3(seg, ht, t), Vector3(c.x - off, y0 + ht * 0.5, z), col)
-	_collider_box(Vector3(seg, ht, t), Vector3(c.x + off, y0 + ht * 0.5, z), col)
-	_collider_box(Vector3(door_w, ht - 2.4, t), Vector3(c.x, y0 + 2.4 + (ht - 2.4) * 0.5, z), col)
+	var seg := (length - dw) * 0.5
+	var off := dw * 0.5 + seg * 0.5
+	var lintel := maxf(0.0, wh - 2.4)
+	if along_x:
+		_collider_box(Vector3(seg, wh, t), Vector3(pos.x - off, y0 + wh * 0.5, pos.z), col)
+		_collider_box(Vector3(seg, wh, t), Vector3(pos.x + off, y0 + wh * 0.5, pos.z), col)
+		if lintel > 0.1:
+			_collider_box(Vector3(dw, lintel, t), Vector3(pos.x, y0 + 2.4 + lintel * 0.5, pos.z), col)
+	else:
+		_collider_box(Vector3(t, wh, seg), Vector3(pos.x, y0 + wh * 0.5, pos.z - off), col)
+		_collider_box(Vector3(t, wh, seg), Vector3(pos.x, y0 + wh * 0.5, pos.z + off), col)
+		if lintel > 0.1:
+			_collider_box(Vector3(t, lintel, dw), Vector3(pos.x, y0 + 2.4 + lintel * 0.5, pos.z), col)
 
-func _hut_wall_z(c: Vector3, dx: float, d: float, ht: float, t: float, seg: float, off: float, door_w: float, door: bool, col: Color) -> void:
-	var y0 := c.y
-	var x := c.x + dx
-	if not door:
-		_collider_box(Vector3(t, ht, d), Vector3(x, y0 + ht * 0.5, c.z), col)
-		return
-	_collider_box(Vector3(t, ht, seg), Vector3(x, y0 + ht * 0.5, c.z - off), col)
-	_collider_box(Vector3(t, ht, seg), Vector3(x, y0 + ht * 0.5, c.z + off), col)
-	_collider_box(Vector3(t, ht - 2.4, door_w), Vector3(x, y0 + 2.4 + (ht - 2.4) * 0.5, c.z), col)
+## A stepped pyramid roof (a few diminishing slabs) for peaked-roof buildings.
+func _peaked_roof(c: Vector3, w: float, d: float, top_y: float, col: Color) -> void:
+	for i in 3:
+		var f := 1.0 - float(i) * 0.3
+		_collider_box(Vector3(w * f, 0.5, d * f), Vector3(c.x, top_y + 0.2 + float(i) * 0.5, c.z), col.darkened(float(i) * 0.04))
 
 # ---------------------------------------------------------------- caves
 

@@ -449,6 +449,8 @@ func _spawn_item_pickup(idx: int, pos: Vector3, item_id: String) -> void:
 var _prop_hp: Dictionary = {}   # prop_id -> remaining health (host-only)
 
 func _prop_max_hp(p: Node) -> float:
+	if p.is_in_group("trash"):
+		return 22.0   # trash piles are flimsy
 	return 95.0 if p.is_in_group("rock") else 70.0   # rocks are tougher than trees
 
 ## A prop (tree/rock) took damage from the destructible weapon path. Host owns the
@@ -464,10 +466,14 @@ func damage_prop(id: int, amount: float, _attacker_id: int) -> void:
 	if hp <= 0.0:
 		_prop_hp.erase(id)
 		var base: Vector3 = p.global_position
-		var item: String = String(p.get("drop_item"))
-		spawn_item_pickup(base + Vector3(0.7, 0.5, 0.0), item)
-		if randf() < 0.7:
-			spawn_item_pickup(base + Vector3(-0.7, 0.5, 0.4), item)
+		if p.is_in_group("trash"):
+			# Trash piles spill random salvage — anything, including scrap metal.
+			drop_loot_at(base, 1 + (randi() % 2) + 1)
+		else:
+			var item: String = String(p.get("drop_item"))
+			spawn_item_pickup(base + Vector3(0.7, 0.5, 0.0), item)
+			if randf() < 0.7:
+				spawn_item_pickup(base + Vector3(-0.7, 0.5, 0.4), item)
 		_set_prop_felled.rpc(id, true)
 		# Regrow after the prop's own delay — trees/rocks come back like in real life.
 		var regrow := float(p.get("regrow_secs"))

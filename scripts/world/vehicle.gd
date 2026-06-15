@@ -287,6 +287,12 @@ func _destroy(attacker_id: int) -> void:
 			var d := global_position.distance_to(c.global_position)
 			if d < BLAST_RADIUS and c.has_method("hit"):
 				c.hit(BLAST_DAMAGE * (1.0 - d / BLAST_RADIUS), attacker_id)
+		# A wreck is a scrap-metal pile — salvage it (Adventure only).
+		if Game.is_adventure():
+			var w := get_tree().get_first_node_in_group("world")
+			if w != null and w.has_method("spawn_item_pickup"):
+				for i in 3:
+					w.spawn_item_pickup(global_position + Vector3(randf_range(-1.6, 1.6), 0.6, randf_range(-1.6, 1.6)), "scrap")
 		_respawn_timer = RESPAWN_TIME
 	driver_id = 0
 	driver_team = -999

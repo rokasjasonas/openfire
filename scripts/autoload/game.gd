@@ -57,6 +57,14 @@ var scores: Dictionary = {}
 
 var match_active: bool = false
 
+func _ready() -> void:
+	# Run at the screen's refresh rate (vsync), with max_fps matched as a backstop.
+	if DisplayServer.get_name() != "headless":
+		var hz := DisplayServer.screen_get_refresh_rate(DisplayServer.window_get_current_screen())
+		if hz > 0.0:
+			Engine.max_fps = int(round(hz))
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
+
 func reset_scores() -> void:
 	scores.clear()
 	dom_score = [0, 0]

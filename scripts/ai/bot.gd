@@ -132,8 +132,12 @@ func _snap_to_navmesh() -> void:
 		return
 	var p := NavigationServer3D.map_get_closest_point(nmap, global_position)
 	var d := Vector2(p.x - global_position.x, p.z - global_position.z).length()
-	if d > 0.5 and d < 40.0:
-		global_position = Vector3(p.x, p.y + 1.0, p.z)
+	# Always correct height onto the mesh (even when already horizontally on it) so bots
+	# don't end up half-buried; only reposition horizontally for a modest snap distance.
+	if d < 40.0:
+		var nx: float = p.x if d > 0.5 else global_position.x
+		var nz: float = p.z if d > 0.5 else global_position.z
+		global_position = Vector3(nx, p.y + 1.0, nz)
 		sync_pos = global_position
 		_spawn_pos = global_position
 

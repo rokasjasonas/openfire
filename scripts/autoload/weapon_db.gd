@@ -27,7 +27,7 @@ const WEAPONS: Array[Dictionary] = [
 		"sfx": "res://assets/audio/fire_smg.ogg",
 		"name": "SMG",
 		"model": "res://assets/models/weapons/blaster-e.glb",
-		"vm_pos": Vector3(0.18, -0.18, -0.28),   # blaster-e sits far; pull it in
+		"vm_pos": Vector3(0.18, -0.2, -0.85),    # un-flipped (vm_yaw 0); push forward so the whole gun shows
 		"vm_yaw": 0.0,                            # this model faces the other way; don't flip it
 		"slot": 0,
 		"damage": 12.0,

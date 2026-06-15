@@ -115,15 +115,49 @@ func _build_item_shape(parent: Node3D) -> void:
 			_box(parent, Vector3(0.4, 0.24, 0.3), Vector3.ZERO, Color(0.3, 0.27, 0.2), 0.25)
 			for i in 3:
 				_cyl(parent, 0.05, 0.2, Vector3((i - 1) * 0.12, 0.2, 0), Color(1.0, 0.8, 0.3), 0.5)
-		"armor":   # chest plate with shoulder pads
-			_box(parent, Vector3(0.46, 0.5, 0.16), Vector3(0, 0.05, 0), Color(0.55, 0.58, 0.65), 0.25)
-			_box(parent, Vector3(0.16, 0.14, 0.16), Vector3(-0.28, 0.2, 0), Color(0.5, 0.53, 0.6), 0.25)
-			_box(parent, Vector3(0.16, 0.14, 0.16), Vector3(0.28, 0.2, 0), Color(0.5, 0.53, 0.6), 0.25)
+		"armor":
+			var steel := Color(0.55, 0.58, 0.65)
+			match _item_id():
+				"helmet":  # a dome
+					_cyl(parent, 0.24, 0.12, Vector3(0, -0.06, 0), steel.darkened(0.1), 0.2)
+					_box(parent, Vector3(0.36, 0.26, 0.36), Vector3(0, 0.08, 0), steel, 0.25)
+				"leg_armor":  # two greaves
+					_box(parent, Vector3(0.16, 0.5, 0.18), Vector3(-0.13, 0, 0), steel, 0.25)
+					_box(parent, Vector3(0.16, 0.5, 0.18), Vector3(0.13, 0, 0), steel, 0.25)
+				_:  # vest: chest plate with shoulder pads
+					_box(parent, Vector3(0.46, 0.5, 0.16), Vector3(0, 0.05, 0), steel, 0.25)
+					_box(parent, Vector3(0.16, 0.14, 0.16), Vector3(-0.28, 0.2, 0), steel.darkened(0.06), 0.25)
+					_box(parent, Vector3(0.16, 0.14, 0.16), Vector3(0.28, 0.2, 0), steel.darkened(0.06), 0.25)
 		"backpack":  # pack with a flap
 			_box(parent, Vector3(0.4, 0.5, 0.28), Vector3.ZERO, Color(0.6, 0.5, 0.35), 0.25)
 			_box(parent, Vector3(0.42, 0.14, 0.06), Vector3(0, 0.1, 0.16), Color(0.45, 0.37, 0.25), 0.25)
+		"money":   # a stack of cash
+			for i in 3:
+				_box(parent, Vector3(0.42, 0.07, 0.22), Vector3(0, i * 0.08 - 0.08, 0), Color(0.35, 0.75, 0.4), 0.4)
+		"material":
+			match _item_id():
+				"wood":   # stacked logs
+					_cyl(parent, 0.08, 0.5, Vector3(-0.1, 0, 0), Color(0.45, 0.3, 0.18), 0.2)
+					_cyl(parent, 0.08, 0.5, Vector3(0.1, 0, 0), Color(0.4, 0.27, 0.16), 0.2)
+				"scrap":  # bent metal sheets
+					_box(parent, Vector3(0.4, 0.06, 0.3), Vector3(0, 0.04, 0), Color(0.5, 0.5, 0.55), 0.3)
+					_box(parent, Vector3(0.3, 0.06, 0.36), Vector3(0.05, -0.06, 0.05), Color(0.45, 0.45, 0.5), 0.3)
+				"stone":  # a rough boulder chunk
+					_box(parent, Vector3(0.38, 0.34, 0.36), Vector3.ZERO, Color(0.5, 0.49, 0.47), 0.15)
+				_:        # hide: a folded skin
+					_box(parent, Vector3(0.42, 0.12, 0.34), Vector3.ZERO, Color(0.6, 0.45, 0.3), 0.2)
+		"gadget":  # a small device with a lens
+			_box(parent, Vector3(0.34, 0.24, 0.34), Vector3.ZERO, Color(0.3, 0.32, 0.36), 0.3)
+			_cyl(parent, 0.1, 0.06, Vector3(0, 0, 0.2), Color(0.4, 0.85, 0.95), 0.6)
 		_:
 			_box(parent, Vector3(0.5, 0.5, 0.5), Vector3.ZERO, _color(), 0.6)
+
+## The specific item id for shape selection (armor id / material id), falling back to
+## the pickup's weapon_id field (armor loot stores the id there).
+func _item_id() -> String:
+	if not item_data.is_empty():
+		return String(item_data.get("id", ""))
+	return weapon_id
 
 func _process(delta: float) -> void:
 	if not available or _visual == null:
@@ -156,6 +190,12 @@ func collect(body: Node) -> bool:
 		return false
 	if not body.is_multiplayer_authority() or body.get("dead"):
 		return false
+	# Cash goes straight into the coin wallet, not the backpack.
+	if kind == "money":
+		body.coins += amount
+		Audio.play_ui("res://assets/audio/pickup.wav", -6.0)
+		_take.rpc()
+		return true
 	var item: Dictionary = item_data if not item_data.is_empty() else ItemDB.from_pickup(kind, amount, weapon_id)
 	if body.has_method("inv_add") and body.inv_add(item):
 		if body.is_multiplayer_authority():
@@ -172,6 +212,8 @@ func label() -> String:
 		return String(WeaponDB.get_weapon(weapon_id)["name"])
 	if kind == "armor" and ItemDB.DEFS.has(weapon_id):
 		return String(ItemDB.DEFS[weapon_id]["name"])
+	if kind == "money":
+		return "Cash ($%d)" % amount
 	return kind.capitalize()
 
 ## Adventure: a collected/used pickup is removed for good (no respawn).

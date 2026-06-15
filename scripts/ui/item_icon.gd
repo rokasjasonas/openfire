@@ -15,7 +15,7 @@ static func draw(ci: CanvasItem, item: Dictionary, rect: Rect2, pad: float = 4.0
 		ci.draw_texture_rect(tex, Rect2(off, Vector2(s, s)), false)
 		return
 	var kind := String(item.get("kind", ""))
-	var col := ItemDB.color_for(kind)
+	var col := ItemDB.item_color(item)
 	var c := r.position + r.size * 0.5
 	var s2: float = min(r.size.x, r.size.y) * 0.5
 	match kind:

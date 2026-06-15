@@ -328,8 +328,20 @@ func _ready() -> void:
 		cf.feed(90.0)
 		var feeds: bool = cf.fuel > f0
 		cf.queue_free()
-		# Money item.
-		var money_ok: bool = String(ItemDB.make("money").get("kind", "")) == "money"
+		# Cash: a money pickup collects straight into the coin wallet (not the backpack).
+		var coins0: int = int(me.coins)
+		me.inventory.clear()
+		var cash: Node = load("res://scenes/pickup.tscn").instantiate()
+		cash.kind = "money"
+		cash.amount = 25
+		get_tree().current_scene.add_child(cash)
+		await get_tree().process_frame
+		var cm_prev = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		cash.collect(me)
+		Game.config["mode"] = cm_prev
+		var money_ok: bool = me.coins == coins0 + 25 and me.inventory.size() == 0
+		cash.queue_free()
 		# Follower: recruit a non-hostile bot -> joins the player's side.
 		var fb_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "Pal", "role": "Wanderer"})
 		await get_tree().process_frame

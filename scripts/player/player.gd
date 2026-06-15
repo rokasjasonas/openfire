@@ -1388,41 +1388,20 @@ func _talk_to(npc: Node) -> void:
 const HIRE_COST := 25
 var _talking_npc: Node = null
 
-## How much money the backpack holds (sum of money items' amounts).
-func _money_held() -> int:
-	var n := 0
-	for it in inventory:
-		if String(it.get("kind", "")) == "money":
-			n += int(it.get("amount", 0))
-	return n
-
 func _can_hire(npc: Node) -> bool:
 	if not Game.is_adventure() or npc == null or npc.get("recruited"):
 		return false
 	if String(Game.adventure_stance.get(String(npc.get("faction")), "neutral")) == "hostile":
 		return false
-	return _money_held() >= HIRE_COST
+	return coins >= HIRE_COST   # paid from the coin wallet
 
-## Pay the talked-to NPC to recruit them as a follower (spends money items).
+## Pay the talked-to NPC (coins) to recruit them as a follower.
 func hire_npc() -> bool:
 	if not is_multiplayer_authority() or _talking_npc == null or not _can_hire(_talking_npc):
 		return false
-	var owed := HIRE_COST
-	var i := 0
-	while owed > 0 and i < inventory.size():
-		if String(inventory[i].get("kind", "")) == "money":
-			var amt := int(inventory[i].get("amount", 0))
-			if amt <= owed:
-				owed -= amt
-				inventory.remove_at(i)
-			else:
-				inventory[i]["amount"] = amt - owed
-				owed = 0
-		else:
-			i += 1
+	coins -= HIRE_COST
 	if _talking_npc.has_method("recruit"):
 		_talking_npc.recruit(self)
-	inventory_changed.emit()
 	return true
 
 func _npc_greeting(npc: Node) -> String:

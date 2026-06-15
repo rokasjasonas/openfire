@@ -177,6 +177,33 @@ func value_of(item: Dictionary) -> int:
 func sell_value(item: Dictionary) -> int:
 	return maxi(1, value_of(item) / 2)
 
+## Per-item display colour (distinguishes subtypes — wood vs scrap, grenade types,
+## gadget types — so backpack items read uniquely). Falls back to color_for(kind).
+func item_color(item: Dictionary) -> Color:
+	match String(item.get("kind", "")):
+		"material":
+			match String(item.get("id", "")):
+				"wood": return Color(0.5, 0.35, 0.2)
+				"scrap": return Color(0.56, 0.58, 0.63)
+				"stone": return Color(0.62, 0.61, 0.58)
+				"hide": return Color(0.64, 0.47, 0.3)
+		"grenade":
+			match String(item.get("gtype", "frag")):
+				"smoke": return Color(0.7, 0.72, 0.75)
+				"flashbang": return Color(1.0, 0.95, 0.6)
+				"incendiary": return Color(1.0, 0.5, 0.2)
+				"shockwave": return Color(0.5, 0.8, 1.0)
+				"blackhole": return Color(0.6, 0.3, 0.9)
+				_: return Color(0.85, 0.85, 0.35)
+		"gadget":
+			match String(item.get("gadget", "")):
+				"torch": return Color(1.0, 0.7, 0.4)
+				"jetpack": return Color(0.8, 0.85, 0.95)
+				"shovel": return Color(0.7, 0.6, 0.45)
+				"nvg": return Color(0.4, 1.0, 0.5)
+				_: return Color(0.4, 0.85, 0.9)
+	return color_for(String(item.get("kind", "")))
+
 func color_for(kind: String) -> Color:
 	match kind:
 		"food": return Color(0.85, 0.6, 0.3)

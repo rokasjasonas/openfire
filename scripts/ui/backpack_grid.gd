@@ -124,7 +124,7 @@ func _draw_item(it: Dictionary, top_left: Vector2, alpha: float, font: Font, _fs
 	var w := int(it.get("w", 1))
 	var h := int(it.get("h", 1))
 	var rect := Rect2(top_left + Vector2(2, 2), Vector2(w * CELL - 4, h * CELL - 4))
-	var col: Color = ItemDB.color_for(String(it.get("kind", "")))
+	var col: Color = ItemDB.item_color(it)
 	draw_rect(rect, Color(0.12, 0.13, 0.16, 0.85 * alpha), true)
 	ItemIcon.draw(self, it, rect)
 	col.a = alpha

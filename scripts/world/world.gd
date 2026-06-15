@@ -419,8 +419,8 @@ func _spawn_loot(idx: int, pos: Vector3, kind: String, subtype: String) -> void:
 		p.kind = "food"   # generic collectable pickup behaviour
 		p.item_data = ItemDB.make(subtype if subtype != "" else "wood")
 	elif kind == "money":
-		p.kind = "food"
-		p.item_data = ItemDB.make("money")
+		p.kind = "money"   # cash: collected straight into the coin wallet
+		p.amount = 25
 	elif subtype != "":
 		p.weapon_id = subtype
 	if kind == "health":
@@ -540,7 +540,10 @@ func _start_survival() -> void:
 		for d in _survival_rng.randi_range(10, 16):
 			var ang := _survival_rng.randf() * TAU
 			var rr := _survival_rng.randf_range(2.0, radius)
-			var pos := poi.global_position + Vector3(cos(ang) * rr, 1.0, sin(ang) * rr)
+			# Snap to the navmesh so NPCs sit on the ground at their offset (not the POI's
+			# height) — otherwise they spawn embedded on sloped terrain.
+			var pos := _snap_to_nav(poi.global_position + Vector3(cos(ang) * rr, 0, sin(ang) * rr))
+			pos.y += 1.0
 			var drole := "Elder" if d == 0 else ("Quartermaster" if d == 1 else "Guard")
 			var dperson := NameGen.npc_person(fac)
 			spawn_enemy(skill, false, pos, "", team, fac, {"name": dperson["name"], "role": drole, "persona": dperson["trait"]})

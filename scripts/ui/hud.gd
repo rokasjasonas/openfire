@@ -128,6 +128,7 @@ func _process(delta: float) -> void:
 		_update_result_label()
 	_update_gadget_label()
 	_update_fps()
+	_update_coins()
 	# Animate the low-health blood vignette with a heartbeat pulse.
 	if _lowhp != null and _lowhp.material is ShaderMaterial:
 		var cur: float = float(_lowhp.material.get_shader_parameter("intensity"))
@@ -511,6 +512,21 @@ func _feed_color(team: int) -> String:
 ## Cinematic vignette + film grain overlay, behind all other HUD elements. Vignette
 ## from Medium quality up; grain only at High. Off entirely on Low.
 var _fps_label: Label = null
+var _coins_label: Label = null
+
+## Coin wallet readout (Adventure), top-left under the FPS counter.
+func _update_coins() -> void:
+	if _coins_label == null:
+		_coins_label = Label.new()
+		_coins_label.name = "CoinsLabel"
+		_coins_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_coins_label.position = Vector2(8, 26)
+		_coins_label.modulate = Color(1.0, 0.85, 0.3)
+		add_child(_coins_label)
+	var show := Game.is_adventure() and _player != null and is_instance_valid(_player)
+	_coins_label.visible = show
+	if show:
+		_coins_label.text = "⛁ %d" % int(_player.coins)
 
 ## Small always-on FPS readout in the top-left.
 func _update_fps() -> void:

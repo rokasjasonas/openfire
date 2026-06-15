@@ -130,6 +130,18 @@ func _draw() -> void:
 				HORIZONTAL_ALIGNMENT_CENTER, SW, 13, Color(1, 1, 1, 0.25))
 			continue
 		ItemIcon.draw(self, item, Rect2(rect.position + Vector2(0, 12), Vector2(SW, SH - 12)), 3.0)
+		# Armor durability bar: how much of this piece is left before it breaks.
+		var amax := float(item.get("armor_hp", 0.0))
+		if amax > 0.0:
+			var cur := clampf(float(item.get("cur_hp", amax)), 0.0, amax)
+			var frac := cur / amax
+			var bw := SW - 8.0
+			var br := Rect2(rect.position + Vector2(4, 13), Vector2(bw, 4))
+			draw_rect(br, Color(0, 0, 0, 0.6), true)
+			draw_rect(Rect2(br.position, Vector2(bw * frac, 4)),
+				Color(0.9, 0.3, 0.2).lerp(Color(0.35, 0.85, 0.4), frac), true)
+			draw_string(font, rect.position + Vector2(4, 27), "%d/%d" % [int(round(cur)), int(amax)],
+				HORIZONTAL_ALIGNMENT_LEFT, SW - 6, 8, Color(1, 1, 1, 0.75))
 		var strip := Rect2(rect.position + Vector2(0, SH - 12), Vector2(SW, 12))
 		draw_rect(strip, Color(0, 0, 0, 0.5), true)
 		draw_string(font, rect.position + Vector2(3, SH - 3), String(item.get("name", "")),

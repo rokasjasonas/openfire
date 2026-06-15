@@ -28,6 +28,11 @@ var _aiming: bool = false
 var _base_fov: float = 75.0
 var _model: Node3D = null
 var _recoil: float = 0.0
+var _melee_cd: float = 0.0           # melee swing cooldown
+
+const MELEE_DAMAGE := 34.0
+const MELEE_RANGE := 2.8
+const MELEE_COOLDOWN := 0.55
 
 # Viewmodel motion (bob/sway) state.
 var _vm_time: float = 0.0
@@ -183,6 +188,9 @@ func _equip(index: int) -> void:
 		_model.position = w.get("vm_pos", Vector3(0.18, -0.18, -0.45))
 		_model.rotation_degrees = Vector3(0, float(w.get("vm_yaw", 180.0)), 0)
 		_model.scale = Vector3.ONE * float(w.get("vm_scale", 1.0))
+		# Put the held weapon on render layer 2 so the player's flashlight (cull mask 1)
+		# never lights up the viewmodel — the world still lights it via the sun (all layers).
+		_set_render_layer(_model, 2)
 	if is_local:
 		emit_state()
 
@@ -209,7 +217,9 @@ func reload() -> void:
 		return
 	var w := _current()
 	var a: Dictionary = ammo[loadout[current_index]]
-	if _reloading or a["mag"] >= int(w["mag_size"]) or a["reserve"] <= 0:
+	if _reloading or a["mag"] >= int(w["mag_size"]):
+		return
+	if a["reserve"] <= 0 and not bool(w.get("infinite", false)):
 		return
 	_reloading = true
 	_reload_left = float(w["reload_time"])
@@ -220,6 +230,8 @@ func reload() -> void:
 func _process(delta: float) -> void:
 	if _cooldown > 0.0:
 		_cooldown -= delta
+	if _melee_cd > 0.0:
+		_melee_cd -= delta
 	# Smoothly recover aim FOV + recoil kick. Binoculars override with a deep zoom.
 	if camera and is_local:
 		var w := _current()
@@ -256,9 +268,12 @@ func _finish_reload() -> void:
 	var w := _current()
 	var a: Dictionary = ammo[loadout[current_index]]
 	var need := int(w["mag_size"]) - int(a["mag"])
-	var take := mini(need, int(a["reserve"]))
-	a["mag"] += take
-	a["reserve"] -= take
+	if bool(w.get("infinite", false)):
+		a["mag"] += need   # never depletes (starter pistol — always something to shoot)
+	else:
+		var take := mini(need, int(a["reserve"]))
+		a["mag"] += take
+		a["reserve"] -= take
 	emit_state()
 
 func _fire() -> void:
@@ -345,6 +360,61 @@ func _fire() -> void:
 	if player.has_node("Head"):
 		player.get_node("Head").rotation.x += deg_to_rad(0.6)
 	emit_state()
+
+## A melee swing — always available, even with no ammo at all. Short forward reach;
+## damages a combatant, breaks a destructible prop, or dents a vehicle.
+func melee() -> void:
+	if not is_local or player == null or player.dead:
+		return
+	if _melee_cd > 0.0 or player.get("glassing"):
+		return
+	_melee_cd = MELEE_COOLDOWN
+	Audio.play_3d("res://assets/audio/impact.ogg", player.global_position, -6.0, 0.08)
+	var origin := camera.global_position
+	var fwd := -camera.global_transform.basis.z
+	var to := origin + fwd * MELEE_RANGE
+	var space := player.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(origin, to)
+	q.collision_mask = HIT_MASK
+	q.collide_with_areas = true
+	var exclude: Array = [player.get_rid()]
+	exclude.append_array(player.hitbox_rids())
+	q.exclude = exclude
+	var res := space.intersect_ray(q)
+	# A little forward jab on the viewmodel for feedback.
+	_recoil = 1.0
+	if not res:
+		return
+	var hit := _resolve_hit(res.collider)
+	var victim = hit[0]
+	var mult: float = hit[1]
+	if victim and victim != player and victim.get("team") == player.team:
+		victim = null
+	if victim and victim != player and victim.has_method("hit"):
+		var zone: String = res.collider.part if res.collider is Hitbox else ""
+		var dealt := MELEE_DAMAGE * mult
+		victim.hit(dealt, player.combatant_id, zone)
+		_spawn_blood.rpc(res.position, res.normal)
+		if is_local:
+			_show_damage_number(res.position, dealt, false)
+			Audio.play_ui("res://assets/audio/hitmarker.wav", -10.0)
+			player.dealt_damage.emit(dealt)
+	elif res.collider and res.collider.is_in_group("destructible") and not res.collider.destroyed and res.collider.has_method("hit"):
+		res.collider.hit(MELEE_DAMAGE, player.combatant_id)
+		_spawn_impact.rpc(res.position, res.normal)
+	elif res.collider and res.collider.is_in_group("vehicle") and res.collider.has_method("hit"):
+		res.collider.hit(MELEE_DAMAGE, player.combatant_id)
+		_spawn_impact.rpc(res.position, res.normal)
+	else:
+		_spawn_impact.rpc(res.position, res.normal)
+
+## Recursively assign a VisualInstance3D render layer to a node tree (used to keep the
+## viewmodel off the flashlight's cull mask).
+func _set_render_layer(node: Node, layer: int) -> void:
+	if node is VisualInstance3D:
+		(node as VisualInstance3D).layers = layer
+	for c in node.get_children():
+		_set_render_layer(c, layer)
 
 ## Animate the viewmodel holder: walk bob + look sway + recoil kickback.
 func _update_viewmodel(delta: float) -> void:

@@ -262,6 +262,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			and (event as InputEventKey).keycode == KEY_Q and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_use_gadget()
 		return
+	# V = melee swing (always usable, even with no ammo).
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_V and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if driving == null:
+			weapons.melee()
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := MOUSE_SENS * Settings.mouse_sensitivity
 		if driving != null:
@@ -738,6 +744,9 @@ func _apply_gadget() -> void:
 		_flashlight.spot_angle = 32.0
 		_flashlight.light_energy = 6.0
 		_flashlight.rotation_degrees.x = 0.0
+		# Cull mask 1 = light the world (render layer 1) but never the held weapon,
+		# which sits on render layer 2 (set in weapon_manager).
+		_flashlight.light_cull_mask = 1
 		camera.add_child(_flashlight)
 	_flashlight.visible = _gadget_on and (g == "flashlight" or g == "torch")
 	# A torch is warmer/shorter than the flashlight.

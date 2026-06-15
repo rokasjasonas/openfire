@@ -89,6 +89,7 @@ const WEAPONS: Array[Dictionary] = [
 		"automatic": false,
 		"mag_size": 12,
 		"reserve": 72,
+		"infinite": true,
 		"reload_time": 1.3,
 		"spread_deg": 1.0,
 		"aim_spread_deg": 0.4,

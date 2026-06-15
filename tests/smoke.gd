@@ -373,8 +373,24 @@ func _ready() -> void:
 		var dug := get_tree().get_nodes_in_group("dug_tunnel")
 		if not dug.is_empty():
 			dug[dug.size() - 1].queue_free()
-		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and shovel_ok and dig_ok
-		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " shovel=", shovel_ok, " dig=", dig_ok)
+		# No-ammo fallback: a melee swing is always available, and the starter pistol
+		# carries an infinite reserve so a reload never leaves you with nothing to fire.
+		var melee_ok: bool = me.weapons.has_method("melee")
+		var inf_ok: bool = bool(WeaponDB.get_weapon("pistol").get("infinite", false))
+		var pistol_inf_ok := false
+		if inf_ok:
+			var pamm := {"mag": 0, "reserve": 72}
+			var pw := WeaponDB.get_weapon("pistol")
+			# Emulate the reload-from-empty math five times; reserve must never fall.
+			for i in 5:
+				if bool(pw.get("infinite", false)):
+					pamm["mag"] = int(pw["mag_size"])
+				pamm["mag"] = 0
+			pistol_inf_ok = int(pamm["reserve"]) == 72
+		# Slain hostiles drop cash on death (host-authoritative).
+		var kill_cash_ok: bool = world.has_method("_drop_kill_cash") and world.has_method("_spawn_cash")
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok)
 
 	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
 	# world — same seed -> same terrain.

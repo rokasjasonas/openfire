@@ -700,7 +700,7 @@ func _refresh_inventory() -> void:
 		return
 	backpack_grid.set_player(_player)
 	backpack_grid.equip_panel = equip_panel
-	inv_capacity.text = "Space  %d / %d" % [_player.inv_used(), _player.inv_cell_count()]
+	inv_capacity.text = "Space  %d / %d        ⛁ %d coins" % [_player.inv_used(), _player.inv_cell_count(), int(_player.coins)]
 
 func _refresh_equip() -> void:
 	equip_panel.refresh()

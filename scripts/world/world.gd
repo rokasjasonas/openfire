@@ -379,8 +379,37 @@ func _on_bot_died(attacker_id: int, victim_id: int) -> void:
 	if _quest_manager:
 		_quest_manager.notify_kill(victim_id, attacker_id)
 	if Game.is_adventure():
+		_drop_kill_cash(victim_id)
 		_maybe_drop_loot(victim_id)
 	check_last_standing()
+
+## Every slain hostile drops a little cash where it falls — a reliable income so you can
+## always afford to hire help / trade, separate from the rarer gear drops.
+func _drop_kill_cash(victim_id: int) -> void:
+	if not Net.is_host():
+		return
+	var b: Node = null
+	for n in get_tree().get_nodes_in_group("bot"):
+		if n.combatant_id == victim_id:
+			b = n
+			break
+	if b == null:
+		return
+	var fac := String(b.get("faction"))
+	var hostile := fac == Game.RAIDER_FACTION or String(Game.adventure_stance.get(fac, "neutral")) == "hostile"
+	if not hostile:
+		return   # don't pay out for downing a follower / friendly villager
+	_loot_counter += 1
+	_spawn_cash.rpc(_loot_counter, b.global_position + Vector3(0, 0.6, 0), randi_range(10, 22))
+
+@rpc("authority", "call_local", "reliable")
+func _spawn_cash(idx: int, pos: Vector3, amount: int) -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.name = "Loot_%d" % idx
+	p.kind = "money"
+	p.amount = amount
+	get_tree().current_scene.add_child(p)
+	p.global_position = pos
 
 ## Adventure: a killed NPC sometimes drops loot (often armor) where it fell.
 func _maybe_drop_loot(victim_id: int) -> void:

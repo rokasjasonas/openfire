@@ -89,6 +89,7 @@ func build_level() -> void:
 	_build_villages(rng)
 	_build_watchtowers(rng)
 	_add_caves(rng)
+	_maybe_tunnels(rng)
 	_place_sites()
 	# Vehicles are placed in post_bake() (after the navmesh bake) so their tops never
 	# become walkable / a snap target — otherwise bots end up standing on them.
@@ -733,6 +734,56 @@ func _build_cave(rng: RandomNumberGenerator, c: Vector3) -> void:
 	add_pickup("weapon", Vector3(c.x, c.y + 0.6, c.z), 0, ["sniper", "shotgun"][rng.randi() % 2])
 	if rng.randf() < 0.6:
 		add_pickup("armor", Vector3(c.x + 1.2, c.y + 0.6, c.z), 0, ItemDB.ARMOR_IDS[rng.randi() % ItemDB.ARMOR_IDS.size()])
+
+# ---------------------------------------------------------------- tunnels
+# Heightmaps can't be carved, so a "tunnel" is a built covered passage (walls + roof)
+# along a cardinal direction, ending in a capped chamber with a loot stash. Sometimes
+# generated on Small+ maps as a hidden shortcut/cache.
+const TUNNEL_DIRS := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
+
+func _maybe_tunnels(rng: RandomNumberGenerator) -> void:
+	if _size < 500.0:
+		return
+	var want := clampi(int(_size / 600.0), 1, 3)
+	var span := _size * 0.4
+	var made := 0
+	var att := 0
+	while made < want and att < 200:
+		att += 1
+		var x := rng.randf_range(-span, span)
+		var z := rng.randf_range(-span, span)
+		var h := _sample_height(x, z)
+		var b := _biome_at(x, z, h)
+		if b == "water" or b == "beach" or h < _water + 4.0 or _near_site(x, z, 22.0):
+			continue
+		_build_tunnel(rng, Vector3(x, h, z), TUNNEL_DIRS[rng.randi() % TUNNEL_DIRS.size()])
+		made += 1
+
+func _build_tunnel(rng: RandomNumberGenerator, start: Vector3, fwd: Vector3) -> void:
+	var right := Vector3(-fwd.z, 0, fwd.x)
+	var inner := 3.2
+	var ht := 3.0
+	var rock := Color(0.16, 0.15, 0.18)
+	var seg := 2.4
+	var steps := int(rng.randf_range(6.0, 11.0))
+	var along_x: bool = absf(fwd.x) > 0.5
+	var wall_size := Vector3(seg, ht, 0.6) if along_x else Vector3(0.6, ht, seg)
+	var roof_size := Vector3(inner + 1.4, 0.5, inner + 1.4)
+	var end := start
+	for i in steps:
+		var c := start + fwd * (float(i) * seg)
+		var fy := _sample_height(c.x, c.z)
+		var woff := right * (inner * 0.5 + 0.3)
+		_collider_box(wall_size, Vector3(c.x + woff.x, fy + ht * 0.5, c.z + woff.z), rock)
+		_collider_box(wall_size, Vector3(c.x - woff.x, fy + ht * 0.5, c.z - woff.z), rock)
+		_collider_box(roof_size, Vector3(c.x, fy + ht + 0.2, c.z), rock.lightened(0.03))
+		end = Vector3(c.x, fy, c.z)
+	# Cap the far end with a back wall, then stash loot in the chamber.
+	var back_size := Vector3(0.6, ht, inner + 1.4) if along_x else Vector3(inner + 1.4, ht, 0.6)
+	_collider_box(back_size, end + fwd * (seg * 0.5) + Vector3(0, ht * 0.5, 0), rock)
+	add_pickup("weapon", Vector3(end.x, end.y + 0.6, end.z), 0, ["sniper", "rifle"][rng.randi() % 2])
+	if rng.randf() < 0.7:
+		add_pickup("armor", end + right * 1.0 + Vector3(0, 0.6, 0), 0, ItemDB.ARMOR_IDS[rng.randi() % ItemDB.ARMOR_IDS.size()])
 
 # ---------------------------------------------------------------- vehicles
 

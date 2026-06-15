@@ -42,6 +42,8 @@ const DEFS := {
 	# to thrust upward, draining fuel that recharges on the ground.
 	"torch":          {"name": "Torch",   "kind": "gadget", "gadget": "torch",   "fuel": 35.0, "w": 1, "h": 1},
 	"jetpack":        {"name": "Jetpack",  "kind": "gadget", "gadget": "jetpack", "fuel": 100.0, "w": 2, "h": 2},
+	# Shovel: Q digs a covered tunnel segment ahead of you (carve your own passage).
+	"shovel":         {"name": "Shovel",  "kind": "gadget", "gadget": "shovel",  "w": 1, "h": 2},
 	# Money — a droppable currency item (used to hire follower NPCs).
 	"money":          {"name": "Cash",    "kind": "money", "amount": 25, "w": 1, "h": 1},
 	"backpack_small": {"name": "Small Pack", "kind": "backpack", "w": 2, "h": 2, "grid_w": 3, "grid_h": 4},
@@ -67,6 +69,7 @@ const RECIPES := [
 	{"id": "stonehelm","name": "Improvised Helmet", "in": {"stone": 2, "hide": 1}, "out": "helmet", "fire": false},
 	{"id": "torch",    "name": "Torch",      "in": {"wood": 1, "scrap": 1}, "out": "torch",   "fire": true},
 	{"id": "jetpack",  "name": "Jetpack",    "in": {"scrap": 5, "wood": 1}, "out": "jetpack", "fire": false},
+	{"id": "shovel",   "name": "Shovel",     "in": {"scrap": 2, "wood": 1}, "out": "shovel",  "fire": false},
 ]
 const GRENADE_IDS := ["grenade", "grenade_smoke", "grenade_flash", "grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void"]
 const GADGET_IDS := ["flashlight", "binoculars", "nvg", "scanner"]
@@ -153,7 +156,7 @@ func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
 const WEAPON_VALUE := {"pistol": 8, "smg": 14, "shotgun": 16, "rifle": 18, "sniper": 24}
 const ARMOR_VALUE := {"helmet": 10, "vest": 12, "leg_armor": 8}
 const GRENADE_VALUE := {"frag": 5, "smoke": 4, "flashbang": 5, "incendiary": 7, "impact": 7, "shockwave": 8, "blackhole": 12}
-const GADGET_VALUE := {"flashlight": 6, "binoculars": 9, "nvg": 14, "scanner": 12, "torch": 4, "jetpack": 30}
+const GADGET_VALUE := {"flashlight": 6, "binoculars": 9, "nvg": 14, "scanner": 12, "torch": 4, "jetpack": 30, "shovel": 7}
 
 ## Coin value of an item (Quartermaster trading). Buy at value, sell at half.
 func value_of(item: Dictionary) -> int:

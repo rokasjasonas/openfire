@@ -57,7 +57,7 @@ var _ask_pending: bool = false
 # Quartermaster stock: item ids (ItemDB) and weapon ids, bought at full value.
 const TRADE_ITEMS := ["medkit", "food", "water", "raw_meat", "ammo", "grenade", "grenade_smoke", "grenade_flash",
 	"grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void",
-	"flashlight", "binoculars", "nvg", "scanner", "torch", "jetpack",
+	"flashlight", "binoculars", "nvg", "scanner", "torch", "jetpack", "shovel",
 	"wood", "scrap", "helmet", "vest", "leg_armor", "backpack_small"]
 const TRADE_WEAPONS := ["pistol", "smg", "shotgun", "rifle"]
 
@@ -554,7 +554,7 @@ func _setup_postfx() -> void:
 		add_child(_lowhp)
 		move_child(_lowhp, 1)
 
-const GADGET_NAMES := {"flashlight": "Flashlight", "binoculars": "Binoculars", "nvg": "Night Vision", "scanner": "Scanner", "torch": "Torch", "jetpack": "Jetpack"}
+const GADGET_NAMES := {"flashlight": "Flashlight", "binoculars": "Binoculars", "nvg": "Night Vision", "scanner": "Scanner", "torch": "Torch", "jetpack": "Jetpack", "shovel": "Shovel"}
 
 ## Show the equipped gadget + its Q state above the weapon label (Adventure only).
 func _update_gadget_label() -> void:
@@ -585,6 +585,8 @@ func _update_gadget_label() -> void:
 		state = "  [Q]  %ds" % int(ceil(float(piece.get("cur_fuel", 0))))
 	elif g == "scanner":
 		state = "  [Q ping]"
+	elif g == "shovel":
+		state = "  [Q dig]"
 	elif _player.get("_gadget_on"):
 		state = "  [ON]"
 	else:

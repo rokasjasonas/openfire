@@ -341,8 +341,17 @@ func _ready() -> void:
 		if follower != null and follower.has_method("recruit"):
 			follower.recruit(me)
 			recruit_ok = follower.recruited and String(follower.faction) == "player" and follower.team == me.team
-		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok
-		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok)
+		# Tunnels: a shovel is craftable + digs a covered segment; map-gen places tunnels.
+		var shovel_ok: bool = String(ItemDB.make("shovel").get("gadget", "")) == "shovel"
+		var dug_before := get_tree().get_nodes_in_group("dug_tunnel").size()
+		me._place_tunnel_segment(me.global_position + Vector3(0, 0, 4), 0.0)
+		await get_tree().process_frame
+		var dig_ok: bool = get_tree().get_nodes_in_group("dug_tunnel").size() > dug_before
+		var dug := get_tree().get_nodes_in_group("dug_tunnel")
+		if not dug.is_empty():
+			dug[dug.size() - 1].queue_free()
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and shovel_ok and dig_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " shovel=", shovel_ok, " dig=", dig_ok)
 
 	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
 	# world — same seed -> same terrain.

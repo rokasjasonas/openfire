@@ -722,6 +722,8 @@ func _use_gadget() -> void:
 		"scanner":
 			reveal_until = Time.get_ticks_msec() + 5000   # 5 s radar sweep
 			Audio.play_3d("res://assets/audio/ui_click.ogg", global_position, -4.0)
+		"shovel":
+			_dig_tunnel()   # carve a covered passage segment ahead
 		_:
 			_gadget_on = not _gadget_on
 			_apply_gadget()
@@ -751,6 +753,7 @@ func _apply_gadget() -> void:
 ## Per-frame gadget upkeep: torch burns its fuel while lit (and is consumed when spent);
 ## jetpack thrust is handled in the movement code.
 func _tick_gadget(delta: float) -> void:
+	_dig_cd = maxf(0.0, _dig_cd - delta)
 	var g := equipped_gadget()
 	if g == "torch" and _gadget_on:
 		var piece: Dictionary = equip.get("gadget", {})
@@ -777,6 +780,57 @@ func _jetpack(delta: float) -> void:
 		fuel = maxf(0.0, fuel - 26.0 * delta)
 		_air_speed = 0.0   # thrusting cancels fall damage
 	jp["cur_fuel"] = fuel
+
+## Shovel: place a covered tunnel segment (2 walls + roof) just ahead of the player,
+## oriented to their facing. Repeated digs extend it into a passage. Replicated.
+var _dig_cd: float = 0.0
+func _dig_tunnel() -> void:
+	if _dig_cd > 0.0:
+		return
+	_dig_cd = 0.4
+	var fwd := -global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var pos := global_position + fwd * 3.0
+	_place_tunnel_segment.rpc(pos, rotation.y)
+
+@rpc("any_peer", "call_local", "reliable")
+func _place_tunnel_segment(pos: Vector3, yaw: float) -> void:
+	var seg := Node3D.new()
+	seg.add_to_group("dug_tunnel")
+	get_tree().current_scene.add_child(seg)
+	seg.global_position = pos
+	seg.rotation.y = yaw
+	var inner := 3.0
+	var ht := 3.0
+	var depth := 3.2
+	var rock := Color(0.17, 0.15, 0.17)
+	# Two side walls + a roof; the floor is the terrain you walk on.
+	_seg_box(seg, Vector3(0.5, ht, depth), Vector3(inner * 0.5 + 0.25, ht * 0.5, 0), rock)
+	_seg_box(seg, Vector3(0.5, ht, depth), Vector3(-inner * 0.5 - 0.25, ht * 0.5, 0), rock)
+	_seg_box(seg, Vector3(inner + 1.0, 0.4, depth), Vector3(0, ht, 0), rock.lightened(0.04))
+
+## A static collider+mesh box at a local position under `parent`.
+func _seg_box(parent: Node3D, size: Vector3, local_pos: Vector3, col: Color) -> void:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = 1
+	sb.collision_mask = 0
+	parent.add_child(sb)
+	sb.position = local_pos
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.roughness = 1.0
+	mi.material_override = m
+	sb.add_child(mi)
+	var cs := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = size
+	cs.shape = sh
+	sb.add_child(cs)
 
 ## Clear gadget state when the slot is emptied or changed.
 func _reset_gadget() -> void:

@@ -21,6 +21,7 @@ const DEFS := {
 	"hide":           {"name": "Animal Hide", "kind": "material", "w": 1, "h": 1},
 	"wood":           {"name": "Wood",        "kind": "material", "w": 1, "h": 1},
 	"scrap":          {"name": "Scrap Metal", "kind": "material", "w": 1, "h": 1},
+	"stone":          {"name": "Stone",       "kind": "material", "w": 1, "h": 1},
 	"medkit":         {"name": "Medkit",     "kind": "health",   "w": 1, "h": 2, "amount": 50},
 	"ammo":           {"name": "Ammo Box",   "kind": "ammo",     "w": 1, "h": 1},
 	# Grenades all share kind "grenade" (one throw slot + one count); "gtype" picks the
@@ -37,13 +38,21 @@ const DEFS := {
 	"binoculars":     {"name": "Binoculars",      "kind": "gadget", "gadget": "binoculars", "w": 1, "h": 1},
 	"nvg":            {"name": "Night Vision",    "kind": "gadget", "gadget": "nvg",        "w": 1, "h": 1},
 	"scanner":        {"name": "Motion Scanner",  "kind": "gadget", "gadget": "scanner",    "w": 1, "h": 1},
+	# Torch: a light that burns down (fuel) and is consumed when spent. Jetpack: hold jump
+	# to thrust upward, draining fuel that recharges on the ground.
+	"torch":          {"name": "Torch",   "kind": "gadget", "gadget": "torch",   "fuel": 35.0, "w": 1, "h": 1},
+	"jetpack":        {"name": "Jetpack",  "kind": "gadget", "gadget": "jetpack", "fuel": 100.0, "w": 2, "h": 2},
+	# Money — a droppable currency item (used to hire follower NPCs).
+	"money":          {"name": "Cash",    "kind": "money", "amount": 25, "w": 1, "h": 1},
 	"backpack_small": {"name": "Small Pack", "kind": "backpack", "w": 2, "h": 2, "grid_w": 3, "grid_h": 4},
 	"backpack_large": {"name": "Large Pack", "kind": "backpack", "w": 2, "h": 3, "grid_w": 4, "grid_h": 7},
-	# Armor: "slot" maps to an equip slot; "armor" is the fraction of damage cut on
-	# that body zone (head armor -> head zone, body -> torso, pants -> legs).
-	"helmet":     {"name": "Helmet",     "kind": "armor", "slot": "head",  "armor": 0.35, "w": 1, "h": 1},
-	"vest":       {"name": "Body Armor", "kind": "armor", "slot": "body",  "armor": 0.40, "w": 2, "h": 2},
-	"leg_armor":  {"name": "Leg Guards", "kind": "armor", "slot": "pants", "armor": 0.30, "w": 1, "h": 2},
+	# Armor: "slot" maps to an equip slot; "armor_hp" is a pool of EXTRA hit points for
+	# that body zone (head->head, body->torso, pants->legs). Damage to the zone drains the
+	# armor first; when it hits 0 the piece breaks and is removed. cur_hp tracks the
+	# remaining durability of a specific instance (set in make()).
+	"helmet":     {"name": "Helmet",     "kind": "armor", "slot": "head",  "armor_hp": 45, "w": 1, "h": 1},
+	"vest":       {"name": "Body Armor", "kind": "armor", "slot": "body",  "armor_hp": 80, "w": 2, "h": 2},
+	"leg_armor":  {"name": "Leg Guards", "kind": "armor", "slot": "pants", "armor_hp": 55, "w": 1, "h": 2},
 }
 
 const ARMOR_IDS := ["helmet", "vest", "leg_armor"]
@@ -55,6 +64,9 @@ const RECIPES := [
 	{"id": "bandage",  "name": "Bandage",     "in": {"hide": 2},     "out": "medkit",      "fire": false},
 	{"id": "makeammo", "name": "Craft Ammo",  "in": {"scrap": 1},    "out": "ammo",        "fire": false},
 	{"id": "campfire", "name": "Campfire",    "in": {"wood": 3},     "out": "_campfire",   "fire": false},
+	{"id": "stonehelm","name": "Improvised Helmet", "in": {"stone": 2, "hide": 1}, "out": "helmet", "fire": false},
+	{"id": "torch",    "name": "Torch",      "in": {"wood": 1, "scrap": 1}, "out": "torch",   "fire": true},
+	{"id": "jetpack",  "name": "Jetpack",    "in": {"scrap": 5, "wood": 1}, "out": "jetpack", "fire": false},
 ]
 const GRENADE_IDS := ["grenade", "grenade_smoke", "grenade_flash", "grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void"]
 const GADGET_IDS := ["flashlight", "binoculars", "nvg", "scanner"]
@@ -71,6 +83,10 @@ func make(id: String) -> Dictionary:
 		return {}
 	var d: Dictionary = (DEFS[id] as Dictionary).duplicate()
 	d["id"] = id
+	if d.has("armor_hp"):
+		d["cur_hp"] = int(d["armor_hp"])   # a fresh piece starts at full durability
+	if d.has("fuel"):
+		d["cur_fuel"] = float(d["fuel"])   # torches/jetpacks start with a full tank
 	return _finalize(d)
 
 ## Footprint per weapon (w, h). Pistol is compact; long guns are 2x1.
@@ -137,7 +153,7 @@ func from_pickup(kind: String, amount: int, weapon_id: String) -> Dictionary:
 const WEAPON_VALUE := {"pistol": 8, "smg": 14, "shotgun": 16, "rifle": 18, "sniper": 24}
 const ARMOR_VALUE := {"helmet": 10, "vest": 12, "leg_armor": 8}
 const GRENADE_VALUE := {"frag": 5, "smoke": 4, "flashbang": 5, "incendiary": 7, "impact": 7, "shockwave": 8, "blackhole": 12}
-const GADGET_VALUE := {"flashlight": 6, "binoculars": 9, "nvg": 14, "scanner": 12}
+const GADGET_VALUE := {"flashlight": 6, "binoculars": 9, "nvg": 14, "scanner": 12, "torch": 4, "jetpack": 30}
 
 ## Coin value of an item (Quartermaster trading). Buy at value, sell at half.
 func value_of(item: Dictionary) -> int:
@@ -151,6 +167,7 @@ func value_of(item: Dictionary) -> int:
 		"food": return 3
 		"water": return 3
 		"material": return 2
+		"money": return int(item.get("amount", 25))
 		"backpack": return 12
 		_: return 2
 
@@ -166,6 +183,7 @@ func color_for(kind: String) -> Color:
 		"grenade": return Color(0.9, 0.9, 0.35)
 		"gadget": return Color(0.4, 0.85, 0.9)
 		"material": return Color(0.7, 0.6, 0.45)
+		"money": return Color(0.35, 0.8, 0.4)
 		"weapon": return Color(0.7, 0.8, 1.0)
 		"backpack": return Color(0.6, 0.5, 0.35)
 		"armor": return Color(0.55, 0.58, 0.65)

@@ -1,13 +1,32 @@
 extends Node3D
 ## A deployed campfire: logs + flame particles + a warm flickering light. Marks a
-## "campfire" group so nearby players can cook. Cosmetic/ambient; no authority needed.
+## "campfire" group so nearby players can cook. Burns down over time and vanishes unless
+## fed wood; a floating timer shows the remaining burn.
+
+const START_FUEL := 150.0      # seconds a fresh fire burns
+const MAX_FUEL := 300.0
+const FEED_SECS := 90.0        # +seconds per wood fed
+
+var fuel: float = START_FUEL
+var _light: OmniLight3D = null
+var _flicker: float = 0.0
+var _timer_label: Label3D = null
 
 func _ready() -> void:
 	add_to_group("campfire")
 	_build()
+	_timer_label = Label3D.new()
+	_timer_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_timer_label.no_depth_test = true
+	_timer_label.fixed_size = true
+	_timer_label.pixel_size = 0.0011
+	_timer_label.position = Vector3(0, 1.4, 0)
+	_timer_label.modulate = Color(1.0, 0.7, 0.4)
+	add_child(_timer_label)
 
-var _light: OmniLight3D = null
-var _flicker: float = 0.0
+## Feed wood to extend the burn (called by the crafting menu's Feed Fire action).
+func feed(secs: float = FEED_SECS) -> void:
+	fuel = minf(MAX_FUEL, fuel + secs)
 
 func _build() -> void:
 	var logmat := StandardMaterial3D.new()
@@ -61,6 +80,16 @@ func _build() -> void:
 	_light.position.y = 0.6
 
 func _process(delta: float) -> void:
+	fuel -= delta
+	if fuel <= 0.0:
+		queue_free()   # burned out
+		return
 	if _light != null:
 		_flicker += delta * 12.0
-		_light.light_energy = 2.6 + sin(_flicker) * 0.4 + sin(_flicker * 2.3) * 0.2
+		# Dim as it dies down near the end.
+		var low := clampf(fuel / 20.0, 0.3, 1.0)
+		_light.light_energy = (2.6 + sin(_flicker) * 0.4 + sin(_flicker * 2.3) * 0.2) * low
+	if _timer_label != null:
+		var m := int(fuel) / 60
+		var s := int(fuel) % 60
+		_timer_label.text = "🔥 %d:%02d" % [m, s]

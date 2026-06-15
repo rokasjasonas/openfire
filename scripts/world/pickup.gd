@@ -20,6 +20,20 @@ func _ready() -> void:
 	_build_collision()
 	_build_visual()
 	body_entered.connect(_on_body_entered)
+	# Settle onto the terrain so items don't sink into sloped ground. Deferred so the
+	# spawn position (set right after add_child by every spawner) is final first.
+	call_deferred("_settle_to_ground")
+
+func _settle_to_ground() -> void:
+	if not is_inside_tree():
+		return
+	var space := get_world_3d().direct_space_state
+	var from := global_position + Vector3.UP * 5.0
+	var q := PhysicsRayQueryParameters3D.create(from, global_position + Vector3.DOWN * 10.0)
+	q.collision_mask = 1   # world geometry
+	var hit := space.intersect_ray(q)
+	if hit:
+		global_position.y = hit.position.y + 0.3
 
 func _build_collision() -> void:
 	var cs := CollisionShape3D.new()

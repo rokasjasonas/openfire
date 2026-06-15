@@ -43,9 +43,12 @@ var _ntemp: FastNoiseLite    # temperature (biomes)
 var _nmoist: FastNoiseLite   # moisture (biomes)
 var _nforest: FastNoiseLite  # forest density
 
+var _seed: int = 0
+
 func build_level() -> void:
 	_size = _size_for(int(Game.config.get("map_size", 1)))
 	var sd := int(Game.config.get("seed", 0))
+	_seed = sd
 	_n = int(_size / STEP) + 1
 
 	var rng := RandomNumberGenerator.new()
@@ -87,7 +90,8 @@ func build_level() -> void:
 	_build_watchtowers(rng)
 	_add_caves(rng)
 	_place_sites()
-	_place_vehicles(rng)
+	# Vehicles are placed in post_bake() (after the navmesh bake) so their tops never
+	# become walkable / a snap target — otherwise bots end up standing on them.
 
 func _size_for(idx: int) -> float:
 	match idx:
@@ -505,46 +509,53 @@ func _scatter_vegetation(rng: RandomNumberGenerator) -> void:
 		_add_boulder(rng, Vector3(x, h, z))
 		placed += 1
 
-const TREE_SCRIPT := preload("res://scripts/world/tree.gd")
-var _tree_counter: int = 0
+const PROP_SCRIPT := preload("res://scripts/world/tree.gd")
+var _prop_counter: int = 0
 
-## Build a single choppable tree node (trunk collider + canopy) rooted at `pos`. The
-## tree carries a deterministic id so felling/regrowth can replicate across peers.
+## Create a harvestable prop node (group "destructible" + `group`) with a deterministic
+## id so breaking/regrowth replicates. Returns the node for the caller to fill in.
+func _new_prop(pos: Vector3, group: String, drop_item: String, regrow: float) -> StaticBody3D:
+	var p: StaticBody3D = PROP_SCRIPT.new()
+	p.collision_layer = 1
+	p.collision_mask = 0
+	p.add_to_group(group)
+	p.add_to_group("destructible")
+	p.prop_id = _prop_counter
+	p.drop_item = drop_item
+	p.regrow_secs = regrow
+	p.set_meta("prop_id", _prop_counter)
+	_prop_counter += 1
+	region.add_child(p)
+	p.position = pos
+	return p
+
+## Build a single choppable tree (trunk collider + canopy), dropping wood.
 func _add_tree(rng: RandomNumberGenerator, pos: Vector3, biome: String) -> void:
 	var th := rng.randf_range(3.6, 8.0)
 	if biome == "tundra" or biome == "snow":
 		th *= 0.7
 	var trunk_w := clampf(th * 0.09, 0.35, 0.8)
-	var tree: StaticBody3D = TREE_SCRIPT.new()
-	tree.collision_layer = 1
-	tree.collision_mask = 0
-	tree.add_to_group("tree")
-	tree.add_to_group("destructible")
-	tree.tree_id = _tree_counter
-	tree.set_meta("tree_id", _tree_counter)
-	_tree_counter += 1
-	region.add_child(tree)
-	tree.position = pos
-	# Trunk: collider + visual (local coords, since the tree is positioned at `pos`).
-	_tree_box(tree, Vector3(trunk_w, th, trunk_w), Vector3(0, th * 0.5, 0), Color(0.34, 0.24, 0.15), true)
+	var tree := _new_prop(pos, "tree", "wood", rng.randf_range(90.0, 180.0))
+	# Trunk: collider + visual (local coords, since the prop is positioned at `pos`).
+	_prop_box(tree, Vector3(trunk_w, th, trunk_w), Vector3(0, th * 0.5, 0), Color(0.34, 0.24, 0.15), true)
 	if biome == "desert":
 		var cc := Color(0.24, 0.42, 0.22)
-		_tree_box(tree, Vector3(0.7, th * 0.9, 0.7), Vector3(0, th * 0.45, 0), cc, false)
-		_tree_box(tree, Vector3(0.5, 1.4, 0.5), Vector3(trunk_w + 0.4, th * 0.6, 0), cc, false)
+		_prop_box(tree, Vector3(0.7, th * 0.9, 0.7), Vector3(0, th * 0.45, 0), cc, false)
+		_prop_box(tree, Vector3(0.5, 1.4, 0.5), Vector3(trunk_w + 0.4, th * 0.6, 0), cc, false)
 		return
 	if biome == "snow" or biome == "tundra":
 		var fc := Color(0.16, 0.34, 0.20)
-		_tree_box(tree, Vector3(th * 0.6, th * 0.5, th * 0.6), Vector3(0, th * 0.78, 0), fc, false)
-		_tree_box(tree, Vector3(th * 0.4, th * 0.4, th * 0.4), Vector3(0, th * 1.08, 0), fc, false)
+		_prop_box(tree, Vector3(th * 0.6, th * 0.5, th * 0.6), Vector3(0, th * 0.78, 0), fc, false)
+		_prop_box(tree, Vector3(th * 0.4, th * 0.4, th * 0.4), Vector3(0, th * 1.08, 0), fc, false)
 		return
 	var fr := rng.randf_range(2.2, 3.8)
 	var leaf := Color(0.20, 0.42, 0.18) if biome == "forest" else Color(0.26, 0.48, 0.22)
 	leaf = _vary(leaf, pos.x, pos.z, 0.04)
-	_tree_box(tree, Vector3(fr, fr * 0.85, fr), Vector3(0, th + fr * 0.2, 0), leaf, false)
-	_tree_box(tree, Vector3(fr * 0.75, fr * 0.7, fr * 0.75), Vector3(fr * 0.2, th + fr * 0.55, 0), leaf.darkened(0.08), false)
+	_prop_box(tree, Vector3(fr, fr * 0.85, fr), Vector3(0, th + fr * 0.2, 0), leaf, false)
+	_prop_box(tree, Vector3(fr * 0.75, fr * 0.7, fr * 0.75), Vector3(fr * 0.2, th + fr * 0.55, 0), leaf.darkened(0.08), false)
 
-## A box under a tree node: a mesh, plus a collider when `solid` (the trunk).
-func _tree_box(tree: Node3D, size: Vector3, local_pos: Vector3, col: Color, solid: bool) -> void:
+## A box under a prop node: a mesh, plus a collider when `solid` (the trunk / boulder).
+func _prop_box(prop: Node3D, size: Vector3, local_pos: Vector3, col: Color, solid: bool) -> void:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = size
@@ -554,23 +565,25 @@ func _tree_box(tree: Node3D, size: Vector3, local_pos: Vector3, col: Color, soli
 	m.roughness = 1.0
 	mi.material_override = m
 	mi.position = local_pos
-	tree.add_child(mi)
+	prop.add_child(mi)
 	if solid:
 		var cs := CollisionShape3D.new()
 		var sh := BoxShape3D.new()
 		sh.size = size
 		cs.shape = sh
 		cs.position = local_pos
-		tree.add_child(cs)
+		prop.add_child(cs)
 
+## Boulders are choppable props that drop stone (and regrow slowly).
 func _add_boulder(rng: RandomNumberGenerator, pos: Vector3) -> void:
 	var rs := rng.randf_range(1.4, 3.6)
 	var col := _vary(Color(0.42, 0.40, 0.38), pos.x, pos.z, 0.05)
-	_collider_box(Vector3(rs, rs * 0.8, rs * rng.randf_range(0.8, 1.2)), pos + Vector3(0, rs * 0.3, 0), col)
+	var rock := _new_prop(pos, "rock", "stone", rng.randf_range(180.0, 300.0))
+	_prop_box(rock, Vector3(rs, rs * 0.8, rs * rng.randf_range(0.8, 1.2)), Vector3(0, rs * 0.3, 0), col, true)
 	# A couple of smaller chips for a cluster look (visual only).
 	if rng.randf() < 0.6:
 		var s2 := rs * 0.5
-		_visual_box(Vector3(s2, s2, s2), pos + Vector3(rs * 0.6, s2 * 0.3, rs * 0.3), col.darkened(0.05))
+		_prop_box(rock, Vector3(s2, s2, s2), Vector3(rs * 0.6, s2 * 0.3, rs * 0.3), col.darkened(0.05), false)
 
 # ---------------------------------------------------------------- loot
 
@@ -722,6 +735,13 @@ func _build_cave(rng: RandomNumberGenerator, c: Vector3) -> void:
 		add_pickup("armor", Vector3(c.x + 1.2, c.y + 0.6, c.z), 0, ItemDB.ARMOR_IDS[rng.randi() % ItemDB.ARMOR_IDS.size()])
 
 # ---------------------------------------------------------------- vehicles
+
+## Called by map_base after the navmesh is baked: place vehicles now so they aren't
+## part of the navmesh (keeps bots off their roofs). Deterministic from the seed.
+func post_bake() -> void:
+	var vrng := RandomNumberGenerator.new()
+	vrng.seed = _seed + 919
+	_place_vehicles(vrng)
 
 ## Medium+ worlds get a buggy at every other village so crossing the map isn't a
 ## kilometre on foot. Parked on the flattened plot edge, so it sits level.

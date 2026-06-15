@@ -37,6 +37,11 @@ func _ready() -> void:
 	add_child(region)
 	build_level()
 	region.bake_navigation_mesh(false)
+	# Post-bake hook: lets a map add things that must NOT be part of the navmesh (e.g.
+	# vehicles, so bots never path/snap onto their roofs). Called dynamically because the
+	# base class doesn't define post_bake (static `post_bake()` would be a parse error).
+	if has_method("post_bake"):
+		call("post_bake")
 
 func build_level() -> void:
 	pass  # override in subclass

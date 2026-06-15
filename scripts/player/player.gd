@@ -173,6 +173,7 @@ func _ready() -> void:
 		name_label.modulate = Game.team_color(team)
 	camera.fov = Settings.fov
 	_cam_base_pos = camera.position
+	equipment_changed.connect(_update_worn_armor)   # show/hide worn armor primitives
 	_body_anim = _find_body_anim(body_model)
 	_body_anim_pos = global_position
 	if _body_anim != null:
@@ -329,6 +330,8 @@ func _physics_process(delta: float) -> void:
 			near_pickup.collect(self)
 		elif near_npc != null:
 			_talk_to(near_npc)
+		elif near_campfire() and hud != null and hud.has_method("open_crafting"):
+			hud.open_crafting()   # cook / craft at the fire
 
 	# Swimming + oxygen: switch to swim physics when the body is below the surface.
 	if _water_y < -1.0e19:
@@ -372,6 +375,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = lerp(velocity.x, target.x, accel * delta)
 		velocity.z = lerp(velocity.z, target.z, accel * delta)
 
+		_jetpack(delta)
 		move_and_slide()
 		# Fall damage: track peak downward speed in the air, apply it on landing.
 		if is_on_floor():
@@ -404,6 +408,7 @@ func _physics_process(delta: float) -> void:
 		weapons.set_trigger(false)
 		weapons.set_aiming(false)
 	sync_weapon_index = weapons.current_index
+	_tick_gadget(delta)
 	_update_camera_fx(delta)
 	_update_body_anim(delta)
 	sync_pos = global_position
@@ -626,10 +631,29 @@ func _count_material(id: String) -> int:
 	return n
 
 func near_campfire() -> bool:
+	return _nearest_campfire() != null
+
+func _nearest_campfire() -> Node:
 	for f in get_tree().get_nodes_in_group("campfire"):
 		if is_instance_valid(f) and f.global_position.distance_to(global_position) < 5.0:
-			return true
-	return false
+			return f
+	return null
+
+## Spend one wood to extend the nearest campfire (returns true on success).
+func feed_campfire() -> bool:
+	if not is_multiplayer_authority() or _count_material("wood") <= 0:
+		return false
+	var fire := _nearest_campfire()
+	if fire == null or not fire.has_method("feed"):
+		return false
+	# Remove one wood.
+	for i in inventory.size():
+		if String(inventory[i].get("id", "")) == "wood":
+			inventory.remove_at(i)
+			break
+	fire.feed()
+	inventory_changed.emit()
+	return true
 
 ## Whether the recipe's inputs (and fire requirement) are currently satisfied.
 func can_craft(recipe: Dictionary) -> bool:
@@ -713,17 +737,84 @@ func _apply_gadget() -> void:
 		_flashlight.light_energy = 6.0
 		_flashlight.rotation_degrees.x = 0.0
 		camera.add_child(_flashlight)
-	_flashlight.visible = _gadget_on and g == "flashlight"
+	_flashlight.visible = _gadget_on and (g == "flashlight" or g == "torch")
+	# A torch is warmer/shorter than the flashlight.
+	if _flashlight.visible:
+		_flashlight.light_color = Color(1.0, 0.7, 0.4) if g == "torch" else Color(1, 1, 1)
+		_flashlight.spot_range = 20.0 if g == "torch" else 28.0
 	# Binoculars zoom (handled in camera FX / weapon manager).
 	glassing = _gadget_on and g == "binoculars"
 	# Night-vision overlay on the HUD.
 	if hud and hud.has_method("set_nightvision"):
 		hud.set_nightvision(_gadget_on and g == "nvg")
 
+## Per-frame gadget upkeep: torch burns its fuel while lit (and is consumed when spent);
+## jetpack thrust is handled in the movement code.
+func _tick_gadget(delta: float) -> void:
+	var g := equipped_gadget()
+	if g == "torch" and _gadget_on:
+		var piece: Dictionary = equip.get("gadget", {})
+		var fuel := float(piece.get("cur_fuel", 0.0)) - delta
+		piece["cur_fuel"] = fuel
+		if fuel <= 0.0:
+			equip["gadget"] = {}   # torch burned out — gone
+			_gadget_on = false
+			_apply_gadget()
+			equipment_changed.emit()
+
+## Jetpack: hold jump while airborne to thrust upward, draining fuel that recharges on
+## the ground. No-op unless a jetpack is the equipped gadget.
+func _jetpack(delta: float) -> void:
+	if equipped_gadget() != "jetpack":
+		return
+	var jp: Dictionary = equip.get("gadget", {})
+	var fuel := float(jp.get("cur_fuel", 0.0))
+	var maxf_jp := float(jp.get("fuel", 100.0))
+	if is_on_floor():
+		fuel = minf(maxf_jp, fuel + 28.0 * delta)   # refuel on the ground
+	elif _input_enabled and Input.is_action_pressed("jump") and fuel > 0.0:
+		velocity.y = move_toward(velocity.y, 7.5, 34.0 * delta)   # climb against gravity
+		fuel = maxf(0.0, fuel - 26.0 * delta)
+		_air_speed = 0.0   # thrusting cancels fall damage
+	jp["cur_fuel"] = fuel
+
 ## Clear gadget state when the slot is emptied or changed.
 func _reset_gadget() -> void:
 	_gadget_on = false
 	_apply_gadget()
+
+# ---------------------------------------------------------------- worn armor
+# Simple primitive armor shown on the body per equipped slot (procedural, no assets).
+var _worn: Dictionary = {}   # slot -> MeshInstance3D
+
+func _update_worn_armor() -> void:
+	if body_model == null:
+		return
+	# slot -> [box size, local y]
+	var spec := {
+		"head":  [Vector3(0.55, 0.45, 0.55), 2.42],
+		"body":  [Vector3(0.85, 0.9, 0.55), 1.55],
+		"pants": [Vector3(0.7, 0.9, 0.55), 0.78],
+	}
+	for slot in spec:
+		var has: bool = String((equip.get(slot, {}) as Dictionary).get("kind", "")) == "armor"
+		if has and not _worn.has(slot):
+			var mi := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = spec[slot][0]
+			mi.mesh = box
+			var m := StandardMaterial3D.new()
+			m.albedo_color = Color(0.5, 0.55, 0.62)
+			m.metallic = 0.6
+			m.roughness = 0.5
+			mi.material_override = m
+			mi.position = Vector3(0, spec[slot][1], 0)
+			body_model.add_child(mi)
+			_worn[slot] = mi
+		elif not has and _worn.has(slot):
+			if is_instance_valid(_worn[slot]):
+				_worn[slot].queue_free()
+			_worn.erase(slot)
 
 func _apply_fall_landing() -> void:
 	# A perceptible landing: dip the camera (and shake hard for real falls).
@@ -978,11 +1069,28 @@ func _repack(gw: int, gh: int, exclude: int) -> bool:
 # ---------------------------------------------------------------- equipment
 
 ## Damage cut for a body zone from worn armor (head/torso/legs -> head/body/pants).
-func armor_reduction(zone: String) -> float:
+## Armor is a pool of extra HP on the hit zone: it soaks damage until its durability
+## (cur_hp) runs out, then the piece breaks and is removed. Returns the damage that
+## spills past the armor onto the player's health.
+func _absorb_armor(zone: String, amount: float) -> float:
 	var slot: String = {"head": "head", "torso": "body", "legs": "pants"}.get(zone, "")
 	if slot == "":
-		return 0.0
-	return float((equip.get(slot, {}) as Dictionary).get("armor", 0.0))
+		return amount
+	var piece: Dictionary = equip.get(slot, {})
+	if String(piece.get("kind", "")) != "armor":
+		return amount
+	var hp := float(piece.get("cur_hp", 0.0))
+	if hp <= 0.0:
+		return amount
+	var absorbed := minf(amount, hp)
+	hp -= absorbed
+	piece["cur_hp"] = hp
+	if hp <= 0.0:
+		equip[slot] = {}   # armor destroyed — gone for good
+		if is_multiplayer_authority():
+			Audio.play_3d("res://assets/audio/impact.ogg", global_position, -2.0, 0.1)
+			equipment_changed.emit()
+	return amount - absorbed
 
 ## Equip the backpack item at `index` into its natural slot (double-click / drag).
 ## `gun_slot` (0-2) targets a specific gun slot when dragging a weapon onto it;
@@ -1208,6 +1316,11 @@ func _talk_to(npc: Node) -> void:
 	if String(npc.get("role")) == "Quartermaster" \
 			and String(Game.adventure_stance.get(String(npc.get("faction")), "neutral")) != "hostile":
 		info["can_trade"] = true
+	# Hireable: a non-hostile, not-yet-recruited NPC, when you're carrying money.
+	_talking_npc = npc
+	if _can_hire(npc):
+		info["can_hire"] = true
+		info["hire_cost"] = HIRE_COST
 	var qm := get_tree().get_first_node_in_group("quest_manager")
 	if qm != null:
 		var offer: Dictionary = qm.offer_for(int(npc.get("combatant_id")))
@@ -1217,6 +1330,46 @@ func _talk_to(npc: Node) -> void:
 			info["quest_title"] = "[%s]  %s" % [diff_label, String(offer["title"])] if diff_label != "" else String(offer["title"])
 			info["quest_desc"] = "%s  (+%d pts)" % [String(offer["desc"]), int(offer["points"])]
 	talk_to.emit(info)
+
+const HIRE_COST := 25
+var _talking_npc: Node = null
+
+## How much money the backpack holds (sum of money items' amounts).
+func _money_held() -> int:
+	var n := 0
+	for it in inventory:
+		if String(it.get("kind", "")) == "money":
+			n += int(it.get("amount", 0))
+	return n
+
+func _can_hire(npc: Node) -> bool:
+	if not Game.is_adventure() or npc == null or npc.get("recruited"):
+		return false
+	if String(Game.adventure_stance.get(String(npc.get("faction")), "neutral")) == "hostile":
+		return false
+	return _money_held() >= HIRE_COST
+
+## Pay the talked-to NPC to recruit them as a follower (spends money items).
+func hire_npc() -> bool:
+	if not is_multiplayer_authority() or _talking_npc == null or not _can_hire(_talking_npc):
+		return false
+	var owed := HIRE_COST
+	var i := 0
+	while owed > 0 and i < inventory.size():
+		if String(inventory[i].get("kind", "")) == "money":
+			var amt := int(inventory[i].get("amount", 0))
+			if amt <= owed:
+				owed -= amt
+				inventory.remove_at(i)
+			else:
+				inventory[i]["amount"] = amt - owed
+				owed = 0
+		else:
+			i += 1
+	if _talking_npc.has_method("recruit"):
+		_talking_npc.recruit(self)
+	inventory_changed.emit()
+	return true
 
 func _npc_greeting(npc: Node) -> String:
 	var fac := String(npc.get("faction"))
@@ -1390,7 +1543,7 @@ func hit(amount: float, attacker_id: int, zone: String = "") -> void:
 func receive_damage(amount: float, attacker_id: int, zone: String = "") -> void:
 	if dead or downed or fully_dead:
 		return
-	amount *= 1.0 - armor_reduction(zone)  # worn armor cuts this zone's damage
+	amount = _absorb_armor(zone, amount)   # worn armor soaks the zone's damage, then breaks
 	if perks.has("tough"):
 		amount *= 0.9
 	sync_health = max(0.0, sync_health - amount)

@@ -273,12 +273,12 @@ func _ready() -> void:
 			break
 		if a_tree != null:
 			var groups_ok: bool = a_tree.is_in_group("destructible") and a_tree.has_method("hit") and a_tree.has_method("set_felled")
-			var tid: int = int(a_tree.get_meta("tree_id", -1))
+			var tid: int = int(a_tree.get_meta("prop_id", -1))
 			var wood_before := 0
 			for n in get_tree().current_scene.get_children():
 				if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "wood":
 					wood_before += 1
-			world.damage_tree(tid, 999.0, 1)
+			world.damage_prop(tid, 999.0, 1)
 			await get_tree().process_frame
 			var wood_after := 0
 			for n in get_tree().current_scene.get_children():
@@ -286,8 +286,63 @@ func _ready() -> void:
 					wood_after += 1
 			a_tree.set_felled(false)   # regrow restores it
 			tree_ok = groups_ok and a_tree.destroyed == false and a_tree.visible and wood_after > wood_before
-			print("SMOKE: tree_ok=", tree_ok, " groups=", groups_ok, " wood_dropped=", wood_after - wood_before)
+			# Rocks: a boulder is also a destructible prop that drops stone.
+			var a_rock: Node = null
+			for r in get_tree().get_nodes_in_group("rock"):
+				a_rock = r
+				break
+			var rock_ok := false
+			if a_rock != null:
+				var rid: int = int(a_rock.get_meta("prop_id", -1))
+				var stone_before := 0
+				for n in get_tree().current_scene.get_children():
+					if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "stone":
+						stone_before += 1
+				world.damage_prop(rid, 999.0, 1)
+				await get_tree().process_frame
+				var stone_after := 0
+				for n in get_tree().current_scene.get_children():
+					if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "stone":
+						stone_after += 1
+				rock_ok = a_rock.is_in_group("destructible") and stone_after > stone_before
+			var stone_recipe_ok := false
+			for rcp in ItemDB.RECIPES:
+				if (rcp["in"] as Dictionary).has("stone"):
+					stone_recipe_ok = true
+			tree_ok = tree_ok and rock_ok and stone_recipe_ok
+			print("SMOKE: tree_ok=", tree_ok, " groups=", groups_ok, " wood_dropped=", wood_after - wood_before, " rock=", rock_ok, " stone_recipe=", stone_recipe_ok)
 		tterr.queue_free()
+
+	# Torch / jetpack / campfire fuel / money / follower recruiting.
+	var extras_ok := false
+	if world and me:
+		# Torch + jetpack are gadgets that start with a full fuel tank.
+		var torch_ok: bool = ItemDB.make("torch").get("cur_fuel", 0) > 0 and ItemDB.make("jetpack").get("cur_fuel", 0) > 0
+		# Campfire burns down and can be fed.
+		var cf: Node = load("res://scenes/campfire.tscn").instantiate()
+		get_tree().current_scene.add_child(cf)
+		await get_tree().process_frame
+		var f0: float = cf.fuel
+		cf._process(2.0)
+		var burns: bool = cf.fuel < f0
+		cf.feed(90.0)
+		var feeds: bool = cf.fuel > f0
+		cf.queue_free()
+		# Money item.
+		var money_ok: bool = String(ItemDB.make("money").get("kind", "")) == "money"
+		# Follower: recruit a non-hostile bot -> joins the player's side.
+		var fb_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "Pal", "role": "Wanderer"})
+		await get_tree().process_frame
+		var follower: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == fb_id:
+				follower = b
+		var recruit_ok := false
+		if follower != null and follower.has_method("recruit"):
+			follower.recruit(me)
+			recruit_ok = follower.recruited and String(follower.faction) == "player" and follower.team == me.team
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok)
 
 	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
 	# world — same seed -> same terrain.
@@ -1308,21 +1363,25 @@ func _ready() -> void:
 	var equip_ok := false
 	if me:
 		me.inventory.clear()
-		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}}
+		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
 		me.weapons.set_loadout([])
 		# Equip body armor from the backpack -> goes to the body slot, leaves the grid.
 		me.inv_add(ItemDB.make("vest"))
 		me.equip_item(0)
 		var armor_equipped: bool = not (me.equip["body"] as Dictionary).is_empty() and me.inventory.is_empty()
-		var reduce_ok: bool = me.armor_reduction("torso") > 0.0 and is_equal_approx(me.armor_reduction("head"), 0.0)
-		# Zone damage reduction: torso hit is cut, head hit is not.
+		# Armor is an extra-HP buffer: a torso hit drains armor (health untouched while it
+		# lasts); a head hit (no helmet) hits health directly.
 		me.sync_health = 100.0
-		me.receive_damage(50.0, -1, "torso")
-		var torso_hp: float = me.sync_health
+		me.receive_damage(30.0, -1, "torso")   # vest has 80 hp -> soaks it all
+		var torso_buffered: bool = is_equal_approx(me.sync_health, 100.0) and float(me.equip["body"].get("cur_hp", 0)) < 80.0
 		me.sync_health = 100.0
-		me.receive_damage(50.0, -1, "head")
-		var head_hp: float = me.sync_health
-		var dmg_ok: bool = torso_hp > head_hp   # torso took less (armored)
+		me.receive_damage(30.0, -1, "head")    # no helmet -> health takes it
+		var head_unbuffered: bool = me.sync_health < 100.0
+		# Overflow + break: a hit past the vest's 80 hp destroys it and spills onto health
+		# (kept non-lethal so later tests still have a live player).
+		me.sync_health = 100.0
+		me.receive_damage(100.0, -1, "torso")
+		var armor_broke: bool = (me.equip["body"] as Dictionary).is_empty() and me.sync_health < 100.0 and me.sync_health > 0.0
 		# Equip a weapon -> fills a gun slot; unequip -> back to the backpack.
 		me.inv_add(ItemDB.make_weapon("rifle"))
 		me.equip_item(me.inventory.size() - 1)
@@ -1330,9 +1389,10 @@ func _ready() -> void:
 		me.unequip("gun1")
 		var unequip_ok: bool = not me.weapons.loadout.has("rifle")
 		me.inventory.clear()
-		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}}
-		equip_ok = armor_equipped and reduce_ok and dmg_ok and gun_ok and unequip_ok
-		print("SMOKE: equip_ok=", equip_ok, " armor=", armor_equipped, " reduce=", reduce_ok, " dmg=", dmg_ok, " gun=", gun_ok, " unequip=", unequip_ok)
+		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
+		me.sync_health = 100.0
+		equip_ok = armor_equipped and torso_buffered and head_unbuffered and armor_broke and gun_ok and unequip_ok
+		print("SMOKE: equip_ok=", equip_ok, " armor=", armor_equipped, " buffered=", torso_buffered, " head=", head_unbuffered, " broke=", armor_broke, " gun=", gun_ok, " unequip=", unequip_ok)
 
 	# Weapon loadout: fixed 3 slots, first-empty fill, slot-targeted equip with holes,
 	# remove leaves a hole, all-full replaces current, move/swap, switch skips empty.
@@ -1689,7 +1749,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

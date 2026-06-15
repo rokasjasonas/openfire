@@ -41,9 +41,31 @@ static func draw(ci: CanvasItem, item: Dictionary, rect: Rect2, pad: float = 4.0
 			ci.draw_circle(c + Vector2(0, s2 * 0.15), s2 * 0.72, col.darkened(0.1))
 			ci.draw_rect(Rect2(c.x - s2 * 0.2, c.y - s2 * 0.9, s2 * 0.4, s2 * 0.4), col.darkened(0.4), true)
 		"armor":
+			match String(item.get("id", "")):
+				"helmet":
+					# A domed helmet with a brim.
+					ci.draw_circle(c + Vector2(0, s2 * 0.05), s2 * 0.72, col)
+					ci.draw_rect(Rect2(c.x - s2 * 0.85, c.y + s2 * 0.02, s2 * 1.7, s2 * 0.28), col.darkened(0.25), true)
+				"leg_armor":
+					# Two greaves side by side.
+					ci.draw_rect(Rect2(c.x - s2 * 0.6, c.y - s2 * 0.8, s2 * 0.45, s2 * 1.6), col, true)
+					ci.draw_rect(Rect2(c.x + s2 * 0.15, c.y - s2 * 0.8, s2 * 0.45, s2 * 1.6), col, true)
+				_:
+					# Vest: a shield/torso plate.
+					ci.draw_colored_polygon(PackedVector2Array([
+						c + Vector2(-s2 * 0.8, -s2 * 0.7), c + Vector2(s2 * 0.8, -s2 * 0.7),
+						c + Vector2(s2 * 0.8, s2 * 0.1), c + Vector2(0, s2 * 0.9), c + Vector2(-s2 * 0.8, s2 * 0.1)]), col)
+		"gadget":
+			# A small device: a body box + a lens/bulb.
+			ci.draw_rect(Rect2(c.x - s2 * 0.6, c.y - s2 * 0.45, s2 * 1.2, s2 * 0.9), col, true)
+			ci.draw_circle(c + Vector2(s2 * 0.35, 0), s2 * 0.3, col.lightened(0.4))
+		"material":
 			ci.draw_colored_polygon(PackedVector2Array([
-				c + Vector2(-s2 * 0.8, -s2 * 0.7), c + Vector2(s2 * 0.8, -s2 * 0.7),
-				c + Vector2(s2 * 0.8, s2 * 0.1), c + Vector2(0, s2 * 0.9), c + Vector2(-s2 * 0.8, s2 * 0.1)]), col)
+				c + Vector2(-s2 * 0.7, s2 * 0.5), c + Vector2(-s2 * 0.4, -s2 * 0.6),
+				c + Vector2(s2 * 0.5, -s2 * 0.4), c + Vector2(s2 * 0.7, s2 * 0.5)]), col)
+		"money":
+			ci.draw_rect(Rect2(c.x - s2 * 0.8, c.y - s2 * 0.45, s2 * 1.6, s2 * 0.9), col, true)
+			ci.draw_rect(Rect2(c.x - s2 * 0.8, c.y - s2 * 0.1, s2 * 1.6, s2 * 0.2), col.darkened(0.3), true)
 		"backpack":
 			ci.draw_rect(Rect2(c.x - s2 * 0.7, c.y - s2 * 0.55, s2 * 1.4, s2 * 1.5), col, true)
 			ci.draw_rect(Rect2(c.x - s2 * 0.4, c.y - s2 * 0.85, s2 * 0.8, s2 * 0.5), col.darkened(0.25), true)

@@ -244,6 +244,7 @@ func _process(delta: float) -> void:
 		global_position = global_position.lerp(sync_pos, t)
 	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 	_update_anim(delta)
+	_update_health_bar()
 
 # ---------------------------------------------------------------- animation
 # The character models ship a full clip set (idle/walk/sprint/die/holding-*-shoot).
@@ -423,6 +424,10 @@ func _acquire_target() -> void:
 	for v in get_tree().get_nodes_in_group("vehicle"):
 		if v.get("destroyed") or v.get("driver_id") == 0 or v.get("driver_team") == team:
 			continue
+		# Adventure: hostility is faction-based — don't shoot a vehicle driven by someone
+		# we're not hostile to (e.g. a friendly/neutral NPC ignoring the player's car).
+		if Game.is_adventure() and not Game.adventure_hostile(faction, "player"):
+			continue
 		var d: float = global_position.distance_to(v.global_position)
 		if d < best_d and d < sight_range and _can_see(v):
 			best_d = d
@@ -522,9 +527,33 @@ func _can_see(c: Node) -> bool:
 # ---------------------------------------------------------------- behaviours
 
 func _do_patrol() -> void:
+	# A hired follower sticks near the player it serves when there's nothing to fight.
+	if recruited and is_instance_valid(follow_target):
+		var d := global_position.distance_to(follow_target.global_position)
+		if d > 4.0:
+			_move_toward(follow_target.global_position, move_speed * (0.95 if d > 12.0 else 0.6))
+		else:
+			velocity.x = move_toward(velocity.x, 0.0, 20.0 * 0.016)
+			velocity.z = move_toward(velocity.z, 0.0, 20.0 * 0.016)
+		return
 	if not _has_patrol or global_position.distance_to(_patrol_target) < 2.0:
 		_pick_patrol_point()
 	_move_toward(_patrol_target, 3.0)
+
+# ---------------------------------------------------------------- recruiting
+var recruited: bool = false
+var follow_target: Node3D = null
+
+## Hire this NPC as a follower: it joins the player's side and follows + fights for them.
+func recruit(by_player: Node) -> void:
+	recruited = true
+	follow_target = by_player
+	faction = "player"        # allied with the player (hostile to raiders, etc.)
+	team = int(by_player.team)
+	respawns = false
+	_clear_marker()
+	name_label.text = "%s (follower)" % display_name
+	name_label.visible = true
 
 func _pick_patrol_point() -> void:
 	var map := get_tree().get_first_node_in_group("nav_region")
@@ -896,8 +925,14 @@ func _set_dead_visual(is_dead: bool) -> void:
 	if is_dead:
 		_clear_marker()      # no kill/quest marker over a corpse
 		_tip_over()
+		if _health_bar != null:
+			_health_bar.visible = false
 		# A body-drop thud, not the grenade explosion sound.
 		Audio.play_3d("res://assets/audio/death_body.wav", global_position, -1.0, 0.08)
+		# Non-respawning corpses fade out and are freed after a while so they don't pile
+		# up. The host frees the node; the spawner despawns clients' copies.
+		if not respawns and is_multiplayer_authority():
+			get_tree().create_timer(CORPSE_LINGER).timeout.connect(_despawn_corpse)
 	else:
 		# Respawn: stand the body back up and resume animating.
 		body_model.visible = true
@@ -916,6 +951,71 @@ func _tip_over() -> void:
 	tw.tween_property(body_model, "rotation:x", PI * 0.5 * side, 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_property(body_model, "rotation:z", randf_range(-0.25, 0.25), 0.45)
 	tw.tween_property(body_model, "position:y", 0.1, 0.45)
+
+const CORPSE_LINGER := 25.0   # seconds a non-respawning corpse stays before fading away
+
+## Fade the corpse out and free it (host frees; the spawner despawns client copies).
+func _despawn_corpse() -> void:
+	if not dead or not is_instance_valid(self):
+		return
+	var tw := create_tween()
+	for mi in _model_meshes(body_model):
+		if mi.material_override is StandardMaterial3D:
+			mi.material_override.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tw.tween_interval(1.0)
+	tw.tween_callback(queue_free)
+
+# ---------------------------------------------------------------- health bar
+# A small billboarded bar above the bot, shown only when it's hurt and a player is
+# nearby. Driven on every peer from the replicated sync_health.
+var _health_bar: Node3D = null
+var _hp_fill: MeshInstance3D = null
+
+func _ensure_health_bar() -> void:
+	if _health_bar != null:
+		return
+	_health_bar = Node3D.new()
+	var head_y := 2.7 + maxf(0.0, body_model.scale.x - 1.0) * 1.8
+	add_child(_health_bar)
+	_health_bar.position = Vector3(0, head_y - 0.35, 0)
+	var bg := MeshInstance3D.new()
+	var bgq := QuadMesh.new()
+	bgq.size = Vector2(1.0, 0.14)
+	bg.mesh = bgq
+	var bgm := StandardMaterial3D.new()
+	bgm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bgm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	bgm.albedo_color = Color(0, 0, 0, 0.6)
+	bgm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bg.material_override = bgm
+	_health_bar.add_child(bg)
+	_hp_fill = MeshInstance3D.new()
+	var fq := QuadMesh.new()
+	fq.size = Vector2(0.94, 0.09)
+	_hp_fill.mesh = fq
+	var fm := StandardMaterial3D.new()
+	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	fm.albedo_color = Color(0.3, 0.9, 0.4)
+	fm.no_depth_test = true
+	_hp_fill.material_override = fm
+	bg.add_child(_hp_fill)
+	_hp_fill.position.z = 0.01
+
+func _update_health_bar() -> void:
+	var frac := clampf(sync_health / maxf(1.0, max_health), 0.0, 1.0)
+	# Only show when hurt, alive, and a player is within range.
+	var show := not dead and frac < 0.999 and _player_within(45.0)
+	if not show:
+		if _health_bar != null:
+			_health_bar.visible = false
+		return
+	_ensure_health_bar()
+	_health_bar.visible = true
+	_hp_fill.scale.x = maxf(0.02, frac)
+	_hp_fill.position.x = -(1.0 - frac) * 0.47   # left-anchor the fill
+	if _hp_fill.material_override is StandardMaterial3D:
+		_hp_fill.material_override.albedo_color = Color(0.9, 0.3, 0.25).lerp(Color(0.3, 0.9, 0.4), frac)
 
 func _do_respawn() -> void:
 	sync_health = max_health

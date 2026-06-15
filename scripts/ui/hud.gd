@@ -57,7 +57,7 @@ var _ask_pending: bool = false
 # Quartermaster stock: item ids (ItemDB) and weapon ids, bought at full value.
 const TRADE_ITEMS := ["medkit", "food", "water", "raw_meat", "ammo", "grenade", "grenade_smoke", "grenade_flash",
 	"grenade_incendiary", "grenade_impact", "grenade_shock", "grenade_void",
-	"flashlight", "binoculars", "nvg", "scanner",
+	"flashlight", "binoculars", "nvg", "scanner", "torch", "jetpack",
 	"wood", "scrap", "helmet", "vest", "leg_armor", "backpack_small"]
 const TRADE_WEAPONS := ["pistol", "smg", "shotgun", "rifle"]
 
@@ -111,6 +111,7 @@ func _ready() -> void:
 	trade_panel.visible = false
 	%WorldMap.visible = false
 	%NpcTrade.pressed.connect(_open_trade)
+	%NpcHire.pressed.connect(_on_hire)
 	%TradeClose.pressed.connect(_close_trade)
 	%NpcAskBtn.pressed.connect(_on_npc_ask)
 	%NpcAsk.text_submitted.connect(func(_t): _on_npc_ask())
@@ -126,6 +127,7 @@ func _process(delta: float) -> void:
 		_result_left = maxf(0.0, _result_left - delta)
 		_update_result_label()
 	_update_gadget_label()
+	_update_fps()
 	# Animate the low-health blood vignette with a heartbeat pulse.
 	if _lowhp != null and _lowhp.material is ShaderMaterial:
 		var cur: float = float(_lowhp.material.get_shader_parameter("intensity"))
@@ -163,12 +165,17 @@ func _update_npc_prompt() -> void:
 	var n = _player.near_npc
 	if Game.is_adventure() and n != null and is_instance_valid(n) and not busy:
 		npc_prompt.text = "%s — %s (%s)    [E] Talk" % [String(n.display_name), String(n.role), String(n.faction)]
+	elif Game.is_adventure() and not busy and _player.has_method("near_campfire") and _player.near_campfire():
+		npc_prompt.text = "[E] Cook / craft at the fire"
 	else:
 		npc_prompt.text = ""
 
 func _on_talk(info: Dictionary) -> void:
 	_npc_info = info
 	%NpcTrade.visible = bool(info.get("can_trade", false))
+	%NpcHire.visible = bool(info.get("can_hire", false))
+	if %NpcHire.visible:
+		%NpcHire.text = "Hire follower ($%d)" % int(info.get("hire_cost", 25))
 	%NpcAsk.text = ""
 	npc_name.text = String(info.get("name", "?"))
 	var role_line := "%s — %s" % [String(info.get("role", "")), String(info.get("faction", ""))]
@@ -197,6 +204,12 @@ func _on_accept_quest() -> void:
 		if w:
 			w.accept_quest.rpc_id(1, _offer_quest_id)
 	_offer_quest_id = -1
+	_close_npc_dialog()
+
+func _on_hire() -> void:
+	if _player != null and is_instance_valid(_player) and _player.has_method("hire_npc") and _player.hire_npc():
+		add_event("◆ Hired a follower.")
+		Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0)
 	_close_npc_dialog()
 
 func _close_npc_dialog() -> void:
@@ -497,6 +510,19 @@ func _feed_color(team: int) -> String:
 
 ## Cinematic vignette + film grain overlay, behind all other HUD elements. Vignette
 ## from Medium quality up; grain only at High. Off entirely on Low.
+var _fps_label: Label = null
+
+## Small always-on FPS readout in the top-left.
+func _update_fps() -> void:
+	if _fps_label == null:
+		_fps_label = Label.new()
+		_fps_label.name = "FPSLabel"
+		_fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_fps_label.position = Vector2(8, 6)
+		_fps_label.modulate = Color(0.7, 1.0, 0.7, 0.7)
+		add_child(_fps_label)
+	_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+
 func _setup_postfx() -> void:
 	_postfx = ColorRect.new()
 	_postfx.name = "PostFX"
@@ -528,7 +554,7 @@ func _setup_postfx() -> void:
 		add_child(_lowhp)
 		move_child(_lowhp, 1)
 
-const GADGET_NAMES := {"flashlight": "Flashlight", "binoculars": "Binoculars", "nvg": "Night Vision", "scanner": "Scanner"}
+const GADGET_NAMES := {"flashlight": "Flashlight", "binoculars": "Binoculars", "nvg": "Night Vision", "scanner": "Scanner", "torch": "Torch", "jetpack": "Jetpack"}
 
 ## Show the equipped gadget + its Q state above the weapon label (Adventure only).
 func _update_gadget_label() -> void:
@@ -551,7 +577,13 @@ func _update_gadget_label() -> void:
 		return
 	_gadget_label.visible = true
 	var state := ""
-	if g == "scanner":
+	var piece: Dictionary = _player.equip.get("gadget", {})
+	if g == "jetpack":
+		var f := int(round(float(piece.get("cur_fuel", 0)) / maxf(1.0, float(piece.get("fuel", 100))) * 100.0))
+		state = "  [hold jump]  %d%%" % f
+	elif g == "torch":
+		state = "  [Q]  %ds" % int(ceil(float(piece.get("cur_fuel", 0))))
+	elif g == "scanner":
 		state = "  [Q ping]"
 	elif _player.get("_gadget_on"):
 		state = "  [ON]"
@@ -635,6 +667,16 @@ func _toggle_inventory() -> void:
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+## Open the backpack straight to the Crafting tab (used by E on a campfire).
+func open_crafting() -> void:
+	if result_panel.visible or pause_panel.visible:
+		return
+	inventory_panel.visible = true
+	tabs.current_tab = 2   # Crafting tab
+	_refresh_inventory()
+	_refresh_crafting()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
 func _refresh_inventory() -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
@@ -708,6 +750,24 @@ func _refresh_crafting() -> void:
 	hint.text = "Cooking needs a campfire nearby.  " + ("(campfire in range)" if near_fire else "(no campfire)")
 	hint.modulate = Color(1, 1, 1, 0.6)
 	craft_list.add_child(hint)
+	# Feed the nearby campfire to keep it burning (1 wood -> +90 s).
+	if near_fire:
+		var feed_row := HBoxContainer.new()
+		var fl := Label.new()
+		fl.text = "Feed Fire"
+		fl.custom_minimum_size.x = 120
+		var fc := Label.new()
+		fc.text = "1x Wood  ->  +90s burn"
+		fc.custom_minimum_size.x = 230
+		fc.modulate = Color(1, 1, 1, 0.7)
+		feed_row.add_child(fl)
+		feed_row.add_child(fc)
+		var fb := Button.new()
+		fb.text = "Feed"
+		fb.disabled = not (_player.has_method("_count_material") and _player._count_material("wood") > 0)
+		fb.pressed.connect(_feed_fire)
+		feed_row.add_child(fb)
+		craft_list.add_child(feed_row)
 	for recipe in ItemDB.RECIPES:
 		var row := HBoxContainer.new()
 		var cost := PackedStringArray()
@@ -732,6 +792,13 @@ func _refresh_crafting() -> void:
 
 func _do_craft(recipe: Dictionary) -> void:
 	if _player != null and is_instance_valid(_player) and _player.craft(recipe):
+		Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0)
+	_refresh_crafting()
+	_refresh_inventory()
+
+## Spend one wood to extend the nearest campfire's burn.
+func _feed_fire() -> void:
+	if _player != null and is_instance_valid(_player) and _player.has_method("feed_campfire") and _player.feed_campfire():
 		Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0)
 	_refresh_crafting()
 	_refresh_inventory()

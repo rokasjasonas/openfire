@@ -498,6 +498,10 @@ text = "Ask"
 unique_name_in_owner = true
 text = "Trade"
 
+[node name="NpcHire" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Hire"
+
 [node name="NpcAccept" type="Button" parent="NpcDialog/VBox"]
 unique_name_in_owner = true
 text = "Accept Task"

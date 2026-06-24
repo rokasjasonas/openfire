@@ -326,6 +326,9 @@ func _fire() -> void:
 				var dealt := base_dmg * mult
 				var zone: String = res.collider.part if res.collider is Hitbox else ""
 				victim.hit(dealt, player.combatant_id, zone)
+				if victim.get("combatant_id") != null:
+					player.aim_target_id = int(victim.combatant_id)
+					player.aim_target_t = Time.get_ticks_msec()
 				dmg_dealt += dealt
 				last_hit = res.position
 				hit_combatant = true
@@ -394,6 +397,9 @@ func melee() -> void:
 		var zone: String = res.collider.part if res.collider is Hitbox else ""
 		var dealt := MELEE_DAMAGE * mult
 		victim.hit(dealt, player.combatant_id, zone)
+		if victim.get("combatant_id") != null:
+			player.aim_target_id = int(victim.combatant_id)
+			player.aim_target_t = Time.get_ticks_msec()
 		_spawn_blood.rpc(res.position, res.normal)
 		if is_local:
 			_show_damage_number(res.position, dealt, false)

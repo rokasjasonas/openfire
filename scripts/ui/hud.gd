@@ -128,7 +128,6 @@ func _process(delta: float) -> void:
 		_update_result_label()
 	_update_gadget_label()
 	_update_fps()
-	_update_coins()
 	# Animate the low-health blood vignette with a heartbeat pulse.
 	if _lowhp != null and _lowhp.material is ShaderMaterial:
 		var cur: float = float(_lowhp.material.get_shader_parameter("intensity"))

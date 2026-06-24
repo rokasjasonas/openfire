@@ -100,7 +100,15 @@ func _cyl(parent: Node3D, r: float, h: float, pos: Vector3, col: Color, emit: fl
 
 ## A small recognisable shape per item kind (instead of an identical box).
 func _build_item_shape(parent: Node3D) -> void:
-	match kind:
+	# Materials (wood/scrap/stone/hide) and food/water are spawned as generic "food"
+	# pickups that carry the real item in item_data — switch on that so each renders its
+	# own distinct shape instead of all looking like the food can.
+	var shape_kind := kind
+	if kind == "food" and not item_data.is_empty():
+		var ik := String(item_data.get("kind", ""))
+		if ik == "material" or ik == "water":
+			shape_kind = ik
+	match shape_kind:
 		"health":  # white medkit with a red cross
 			_box(parent, Vector3(0.5, 0.34, 0.4), Vector3.ZERO, Color(0.95, 0.95, 0.97), 0.2)
 			_box(parent, Vector3(0.32, 0.1, 0.02), Vector3(0, 0.04, 0.21), Color(0.85, 0.2, 0.2), 0.7)

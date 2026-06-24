@@ -718,7 +718,9 @@ func _maybe_ambush(delta: float, player_positions: Array) -> void:
 	var n := _survival_rng.randi_range(2, 4)
 	for i in n:
 		var ang := _survival_rng.randf() * TAU
-		var pos := _snap_to_nav(center + Vector3(cos(ang), 0, sin(ang)) * _survival_rng.randf_range(18.0, 30.0))
+		# Spawn well outside engagement range (~60-90 m) so an ambush is something you
+		# see coming, not a point-blank gank that kills you before you can react.
+		var pos := _snap_to_nav(center + Vector3(cos(ang), 0, sin(ang)) * _survival_rng.randf_range(60.0, 90.0))
 		pos.y += 1.0
 		spawn_enemy(skill, false, pos, _random_enemy_type(), 1, Game.RAIDER_FACTION)
 	broadcast_event("⚠ Raider ambush!")

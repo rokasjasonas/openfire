@@ -16,7 +16,15 @@ func _ready() -> void:
 	}
 	print("SMOKE: missions loaded = ", Missions.get_all().size())
 	print("SMOKE: weapons = ", WeaponDB.all_ids())
+	# Default port first; fall back to alternates if it's busy (e.g. a game is running
+	# locally on the default port), so the test isn't blocked by a live session.
 	var ok := Net.host_game()
+	if not ok:
+		for p in [27115, 27215, 27315, 28015]:
+			ok = Net.host_game(p)
+			if ok:
+				print("SMOKE: default port busy, hosted on ", p)
+				break
 	print("SMOKE: host_game = ", ok, " is_host=", Net.is_host())
 
 	await get_tree().process_frame
@@ -361,9 +369,22 @@ func _ready() -> void:
 			if b.combatant_id == fb_id:
 				follower = b
 		var recruit_ok := false
+		var follower_fights_ok := false
 		if follower != null and follower.has_method("recruit"):
 			follower.recruit(me)
 			recruit_ok = follower.recruited and String(follower.faction) == "player" and follower.team == me.team
+			# The follower should lock onto a raider that's near the player.
+			var fmode = Game.config["mode"]
+			Game.config["mode"] = Game.Mode.ADVENTURE
+			var raider_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(8, 0, 0), "soldier", 1, Game.RAIDER_FACTION)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			follower._acquire_target()
+			follower_fights_ok = follower._target != null and int(follower._target.combatant_id) == raider_id
+			Game.config["mode"] = fmode
+			for b in get_tree().get_nodes_in_group("bot"):
+				if b.combatant_id == raider_id:
+					b.queue_free()
 		# Tunnels: a shovel is craftable + digs a covered segment; map-gen places tunnels.
 		var shovel_ok: bool = String(ItemDB.make("shovel").get("gadget", "")) == "shovel"
 		var dug_before := get_tree().get_nodes_in_group("dug_tunnel").size()
@@ -387,10 +408,38 @@ func _ready() -> void:
 					pamm["mag"] = int(pw["mag_size"])
 				pamm["mag"] = 0
 			pistol_inf_ok = int(pamm["reserve"]) == 72
-		# Slain hostiles drop cash on death (host-authoritative).
-		var kill_cash_ok: bool = world.has_method("_drop_kill_cash") and world.has_method("_spawn_cash")
-		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok
-		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok)
+		# Slain hostiles drop cash on death; you drop your purse when you die.
+		var kill_cash_ok: bool = world.has_method("_drop_kill_cash") and world.has_method("_spawn_cash") and me.has_method("_spawn_dropped_cash")
+		# Witness rule: a silent, unwitnessed kill of a friendly leaves its faction friendly;
+		# a kill seen by a nearby friendly (with line of sight) turns the faction hostile.
+		var witness_ok := false
+		var prev_mode = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.adventure_stance["SilentClan"] = "friendly"
+		var s_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(120, 5, 0), "soldier", 1, "SilentClan")
+		Game.adventure_stance["SeenClan"] = "friendly"
+		var w1: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(0, 5, 40), "soldier", 1, "SeenClan")
+		var w2: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 5, 40), "soldier", 1, "SeenClan")
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var by_id := {}
+		for b in get_tree().get_nodes_in_group("bot"):
+			by_id[int(b.combatant_id)] = b
+		var silent_ok := false
+		var seen_ok := false
+		if by_id.has(s_id):
+			by_id[s_id].receive_damage(9999.0, me.combatant_id)
+			silent_ok = String(Game.adventure_stance.get("SilentClan", "")) != "hostile"
+		if by_id.has(w1):
+			by_id[w1].receive_damage(9999.0, me.combatant_id)
+			seen_ok = String(Game.adventure_stance.get("SeenClan", "")) == "hostile"
+		witness_ok = silent_ok and seen_ok
+		Game.config["mode"] = prev_mode
+		for tid in [s_id, w1, w2]:
+			if by_id.has(tid) and is_instance_valid(by_id[tid]):
+				by_id[tid].queue_free()
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and follower_fights_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok and witness_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " follower_fights=", follower_fights_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok, " witness=", witness_ok, " silent=", silent_ok, " seen=", seen_ok)
 
 	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
 	# world — same seed -> same terrain.

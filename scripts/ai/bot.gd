@@ -68,6 +68,7 @@ var spread_near: float = 1.5
 var sync_health: float = 100.0
 var sync_pos: Vector3 = Vector3.ZERO
 var sync_yaw: float = 0.0
+var sync_driving: bool = false   # replicated: hide the model on clients while in a car
 var dead: bool = false
 
 var _state: int = State.PATROL
@@ -247,6 +248,9 @@ func _process(delta: float) -> void:
 	else:
 		global_position = global_position.lerp(sync_pos, t)
 	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
+	if body_model.visible == sync_driving:
+		body_model.visible = not sync_driving   # match the host's in-vehicle hide
+		name_label.visible = not sync_driving and not Game.is_battle_royale() and not Game.is_adventure()
 	_update_anim(delta)
 	_update_health_bar()
 
@@ -406,6 +410,11 @@ func _step_fx() -> void:
 # ---------------------------------------------------------------- perception
 
 func _acquire_target() -> void:
+	# A hired follower fights for the player: it piles onto whatever the player is
+	# shooting and rushes to deal with anyone attacking the player.
+	if recruited and is_instance_valid(follow_target) and Game.is_adventure():
+		_acquire_follower_target()
+		return
 	var best: Node3D = null
 	var best_d := INF
 	for c in get_tree().get_nodes_in_group("combatant"):
@@ -455,6 +464,67 @@ func _acquire_target() -> void:
 		elif not _has_last_seen:
 			_state = State.PATROL
 
+const FOLLOWER_DEFEND_RADIUS := 45.0   # help with threats this close to the player
+
+## Follower target selection: prefer the exact enemy the player is shooting, then anyone
+## attacking the player, then the hostile nearest the player. Engages targets it can see
+## OR any threat close to the player (so it runs over to defend, even around a corner —
+## it still only fires once it has line of sight).
+func _acquire_follower_target() -> void:
+	var px: Vector3 = follow_target.global_position
+	var aim_id := int(follow_target.get("aim_target_id"))
+	var aim_fresh: bool = aim_id != 0 and (Time.get_ticks_msec() - int(follow_target.get("aim_target_t"))) < 4000
+	var best: Node3D = null
+	var best_score := INF
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if c == self or c == follow_target or not is_instance_valid(c):
+			continue
+		if c.is_in_group("animal") or c.get("dead") or c.get("downed") or c.get("fully_dead"):
+			continue
+		if not Game.adventure_hostile(faction, String(c.get("faction"))):
+			continue   # only the player's enemies
+		var dpl := px.distance_to(c.global_position)
+		var is_aim: bool = aim_fresh and int(c.get("combatant_id")) == aim_id
+		var attacks_player: bool = c.get("_target") == follow_target
+		# Stay glued to the player: only fight threats near the player, the exact target
+		# the player is shooting, or whoever is attacking the player — never wander off
+		# to hunt a distant raider on our own. Capped so we don't sprint across the map.
+		if not (dpl <= FOLLOWER_DEFEND_RADIUS or ((is_aim or attacks_player) and dpl <= 70.0)):
+			continue
+		var score := dpl
+		if is_aim:
+			score -= 10000.0          # the player's current target wins outright
+		elif attacks_player:
+			score -= 5000.0           # someone is attacking the player — defend
+		if score < best_score:
+			best_score = score
+			best = c
+	# Enemy-occupied vehicles threatening the player.
+	for v in get_tree().get_nodes_in_group("vehicle"):
+		if v.get("destroyed") or v.get("driver_id") == 0 or v.get("driver_team") == team:
+			continue
+		if not Game.adventure_hostile(faction, "player"):
+			continue
+		var dpl2: float = px.distance_to(v.global_position)
+		if dpl2 > FOLLOWER_DEFEND_RADIUS:
+			continue
+		if dpl2 < best_score:
+			best_score = dpl2
+			best = v
+	if best != null:
+		if _target == null:
+			_reaction = _reaction_time()
+		_target = best
+		_last_seen = best.global_position
+		_has_last_seen = true
+		if best.is_in_group("vehicle"):
+			_state = State.ATTACK
+		else:
+			_state = State.ATTACK if global_position.distance_to(best.global_position) <= attack_range else State.CHASE
+	else:
+		_target = null
+		_state = State.PATROL   # nothing to fight — fall back to escorting the player
+
 func _reaction_time() -> float:
 	# Easy bots are slow on the trigger; Hard bots snap to it.
 	return clampf(0.5 / skill, 0.12, 0.95)
@@ -480,6 +550,11 @@ func _maybe_enter_vehicle() -> void:
 		best.enter(combatant_id, team)
 		$CollisionShape3D.disabled = true
 		_set_hitboxes(false)
+		# Hide the character while driving so it doesn't appear standing on the roof
+		# (the models have no proper seated pose) — just like a player-driven car.
+		sync_driving = true
+		body_model.visible = false
+		name_label.visible = false
 
 func _drive_bot_vehicle(delta: float) -> void:
 	var v := _vehicle
@@ -508,6 +583,9 @@ func _exit_bot_vehicle() -> void:
 		_vehicle.exit()
 	$CollisionShape3D.disabled = false
 	_set_hitboxes(true)
+	sync_driving = false
+	body_model.visible = true
+	name_label.visible = not Game.is_battle_royale() and not Game.is_adventure()
 	_vehicle = null
 
 func _set_hitboxes(on: bool) -> void:
@@ -892,12 +970,37 @@ func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
 func receive_damage(amount: float, attacker_id: int) -> void:
 	if dead:
 		return
-	# Adventure: being shot by a player provokes this NPC's faction (neutral -> hostile).
+	var fatal := sync_health - amount <= 0.0
+	# Adventure: a player harming this NPC turns its faction hostile — but only if word
+	# gets out. A clean, unwitnessed kill (the victim dies and no friendly of its faction
+	# sees it) leaves the faction friendly, so silent takedowns are possible.
 	if Game.is_adventure() and is_multiplayer_authority() and attacker_id > 0:
-		Game.adventure_provoke(faction)
+		if not fatal or _harm_witnessed():
+			Game.adventure_provoke(faction)
 	sync_health = max(0.0, sync_health - amount)
 	if sync_health <= 0.0:
 		_die(attacker_id)
+
+const WITNESS_DIST := 40.0
+
+## True if a living friendly of this NPC's faction is close enough AND has a clear line
+## of sight to this NPC — i.e. someone would see it come to harm.
+func _harm_witnessed() -> bool:
+	var space := get_world_3d().direct_space_state
+	var victim_eye := global_position + Vector3(0, 1.2, 0)
+	for b in get_tree().get_nodes_in_group("bot"):
+		if b == self or b.get("dead") or b.get("fully_dead"):
+			continue
+		if String(b.get("faction")) != faction:
+			continue
+		if b.global_position.distance_to(global_position) > WITNESS_DIST:
+			continue
+		var q := PhysicsRayQueryParameters3D.create(b.global_position + Vector3(0, 1.5, 0), victim_eye)
+		q.collision_mask = 1   # only the world (terrain/buildings) can block sight
+		var res := space.intersect_ray(q)
+		if res.is_empty():
+			return true
+	return false
 
 func _die(attacker_id: int) -> void:
 	if dead:

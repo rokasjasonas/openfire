@@ -55,6 +55,11 @@ const FALL_DAMAGE_PER := 6.0
 # combatant_id == peer id for players (always positive). Used for scoring.
 var combatant_id: int = 1
 var team: int = -1
+
+# The combatant this player most recently shot, so allied followers can pile onto the
+# same target. Stamped with a wall-clock time so the AI can ignore stale targets.
+var aim_target_id: int = 0
+var aim_target_t: int = 0
 var display_name: String = "Player"
 var faction: String = "player"   # Adventure faction (used for NPC hostility)
 
@@ -1302,6 +1307,12 @@ func _drop_loot_on_death() -> void:
 		var pos := global_position + Vector3(randf_range(-1.5, 1.5), 0.5, randf_range(-1.5, 1.5))
 		_spawn_dropped_item.rpc(combatant_id, _drop_counter, loot[i], pos)
 		_drop_counter += 1
+	# Drop your whole coin purse as a recoverable cash pile where you fell.
+	if coins > 0:
+		var cpos := global_position + Vector3(randf_range(-1.0, 1.0), 0.5, randf_range(-1.0, 1.0))
+		_spawn_dropped_cash.rpc(combatant_id, _drop_counter, coins, cpos)
+		_drop_counter += 1
+		coins = 0
 	inventory.clear()
 	equip = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
 	weapons.set_loadout(["pistol"])
@@ -1309,6 +1320,16 @@ func _drop_loot_on_death() -> void:
 	inventory_changed.emit()
 	equipment_changed.emit()
 	grenades_changed.emit(0)
+
+@rpc("any_peer", "call_local", "reliable")
+func _spawn_dropped_cash(owner_id: int, idx: int, amount: int, pos: Vector3) -> void:
+	var p := PICKUP_SCENE.instantiate()
+	p.name = "Drop_%d_%d" % [owner_id, idx]
+	p.kind = "money"
+	p.amount = amount
+	p.respawn_time = 999999.0
+	get_tree().current_scene.add_child(p)
+	p.global_position = pos
 
 @rpc("any_peer", "call_local", "reliable")
 func _spawn_dropped_item(owner_id: int, idx: int, item: Dictionary, pos: Vector3) -> void:

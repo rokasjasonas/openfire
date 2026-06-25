@@ -10,6 +10,10 @@ const QUEST_MANAGER := preload("res://scripts/world/quest_manager.gd")
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 var _loot_counter: int = 0
 
+# Giants (titans) ride their own team so they're hostile to everyone — players,
+# raiders and villagers alike — yet never fight each other.
+const GIANT_TEAM := 901
+
 @onready var map_holder: Node3D = $MapHolder
 @onready var combatants: Node3D = $Combatants
 @onready var spawner: MultiplayerSpawner = $MultiplayerSpawner
@@ -401,6 +405,9 @@ func _drop_kill_cash(victim_id: int) -> void:
 		return   # don't pay out for downing a follower / friendly villager
 	_loot_counter += 1
 	_spawn_cash.rpc(_loot_counter, b.global_position + Vector3(0, 0.6, 0), randi_range(10, 22))
+	# Raiders often carry a bit of salvage — a steady combat source of scrap.
+	if randf() < 0.45:
+		spawn_item_pickup(b.global_position + Vector3(randf_range(-0.8, 0.8), 0.5, randf_range(-0.8, 0.8)), "scrap")
 
 @rpc("authority", "call_local", "reliable")
 func _spawn_cash(idx: int, pos: Vector3, amount: int) -> void:
@@ -480,6 +487,10 @@ var _prop_hp: Dictionary = {}   # prop_id -> remaining health (host-only)
 func _prop_max_hp(p: Node) -> float:
 	if p.is_in_group("trash"):
 		return 22.0   # trash piles are flimsy
+	if p.is_in_group("barrel"):
+		return 16.0   # rusty barrels pop open in a couple of hits
+	if p.is_in_group("wreck"):
+		return 55.0   # abandoned car wrecks take some work to strip
 	return 95.0 if p.is_in_group("rock") else 70.0   # rocks are tougher than trees
 
 ## A prop (tree/rock) took damage from the destructible weapon path. Host owns the
@@ -496,13 +507,20 @@ func damage_prop(id: int, amount: float, _attacker_id: int) -> void:
 		_prop_hp.erase(id)
 		var base: Vector3 = p.global_position
 		if p.is_in_group("trash"):
-			# Trash piles spill random salvage — anything, including scrap metal.
-			drop_loot_at(base, 1 + (randi() % 2) + 1)
+			# Trash piles always yield a piece of scrap, plus some random salvage.
+			spawn_item_pickup(base + Vector3(0.7, 0.5, 0.0), "scrap")
+			drop_loot_at(base, 1 + (randi() % 2))
 		else:
+			# Barrels / wrecks / trees / rocks drop their material directly (guaranteed).
 			var item: String = String(p.get("drop_item"))
 			spawn_item_pickup(base + Vector3(0.7, 0.5, 0.0), item)
-			if randf() < 0.7:
+			var extra := 0.7
+			if p.is_in_group("wreck"):
+				# Wrecks are a rich haul — 2-3 scrap each.
 				spawn_item_pickup(base + Vector3(-0.7, 0.5, 0.4), item)
+				extra = 1.0
+			if randf() < extra:
+				spawn_item_pickup(base + Vector3(-0.4, 0.5, -0.5), item)
 		_set_prop_felled.rpc(id, true)
 		# Regrow after the prop's own delay — trees/rocks come back like in real life.
 		var regrow := float(p.get("regrow_secs"))
@@ -599,6 +617,23 @@ func _start_survival() -> void:
 		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
 		var rperson := NameGen.npc_person(Game.RAIDER_FACTION)
 		spawn_enemy(skill, false, spot, _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": rperson["name"], "role": rrole, "persona": rperson["trait"]})
+	# Roaming titans: a few colossi wander the wilds, hostile to all. Spawned far from
+	# the safe start village so you meet them out in the open.
+	var giants := clampi(int(pois.size() / 3) + 1, 1, 3)
+	var safe: Vector3 = (pois[0].global_position if not pois.is_empty() else Vector3.ZERO)
+	var map_node := get_tree().get_first_node_in_group("map")
+	var msize: float = (map_node.world_size() if map_node != null and map_node.has_method("world_size") else 640.0)
+	var reach := msize * 0.42
+	for g in giants:
+		for _try in 16:
+			var ang := _survival_rng.randf() * TAU
+			var rad := _survival_rng.randf_range(reach * 0.3, reach)
+			var spot := _snap_to_nav(Vector3(cos(ang) * rad, 0, sin(ang) * rad))
+			if spot.distance_to(safe) < 90.0:
+				continue
+			spot.y += 1.0
+			_spawn_giant(spot)
+			break
 	_spawn_wildlife()
 	set_process(true)
 	# Quests reference the villages/NPCs we just spawned, so build them last.
@@ -723,7 +758,20 @@ func _maybe_ambush(delta: float, player_positions: Array) -> void:
 		var pos := _snap_to_nav(center + Vector3(cos(ang), 0, sin(ang)) * _survival_rng.randf_range(60.0, 90.0))
 		pos.y += 1.0
 		spawn_enemy(skill, false, pos, _random_enemy_type(), 1, Game.RAIDER_FACTION)
-	broadcast_event("⚠ Raider ambush!")
+	# Once in a while a titan looms out of the wilds instead of (well, alongside) raiders.
+	if _survival_rng.randf() < 0.12:
+		var gang := _survival_rng.randf() * TAU
+		var gpos := _snap_to_nav(center + Vector3(cos(gang), 0, sin(gang)) * _survival_rng.randf_range(75.0, 100.0))
+		gpos.y += 1.0
+		_spawn_giant(gpos)
+		broadcast_event("☢ A TITAN approaches!")
+	else:
+		broadcast_event("⚠ Raider ambush!")
+
+## Spawn a roaming titan on the giants' team (hostile to everyone). Host-only.
+func _spawn_giant(pos: Vector3) -> int:
+	var skill := float(Game.config.get("bot_skill", 1.0))
+	return spawn_enemy(skill, false, pos, "giant", GIANT_TEAM, Game.TITAN_FACTION, {"name": "Titan", "role": "Titan"})
 
 func _start_deathmatch() -> void:
 	set_objective_text.rpc("Deathmatch — first to %d frags" % int(Game.config["frag_limit"]))

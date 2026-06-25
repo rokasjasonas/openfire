@@ -438,8 +438,60 @@ func _ready() -> void:
 		for tid in [s_id, w1, w2]:
 			if by_id.has(tid) and is_instance_valid(by_id[tid]):
 				by_id[tid].queue_free()
-		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and follower_fights_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok and witness_ok
-		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " follower_fights=", follower_fights_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok, " witness=", witness_ok, " silent=", silent_ok, " seen=", seen_ok)
+		# Boats: an amphibious drivable boat that implements the vehicle interface and
+		# is reachable by the player/bot driving code (group "vehicle"), placed at shores.
+		var boat_ok := false
+		var boat_scene := load("res://scenes/boat.tscn")
+		if boat_scene != null:
+			var boat = boat_scene.instantiate()
+			add_child(boat)
+			boat_ok = boat.is_in_group("vehicle") and boat.is_in_group("boat") \
+				and boat.has_method("set_drive") and boat.has_method("seat_position") \
+				and boat.has_method("forward") and boat.has_method("enter") and boat.has_method("is_occupied")
+			var map_b := get_tree().get_first_node_in_group("map")
+			boat_ok = boat_ok and map_b != null and map_b.has_method("add_boat")
+			boat.queue_free()
+		# Floating islands: the procedural terrain builds reachable sky-islands with loot
+		# caches and moors boats at the shore (checked on a throwaway terrain instance,
+		# since the live map here may be a non-procedural template).
+		var terrain_inst = load("res://scripts/world/terrain.gd").new()
+		var island_ok: bool = terrain_inst.has_method("_add_floating_islands") and terrain_inst.has_method("_build_floating_island") and terrain_inst.has_method("_place_boats")
+		# Scrap sources: barrels, abandoned wrecks and a scrapyard landmark, plus per-type
+		# prop health (barrels/wrecks) so the metal economy is plentiful.
+		var scrap_ok: bool = terrain_inst.has_method("_scatter_scrap") and terrain_inst.has_method("_make_barrel") \
+			and terrain_inst.has_method("_make_wreck") and terrain_inst.has_method("_build_scrapyard")
+		terrain_inst.free()
+		# Giants: a colossal hostile archetype that attacks (and is attacked by) everyone.
+		var gp: Dictionary = load("res://scripts/ai/bot.gd").PROFILES.get("giant", {})
+		var giant_ok: bool = not gp.is_empty() and float(gp.get("scale", 1.0)) >= 4.0 and world.has_method("_spawn_giant")
+		giant_ok = giant_ok and Game.adventure_hostile(Game.TITAN_FACTION, "player") \
+			and Game.adventure_hostile(Game.TITAN_FACTION, Game.RAIDER_FACTION) \
+			and Game.adventure_hostile("Ridgeback Clan", Game.TITAN_FACTION) \
+			and not Game.adventure_hostile(Game.TITAN_FACTION, Game.TITAN_FACTION)
+		# Actually spawn a titan and confirm the profile applies (oversized model + enlarged
+		# movement collider), so the colossus is real in-game and not just a config entry.
+		var gid: int = world._spawn_giant(me.global_position + Vector3(40, 0, 0))
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var giant_live := false
+		var giant_melee_ok := false
+		var healthbar_ok := false
+		for b in get_tree().get_nodes_in_group("bot"):
+			if int(b.combatant_id) == gid:
+				var cs: Node3D = b.get_node("CollisionShape3D")
+				giant_live = b.etype == "giant" and b.body_model.scale.x >= 4.0 \
+					and cs.scale.x >= 2.0 and String(b.faction) == Game.TITAN_FACTION
+				# Melee, not guns; and the collider is lifted to its feet (no floating).
+				giant_melee_ok = b.is_melee and b.has_method("_melee_strike") and cs.position.y >= 2.0
+				# Health bar shows on the host (authority) when hurt and a player is near.
+				b.sync_health = b.max_health * 0.5
+				b._update_health_bar()
+				healthbar_ok = b._health_bar != null and b._health_bar.visible
+				b.queue_free()
+				break
+		giant_ok = giant_ok and giant_live and giant_melee_ok
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and follower_fights_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok and witness_ok and boat_ok and island_ok and giant_ok and scrap_ok and healthbar_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " follower_fights=", follower_fights_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok, " witness=", witness_ok, " boat=", boat_ok, " island=", island_ok, " giant=", giant_ok, " giant_melee=", giant_melee_ok, " scrap=", scrap_ok, " healthbar=", healthbar_ok)
 
 	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
 	# world — same seed -> same terrain.

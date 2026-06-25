@@ -91,7 +91,10 @@ func build_level() -> void:
 	_add_caves(rng)
 	_maybe_tunnels(rng)
 	_scatter_trash(rng)
+	_scatter_scrap(rng)       # rusty barrels + abandoned wrecks, for plentiful metal
+	_build_scrapyard(rng)     # a junkyard landmark stocked with scrap + a weapon
 	_finalize_props()   # batch all tree/rock visuals into one MultiMesh
+	_add_floating_islands(rng)
 	_place_sites()
 	# Vehicles are placed in post_bake() (after the navmesh bake) so their tops never
 	# become walkable / a snap target — otherwise bots end up standing on them.
@@ -622,8 +625,8 @@ func _finalize_props() -> void:
 ## Trash piles: flimsy destructible heaps that spill random salvage (incl. scrap metal).
 ## Scattered on dry ground (often near settlements). They restock after a while.
 func _scatter_trash(rng: RandomNumberGenerator) -> void:
-	var span := _size * 0.42
-	var want := clampi(int(_size / 280.0), 3, 16)
+	var span := _size * 0.46
+	var want := clampi(int(_size / 110.0), 8, 40)   # ~3x more common, salvage is plentiful
 	var made := 0
 	var att := 0
 	while made < want and att < want * 8:
@@ -639,6 +642,103 @@ func _scatter_trash(rng: RandomNumberGenerator) -> void:
 		_prop_box(pile, Vector3(0.5, 0.4, 0.6), Vector3(0.35, 0.7, 0.1), Color(0.46, 0.4, 0.3), false)
 		_prop_box(pile, Vector3(0.4, 0.3, 0.4), Vector3(-0.3, 0.58, -0.2), Color(0.5, 0.5, 0.55), false)
 		made += 1
+
+## Rusty barrels and abandoned car wrecks scattered across the wilds — the main
+## environmental source of scrap metal. Both are destructible props that drop scrap
+## directly (barrels pop in a couple hits; wrecks are a richer, tougher haul).
+func _scatter_scrap(rng: RandomNumberGenerator) -> void:
+	# Barrels & loose metal debris: common and obvious, spread over the whole map.
+	var span := _size * 0.46
+	var barrels := clampi(int(_size / 90.0), 10, 60)
+	var att := 0
+	var made := 0
+	while made < barrels and att < barrels * 8:
+		att += 1
+		var x := rng.randf_range(-span, span)
+		var z := rng.randf_range(-span, span)
+		var h := _sample_height(x, z)
+		var b := _biome_at(x, z, h)
+		if b == "water" or b == "beach" or h < _water + 1.0:
+			continue
+		_make_barrel(Vector3(x, h, z), rng)
+		made += 1
+	# Abandoned wrecks: rarer, chunkier, 2-3 scrap each.
+	var wrecks := clampi(int(_size / 300.0), 3, 14)
+	att = 0
+	made = 0
+	while made < wrecks and att < wrecks * 8:
+		att += 1
+		var x := rng.randf_range(-span, span)
+		var z := rng.randf_range(-span, span)
+		var h := _sample_height(x, z)
+		var bi := _biome_at(x, z, h)
+		if bi == "water" or bi == "beach" or h < _water + 1.0:
+			continue
+		_make_wreck(Vector3(x, h, z), rng.randf_range(0.0, TAU), rng)
+		made += 1
+
+func _make_barrel(pos: Vector3, rng: RandomNumberGenerator) -> void:
+	var barrel := _new_prop(pos, "barrel", "scrap", rng.randf_range(120.0, 220.0))
+	var rust := _vary(Color(0.55, 0.32, 0.18), pos.x, pos.z, 0.06)
+	var band := rust.darkened(0.2)
+	_prop_box(barrel, Vector3(0.7, 1.0, 0.7), Vector3(0, 0.5, 0), rust, true)        # drum body
+	_prop_box(barrel, Vector3(0.78, 0.12, 0.78), Vector3(0, 0.18, 0), band, false)   # lower band
+	_prop_box(barrel, Vector3(0.78, 0.12, 0.78), Vector3(0, 0.82, 0), band, false)   # upper band
+	_prop_box(barrel, Vector3(0.72, 0.08, 0.72), Vector3(0, 1.02, 0), Color(0.4, 0.42, 0.45), false)  # metal lid
+
+## Note: prop visuals are axis-aligned (the MultiMesh batch ignores node rotation), so
+## wrecks aren't rotated — `_yaw` is accepted for call-site readability but unused.
+func _make_wreck(pos: Vector3, _yaw: float, rng: RandomNumberGenerator) -> void:
+	var wreck := _new_prop(pos, "wreck", "scrap", rng.randf_range(220.0, 360.0))
+	var rust := _vary(Color(0.5, 0.34, 0.26), pos.x, pos.z, 0.05)
+	var rust2 := rust.darkened(0.12)
+	_prop_box(wreck, Vector3(2.0, 0.7, 4.2), Vector3(0, 0.5, 0), rust, true)          # chassis
+	_prop_box(wreck, Vector3(1.8, 0.8, 1.9), Vector3(0, 1.15, -0.3), rust2, false)    # cabin
+	_prop_box(wreck, Vector3(1.6, 0.5, 1.2), Vector3(0, 1.05, 1.4), rust2, false)     # hood
+	# Stripped, rusted-out wheels.
+	for sx in [-0.95, 0.95]:
+		for sz in [-1.4, 1.4]:
+			_prop_box(wreck, Vector3(0.25, 0.7, 0.7), Vector3(sx, 0.35, sz), Color(0.12, 0.12, 0.13), false)
+
+## A junkyard landmark: a dense cluster of wrecks and barrels around a clearing,
+## reliably rich in scrap, with a weapon and some ammo as a find-it reward.
+func _build_scrapyard(rng: RandomNumberGenerator) -> void:
+	# Pick a dry spot at mid radius, away from the map centre/start.
+	var cx := 0.0
+	var cz := 0.0
+	var ok := false
+	for _try in 40:
+		var ang := rng.randf() * TAU
+		var rad := _size * rng.randf_range(0.18, 0.36)
+		cx = cos(ang) * rad
+		cz = sin(ang) * rad
+		var h := _sample_height(cx, cz)
+		var b := _biome_at(cx, cz, h)
+		if b != "water" and b != "beach" and h >= _water + 1.5:
+			ok = true
+			break
+	if not ok:
+		return
+	var cy := _sample_height(cx, cz)
+	var center := Vector3(cx, cy, cz)
+	# Ring of wrecks + barrels.
+	var wrecks := rng.randi_range(3, 5)
+	for i in wrecks:
+		var a := TAU * float(i) / float(wrecks) + rng.randf_range(-0.3, 0.3)
+		var r := rng.randf_range(3.5, 7.0)
+		var p := Vector3(cx + cos(a) * r, _sample_height(cx + cos(a) * r, cz + sin(a) * r), cz + sin(a) * r)
+		_make_wreck(p, rng.randf_range(0.0, TAU), rng)
+	for i in rng.randi_range(6, 10):
+		var a := rng.randf() * TAU
+		var r := rng.randf_range(1.5, 8.0)
+		var p := Vector3(cx + cos(a) * r, _sample_height(cx + cos(a) * r, cz + sin(a) * r), cz + sin(a) * r)
+		_make_barrel(p, rng)
+	# A worthwhile reward for finding the yard.
+	add_pickup("weapon", center + Vector3(0, 0.6, 0), 0, ["rifle", "shotgun", "smg"][rng.randi() % 3])
+	add_pickup("ammo", center + Vector3(1.2, 0.5, 0.6), 60)
+	# A tall crane-ish marker so the yard is spotted from a distance.
+	_visual_box(Vector3(0.4, 9.0, 0.4), center + Vector3(0, 4.5, 0), Color(0.8, 0.7, 0.15))
+	_visual_box(Vector3(4.0, 0.4, 0.4), center + Vector3(1.8, 8.6, 0), Color(0.8, 0.7, 0.15))
 
 ## Boulders are choppable props that drop stone (and regrow slowly).
 func _add_boulder(rng: RandomNumberGenerator, pos: Vector3) -> void:
@@ -890,6 +990,11 @@ func post_bake() -> void:
 	var vrng := RandomNumberGenerator.new()
 	vrng.seed = _seed + 919
 	_place_vehicles(vrng)
+	_place_boats(vrng)
+	# Adventure: one helicopter near the first village so the sky-islands are reachable.
+	if Game.is_adventure() and not _sites.is_empty():
+		var s: Dictionary = _sites[0]
+		add_helicopter(Vector3(float(s.x) + float(s.r) * 0.8, float(s.h), float(s.z)), vrng.randf_range(0.0, 360.0))
 
 ## Medium+ worlds get a buggy at every other village so crossing the map isn't a
 ## kilometre on foot. Parked on the flattened plot edge, so it sits level.
@@ -903,6 +1008,108 @@ func _place_vehicles(rng: RandomNumberGenerator) -> void:
 		var ang := rng.randf() * TAU
 		var rr := float(s.r) * 0.7
 		add_vehicle(Vector3(float(s.x) + cos(ang) * rr, float(s.h), float(s.z) + sin(ang) * rr), rng.randf_range(0.0, 360.0))
+
+## A few amphibious boats moored in shallow water near the shoreline. Found by probing
+## random points for the waterline (land just below the water plane), so they only
+## appear on maps that actually have coast. Deterministic from the seed.
+func _place_boats(rng: RandomNumberGenerator) -> void:
+	var want := clampi(int(_size / 320.0), 1, 4)
+	var placed := 0
+	var half := _size * 0.5 - 12.0
+	for _attempt in 240:
+		if placed >= want:
+			break
+		var x := rng.randf_range(-half, half)
+		var z := rng.randf_range(-half, half)
+		var lh := _land_height(x, z)
+		# Shallow water just off a beach: sea bed a touch below the surface.
+		if lh < _water - 4.0 or lh > _water - 0.5:
+			continue
+		# Face the boat toward deeper water (down the height gradient).
+		var gx := _land_height(x + 4.0, z) - _land_height(x - 4.0, z)
+		var gz := _land_height(x, z + 4.0) - _land_height(x, z - 4.0)
+		var yaw := rad_to_deg(atan2(gx, gz))   # +Z nose points downhill (toward sea)
+		add_boat(Vector3(x, _water, z), yaw)
+		placed += 1
+
+# ---------------------------------------------------------------- floating islands
+
+## Decorative sky-islands floating high above the map, each with a flat walkable top
+## carrying a loot cache. Reachable by helicopter. Visual cone underside + solid top
+## collider (layer 1, parented to the map so it's never baked into the navmesh).
+func _add_floating_islands(rng: RandomNumberGenerator) -> void:
+	var count := clampi(int(_size / 300.0), 1, 4)
+	var half := _size * 0.5 - 60.0
+	if half < 40.0:
+		return
+	var loot_weapons := ["rifle", "shotgun", "smg", "sniper"]
+	var loot_armor := ["helmet", "vest", "leg_armor"]
+	for k in count:
+		var cx := rng.randf_range(-half, half)
+		var cz := rng.randf_range(-half, half)
+		# Kept within the helicopter's climb ceiling (~70 m above its low spawn) so the
+		# islands are actually reachable, while still reading as high sky-islands.
+		var cy := _water + rng.randf_range(45.0, 66.0)
+		var radius := rng.randf_range(11.0, 17.0)
+		_build_floating_island(Vector3(cx, cy, cz), radius, rng)
+		# Loot on top: a weapon, a piece of armor, a cash pile, and a medkit.
+		var top := Vector3(cx, cy + 1.6, cz)
+		add_pickup("weapon", top + Vector3(2.0, 0, 0), 0, loot_weapons[k % loot_weapons.size()])
+		add_pickup("armor", top + Vector3(-2.0, 0, 1.0), 0, loot_armor[k % loot_armor.size()])
+		add_pickup("money", top + Vector3(0, 0, -2.0), rng.randi_range(60, 140))
+		add_pickup("health", top + Vector3(0, 0, 2.5), 50)
+
+func _build_floating_island(center: Vector3, radius: float, rng: RandomNumberGenerator) -> void:
+	var grass := Color(0.34, 0.55, 0.28)
+	var rock := Color(0.42, 0.36, 0.3)
+	# Flat top platform (walkable) with a cylinder collider.
+	var top := StaticBody3D.new()
+	top.collision_layer = 1
+	top.collision_mask = 0
+	top.position = center
+	add_child(top)   # parented to the map, NOT the nav region -> not baked
+	var top_mi := MeshInstance3D.new()
+	var top_cyl := CylinderMesh.new()
+	top_cyl.top_radius = radius
+	top_cyl.bottom_radius = radius
+	top_cyl.height = 3.0
+	top_mi.mesh = top_cyl
+	var gm := StandardMaterial3D.new()
+	gm.albedo_color = grass
+	gm.roughness = 1.0
+	top_mi.material_override = gm
+	top.add_child(top_mi)
+	var cs := CollisionShape3D.new()
+	var sh := CylinderShape3D.new()
+	sh.radius = radius
+	sh.height = 3.0
+	cs.shape = sh
+	top.add_child(cs)
+	# Tapered rocky underside (visual only) hanging below the platform.
+	var cone := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius * 0.95
+	cm.bottom_radius = 0.6
+	cm.height = radius * 1.4
+	cone.mesh = cm
+	var rmat := StandardMaterial3D.new()
+	rmat.albedo_color = rock
+	rmat.roughness = 1.0
+	cone.material_override = rmat
+	cone.position = Vector3(0, -(radius * 0.7 + 1.5), 0)
+	top.add_child(cone)
+	# A couple of decorative boulders on top so it reads as terrain, not a disc.
+	for _i in 3:
+		var b := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		var bs := rng.randf_range(1.2, 2.6)
+		bm.size = Vector3(bs, bs * 0.8, bs)
+		b.mesh = bm
+		b.material_override = rmat
+		var a := rng.randf() * TAU
+		var rr := rng.randf_range(0.0, radius * 0.7)
+		b.position = Vector3(cos(a) * rr, 1.8, sin(a) * rr)
+		top.add_child(b)
 
 # ---------------------------------------------------------------- sites / spawns
 

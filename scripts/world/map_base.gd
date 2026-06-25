@@ -9,6 +9,7 @@ const TEX_DIR := "res://assets/kenney/prototype-textures/PNG/"
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 const VEHICLE_SCENE := preload("res://scenes/vehicle.tscn")
 const HELI_SCENE := preload("res://scenes/helicopter.tscn")
+const BOAT_SCENE := preload("res://scenes/boat.tscn")
 const CONTROL_POINT_SCRIPT := preload("res://scripts/world/control_point.gd")
 
 var region: NavigationRegion3D
@@ -16,6 +17,7 @@ var _tex_cache: Dictionary = {}
 var _pickup_count: int = 0
 var _vehicle_count: int = 0
 var _heli_count: int = 0
+var _boat_count: int = 0
 
 func _ready() -> void:
 	add_to_group("map")
@@ -330,6 +332,15 @@ func add_helicopter(pos: Vector3, yaw_deg: float = 0.0) -> void:
 	h.position = pos + Vector3.UP * 0.8
 	h.rotation_degrees.y = yaw_deg
 	add_child(h)
+
+## Place an amphibious boat. Deterministic names keep RPC paths identical on peers.
+func add_boat(pos: Vector3, yaw_deg: float = 0.0) -> void:
+	var b := BOAT_SCENE.instantiate()
+	b.name = "Boat_%d" % _boat_count
+	_boat_count += 1
+	b.position = pos + Vector3.UP * 0.6
+	b.rotation_degrees.y = yaw_deg
+	add_child(b)
 
 ## Place a Domination control point. Only active in Domination mode.
 func add_control_point(point_id: String, pos: Vector3) -> void:

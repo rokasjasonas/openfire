@@ -30,6 +30,11 @@ const PROFILES := {
 	"boss": {"name": "WARLORD", "health": 1500.0, "speed": 4.2, "cooldown": 0.5, "damage": 22.0,
 		"sight": 72.0, "attack": 45.0, "spread_far": 5.0, "spread_near": 1.2, "behavior": "balanced",
 		"model": "res://assets/models/characters/character-p.glb", "color": Color(1, 0.15, 0.55), "scale": 1.9},
+	# Attack-on-Titan-scale colossus: ~13.5 m tall, slow, lumbers in and hits hard.
+	# Its movement collider is enlarged ("collider") so you can't walk through its legs.
+	"giant": {"name": "TITAN", "health": 2600.0, "speed": 3.2, "cooldown": 1.6, "damage": 42.0,
+		"sight": 95.0, "attack": 11.0, "spread_far": 6.0, "spread_near": 2.0, "behavior": "rush",
+		"model": "res://assets/models/characters/character-p.glb", "color": Color(0.7, 0.45, 0.35), "scale": 5.0, "collider": 3.2, "melee": true},
 }
 # Spawn weighting (soldiers common, others rarer).
 const SPAWN_WEIGHTS := {"soldier": 5, "rusher": 3, "sniper": 2, "heavy": 1, "grenadier": 1}
@@ -62,6 +67,7 @@ var fire_cooldown: float = 0.9
 var shoot_damage: float = 11.0
 var sight_range: float = 60.0
 var attack_range: float = 26.0
+var is_melee: bool = false   # giants attack by stomping, not shooting
 var spread_far: float = 7.0
 var spread_near: float = 1.5
 
@@ -117,8 +123,9 @@ func _ready() -> void:
 	nav.target_desired_distance = 1.5
 	nav.avoidance_enabled = false
 	# Only the server thinks. Clients just display + interpolate synced state.
+	# _process runs everywhere though, so the health bar shows for the host too (solo).
 	set_physics_process(is_multiplayer_authority())
-	set_process(not is_multiplayer_authority())
+	set_process(true)
 	if is_multiplayer_authority():
 		call_deferred("_snap_to_navmesh")  # don't start stuck in water / off-mesh
 
@@ -149,6 +156,7 @@ func _apply_profile() -> void:
 	fire_cooldown = p["cooldown"]
 	shoot_damage = p["damage"]
 	behavior = String(p.get("behavior", "balanced"))
+	is_melee = bool(p.get("melee", false))
 	# Sight scales with skill so Easy bots spot you much later than Hard ones.
 	sight_range = float(p["sight"]) * clampf(0.45 + skill * 0.4, 0.5, 1.0)
 	attack_range = p["attack"]
@@ -164,6 +172,14 @@ func _apply_profile() -> void:
 	# Scale the hitboxes with the visible model so headshots line up on big archetypes.
 	if has_node("Hitboxes"):
 		$Hitboxes.scale = Vector3.ONE * float(p["scale"])
+	# Enlarge the movement collider for colossal archetypes (giants) so players can't
+	# walk through their legs. Defaults to 1.0 -> normal bots are unchanged. The shape
+	# sits at y=0.9 (half its 1.8 m height); scale it about its base so the capsule
+	# bottom stays on the feet instead of lifting the whole body off the ground.
+	if has_node("CollisionShape3D"):
+		var cscale := float(p.get("collider", 1.0))
+		$CollisionShape3D.scale = Vector3.ONE * cscale
+		$CollisionShape3D.position.y = 0.9 * cscale
 	# The bot's forward is -Z (look_at + the muzzle), but the character mesh faces
 	# +Z, so flip the model 180° or it appears to walk backwards.
 	body_model.rotation.y = PI
@@ -241,17 +257,20 @@ func _model_meshes(n: Node) -> Array:
 	return out
 
 func _process(delta: float) -> void:
-	# Remote copy: smoothly interpolate toward the replicated transform.
-	var t := clampf(15.0 * delta, 0.0, 1.0)
-	if global_position.distance_to(sync_pos) > 5.0:
-		global_position = sync_pos
-	else:
-		global_position = global_position.lerp(sync_pos, t)
-	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
-	if body_model.visible == sync_driving:
-		body_model.visible = not sync_driving   # match the host's in-vehicle hide
-		name_label.visible = not sync_driving and not Game.is_battle_royale() and not Game.is_adventure()
-	_update_anim(delta)
+	# Remote copy: smoothly interpolate toward the replicated transform + animate.
+	# (Skipped on the authority, which moves itself in _physics_process.)
+	if not is_multiplayer_authority():
+		var t := clampf(15.0 * delta, 0.0, 1.0)
+		if global_position.distance_to(sync_pos) > 5.0:
+			global_position = sync_pos
+		else:
+			global_position = global_position.lerp(sync_pos, t)
+		rotation.y = lerp_angle(rotation.y, sync_yaw, t)
+		if body_model.visible == sync_driving:
+			body_model.visible = not sync_driving   # match the host's in-vehicle hide
+			name_label.visible = not sync_driving and not Game.is_battle_royale() and not Game.is_adventure()
+		_update_anim(delta)
+	# Health bar updates on every peer (incl. the host) so it always shows when hurt.
 	_update_health_bar()
 
 # ---------------------------------------------------------------- animation
@@ -664,7 +683,8 @@ func _do_attack(delta: float) -> void:
 	_last_seen = _target.global_position
 	_has_last_seen = true
 	# Vehicles (incl. flying helicopters): stand ground and shoot, don't chase.
-	if _target.is_in_group("vehicle"):
+	# Melee giants skip this and charge instead (handled by the movement logic below).
+	if _target.is_in_group("vehicle") and not is_melee:
 		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
 		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
 		_face(_target.global_position)
@@ -711,7 +731,10 @@ func _do_attack(delta: float) -> void:
 	_face(_target.global_position)
 	# Reaction delay before the first shot makes them feel human, not instant.
 	if _shoot_cd <= 0.0 and _reaction <= 0.0 and _can_see(_target):
-		_shoot_at(_target)
+		if is_melee:
+			_melee_strike(_target)
+		else:
+			_shoot_at(_target)
 
 func _attack_strafe(delta: float, factor: float) -> void:
 	_strafe_timer -= delta
@@ -961,6 +984,51 @@ func _fire_fx(hit_point: Vector3) -> void:
 	tw.tween_property(mesh, "transparency", 1.0, 0.07)
 	tw.tween_callback(mesh.queue_free)
 
+## Giants don't carry guns — they stomp. Close-range melee that damages the target
+## (and anyone else right next to the impact) with a ground-shockwave effect.
+func _melee_strike(target: Node3D) -> void:
+	_shoot_cd = clampf(fire_cooldown / skill, 0.4, 3.0)
+	var dmg := shoot_damage * clampf(skill, 0.6, 1.6)
+	var hit_pos := target.global_position
+	if global_position.distance_to(target.global_position) <= attack_range and target.has_method("hit"):
+		target.hit(dmg, combatant_id)
+	# Splash: catch other hostiles caught under the stomp.
+	for c in get_tree().get_nodes_in_group("combatant"):
+		if c == self or c == target or not is_instance_valid(c) or c.get("dead"):
+			continue
+		if global_position.distance_to(c.global_position) <= attack_range * 0.8 and c.has_method("hit"):
+			if _is_hostile_to(c):
+				c.hit(dmg * 0.6, combatant_id)
+	_stomp_fx.rpc(hit_pos)
+
+func _is_hostile_to(c: Node) -> bool:
+	if Game.is_adventure():
+		return Game.adventure_hostile(faction, String(c.get("faction")))
+	return int(c.get("team")) != team
+
+@rpc("any_peer", "call_local", "unreliable")
+func _stomp_fx(at: Vector3) -> void:
+	_shoot_anim_t = 0.4   # reuse the attack pose
+	Audio.play_3d("res://assets/audio/impact.ogg", at, 3.0, 0.05)
+	# A quick expanding dust ring on the ground.
+	var ring := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.4
+	tm.outer_radius = 0.9
+	ring.mesh = tm
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.7, 0.62, 0.5, 0.7)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ring.material_override = mat
+	get_tree().current_scene.add_child(ring)
+	ring.global_position = at + Vector3.UP * 0.2
+	var tw := ring.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(ring, "scale", Vector3(6, 1, 6), 0.4)
+	tw.tween_property(ring, "transparency", 1.0, 0.4)
+	tw.chain().tween_callback(ring.queue_free)
+
 # ---------------------------------------------------------------- damage / death
 
 func hit(amount: float, attacker_id: int, _zone: String = "") -> void:
@@ -1077,14 +1145,19 @@ func _despawn_corpse() -> void:
 # nearby. Driven on every peer from the replicated sync_health.
 var _health_bar: Node3D = null
 var _hp_fill: MeshInstance3D = null
+var _bar_scale: float = 1.0
 
 func _ensure_health_bar() -> void:
 	if _health_bar != null:
 		return
 	_health_bar = Node3D.new()
-	var head_y := 2.7 + maxf(0.0, body_model.scale.x - 1.0) * 1.8
+	# Sit just above the head — the model stands ~2.7 m at scale 1, so scale tracks height.
+	var head_y := 2.7 * body_model.scale.x + 0.3
 	add_child(_health_bar)
 	_health_bar.position = Vector3(0, head_y - 0.35, 0)
+	# Bigger archetypes (giants) get a wider bar so it reads at a distance.
+	_bar_scale = clampf(body_model.scale.x, 1.0, 4.0)
+	_health_bar.scale = Vector3.ONE * _bar_scale
 	var bg := MeshInstance3D.new()
 	var bgq := QuadMesh.new()
 	bgq.size = Vector2(1.0, 0.14)
@@ -1111,8 +1184,8 @@ func _ensure_health_bar() -> void:
 
 func _update_health_bar() -> void:
 	var frac := clampf(sync_health / maxf(1.0, max_health), 0.0, 1.0)
-	# Only show when hurt, alive, and a player is within range.
-	var show := not dead and frac < 0.999 and _player_within(45.0)
+	# Only show when hurt, alive, and a player is within range (farther for big enemies).
+	var show := not dead and frac < 0.999 and _player_within(45.0 + maxf(0.0, body_model.scale.x - 1.0) * 8.0)
 	if not show:
 		if _health_bar != null:
 			_health_bar.visible = false

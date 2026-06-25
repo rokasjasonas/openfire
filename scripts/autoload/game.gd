@@ -178,6 +178,7 @@ func mode_name() -> String:
 
 const ADVENTURE_VILLAGE_FACTIONS := ["Ridgeback Clan", "Verdant Pact", "Ashfall Brotherhood"]
 const RAIDER_FACTION := "raiders"
+const TITAN_FACTION := "titans"   # roaming giants: hostile to everyone, friendly to no one
 var adventure_stance: Dictionary = {}   # faction -> "friendly" | "neutral" | "hostile"
 
 func adventure_setup(seed_val: int) -> void:
@@ -193,6 +194,9 @@ func adventure_setup(seed_val: int) -> void:
 func adventure_hostile(a: String, b: String) -> bool:
 	if a == "" or b == "" or a == b:
 		return false
+	# Titans are hostile to every other faction (and everyone is hostile to them).
+	if a == TITAN_FACTION or b == TITAN_FACTION:
+		return true
 	if a == RAIDER_FACTION or b == RAIDER_FACTION:
 		return true
 	if a == "player":

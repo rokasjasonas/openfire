@@ -67,7 +67,7 @@ const RECIPES := [
 	{"id": "makeammo", "name": "Craft Ammo",  "in": {"scrap": 1},    "out": "ammo",        "fire": false},
 	{"id": "campfire", "name": "Campfire",    "in": {"wood": 3},     "out": "_campfire",   "fire": false},
 	{"id": "stonehelm","name": "Improvised Helmet", "in": {"stone": 2, "hide": 1}, "out": "helmet", "fire": false},
-	{"id": "torch",    "name": "Torch",      "in": {"wood": 1, "scrap": 1}, "out": "torch",   "fire": true},
+	{"id": "torch",    "name": "Torch",      "in": {"wood": 2}, "out": "torch",   "fire": true},
 	{"id": "jetpack",  "name": "Jetpack",    "in": {"scrap": 5, "wood": 1}, "out": "jetpack", "fire": false},
 	{"id": "shovel",   "name": "Shovel",     "in": {"scrap": 2, "wood": 1}, "out": "shovel",  "fire": false},
 ]

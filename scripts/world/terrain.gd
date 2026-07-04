@@ -27,6 +27,8 @@ var _size: float = 640.0
 var _water: float = 6.0
 var _n: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
+var _terrain_mi: MeshInstance3D = null      # the live terrain mesh (rebuilt when dug)
+var _height_shape: HeightMapShape3D = null  # the live collision heightmap (updated when dug)
 var _sites: Array = []
 # Climate derived deterministically from the story theme — biases biomes, snowline,
 # water level, vegetation and palette so the map reflects the prompt.
@@ -296,7 +298,9 @@ func _tint(c: Color) -> Color:
 
 # ---------------------------------------------------------------- mesh + collision
 
-func _build_terrain_mesh() -> void:
+## Build an ArrayMesh from the current heightmap. Reused for the initial build and for
+## rebuilds after the shovel digs holes into the terrain.
+func _terrain_mesh_from_heights() -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var colors := PackedColorArray()
 	var normals := PackedVector3Array()
@@ -336,16 +340,19 @@ func _build_terrain_mesh() -> void:
 	arr[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
 
+func _build_terrain_mesh() -> void:
 	var mi := MeshInstance3D.new()
 	mi.name = "TerrainMesh"
-	mi.mesh = mesh
+	mi.mesh = _terrain_mesh_from_heights()
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 1.0
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mi.material_override = mat
 	region.add_child(mi)   # under the NavigationRegion so the navmesh bakes from it
+	_terrain_mi = mi
 
 func _build_collision() -> void:
 	var body := StaticBody3D.new()
@@ -358,6 +365,7 @@ func _build_collision() -> void:
 	shape.map_depth = _n
 	shape.map_data = _heights
 	cs.shape = shape
+	_height_shape = shape
 	body.add_child(cs)
 	body.scale = Vector3(STEP, 1.0, STEP)  # heightmap spans (n-1) units -> size metres
 	region.add_child(body)   # under the region so the navmesh bakes from this collider
@@ -386,6 +394,40 @@ func map_texture() -> ImageTexture:
 
 func world_size() -> float:
 	return _size
+
+## Carve a bowl-shaped hole into the terrain heightmap at a world position, then refresh
+## the collision shape and visual mesh. Deterministic (same args -> same result on every
+## peer), and repeated digs at the same spot deepen the hole down to the sea floor.
+func dig_hole(world_pos: Vector3, radius_m: float = 2.6, depth_m: float = 1.2) -> void:
+	if _heights.is_empty() or _n <= 0:
+		return
+	var half := (_n - 1) * STEP * 0.5
+	var ci := (world_pos.x + half) / STEP
+	var cj := (world_pos.z + half) / STEP
+	var rad: float = maxf(radius_m / STEP, 0.5)
+	var floor_y := SEA_FLOOR + 1.0
+	var i0 := maxi(0, int(floor(ci - rad)))
+	var i1 := mini(_n - 1, int(ceil(ci + rad)))
+	var j0 := maxi(0, int(floor(cj - rad)))
+	var j1 := mini(_n - 1, int(ceil(cj + rad)))
+	var changed := false
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var d := Vector2(i - ci, j - cj).length() / rad
+			if d > 1.0:
+				continue
+			var falloff := 1.0 - d * d   # smooth bowl, deepest at the centre
+			var idx := j * _n + i
+			var nh: float = maxf(_heights[idx] - depth_m * falloff, floor_y)
+			if nh < _heights[idx]:
+				_heights[idx] = nh
+				changed = true
+	if not changed:
+		return
+	if _height_shape != null:
+		_height_shape.map_data = _heights
+	if _terrain_mi != null:
+		_terrain_mi.mesh = _terrain_mesh_from_heights()
 
 # ---------------------------------------------------------------- prop helpers
 
@@ -563,21 +605,23 @@ func _add_tree(rng: RandomNumberGenerator, pos: Vector3, biome: String) -> void:
 	var tree := _new_prop(pos, "tree", "wood", rng.randf_range(90.0, 180.0))
 	# Trunk: collider + visual (local coords, since the prop is positioned at `pos`).
 	_prop_box(tree, Vector3(trunk_w, th, trunk_w), Vector3(0, th * 0.5, 0), Color(0.34, 0.24, 0.15), true)
+	# Canopy/foliage boxes are solid too, so you can stand on the green part (and it
+	# blocks shots/movement); set_felled() disables every collider when the tree breaks.
 	if biome == "desert":
 		var cc := Color(0.24, 0.42, 0.22)
-		_prop_box(tree, Vector3(0.7, th * 0.9, 0.7), Vector3(0, th * 0.45, 0), cc, false)
-		_prop_box(tree, Vector3(0.5, 1.4, 0.5), Vector3(trunk_w + 0.4, th * 0.6, 0), cc, false)
+		_prop_box(tree, Vector3(0.7, th * 0.9, 0.7), Vector3(0, th * 0.45, 0), cc, true)
+		_prop_box(tree, Vector3(0.5, 1.4, 0.5), Vector3(trunk_w + 0.4, th * 0.6, 0), cc, true)
 		return
 	if biome == "snow" or biome == "tundra":
 		var fc := Color(0.16, 0.34, 0.20)
-		_prop_box(tree, Vector3(th * 0.6, th * 0.5, th * 0.6), Vector3(0, th * 0.78, 0), fc, false)
-		_prop_box(tree, Vector3(th * 0.4, th * 0.4, th * 0.4), Vector3(0, th * 1.08, 0), fc, false)
+		_prop_box(tree, Vector3(th * 0.6, th * 0.5, th * 0.6), Vector3(0, th * 0.78, 0), fc, true)
+		_prop_box(tree, Vector3(th * 0.4, th * 0.4, th * 0.4), Vector3(0, th * 1.08, 0), fc, true)
 		return
 	var fr := rng.randf_range(2.2, 3.8)
 	var leaf := Color(0.20, 0.42, 0.18) if biome == "forest" else Color(0.26, 0.48, 0.22)
 	leaf = _vary(leaf, pos.x, pos.z, 0.04)
-	_prop_box(tree, Vector3(fr, fr * 0.85, fr), Vector3(0, th + fr * 0.2, 0), leaf, false)
-	_prop_box(tree, Vector3(fr * 0.75, fr * 0.7, fr * 0.75), Vector3(fr * 0.2, th + fr * 0.55, 0), leaf.darkened(0.08), false)
+	_prop_box(tree, Vector3(fr, fr * 0.85, fr), Vector3(0, th + fr * 0.2, 0), leaf, true)
+	_prop_box(tree, Vector3(fr * 0.75, fr * 0.7, fr * 0.75), Vector3(fr * 0.2, th + fr * 0.55, 0), leaf.darkened(0.08), true)
 
 ## A box under a prop node: a mesh, plus a collider when `solid` (the trunk / boulder).
 func _prop_box(prop: Node3D, size: Vector3, local_pos: Vector3, col: Color, solid: bool) -> void:

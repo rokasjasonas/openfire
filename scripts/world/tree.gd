@@ -1,8 +1,9 @@
 extends StaticBody3D
 ## A harvestable prop — a tree or a rock. Shoot it to break it for materials; it regrows
-## after a while. Trunk/boulder collides (and bakes into the navmesh); foliage/chips are
-## visual. Breaking is host-authoritative and routed through the world so it replicates +
-## drops materials once. (Filename kept as tree.gd for history; now generic.)
+## after a while. Trunk/boulder and the leafy canopy both collide (you can stand on the
+## green part); rock chips are visual. Breaking is host-authoritative and routed through
+## the world so it replicates + drops materials once. set_felled() disables every collider
+## on break. (Filename kept as tree.gd for history; now generic.)
 
 var destroyed: bool = false
 var prop_id: int = -1

@@ -11,6 +11,11 @@ const ACCEL_GROUND := 12.0
 const ACCEL_AIR := 3.0
 const MOUSE_SENS := 0.0024
 const MAX_HEALTH := 100.0
+# Enemy bots hit ~half as hard against the player, and a single bot hit is capped so
+# it can never one-shot you (no instant sniper headshots). Doesn't touch your own
+# weapons or player-vs-player — bots have negative combatant ids.
+const BOT_DAMAGE_SCALE := 0.5
+const BOT_HIT_CAP := MAX_HEALTH * 0.7
 
 # Crouch
 const STAND_HEIGHT := 1.8
@@ -447,14 +452,17 @@ func add_grenades(n: int) -> void:
 # slot, and throws spend loose backpack grenades first (the equipped one is the last to
 # go). In other modes `grenades` is a plain per-life counter (no inventory).
 
-## Total grenades held: the equipped Extra-slot grenade + every grenade in the backpack.
+## Throwable grenades: the equipped Extra-slot grenade plus every backpack grenade OF THE
+## SAME TYPE. Grenades of other types don't count (you can only throw the equipped kind),
+## so equipping a frag never lets a smoke/flash get spent as a frag. Zero if none equipped.
 func grenade_count() -> int:
-	var n := 0
 	var g: Dictionary = equip.get("extra", {})
-	if String(g.get("kind", "")) == "grenade":
-		n += int(g.get("amount", 1))
+	if String(g.get("kind", "")) != "grenade":
+		return 0
+	var gtype := String(g.get("gtype", "frag"))
+	var n := int(g.get("amount", 1))
 	for it in inventory:
-		if String(it.get("kind", "")) == "grenade":
+		if String(it.get("kind", "")) == "grenade" and String(it.get("gtype", "frag")) == gtype:
 			n += int(it.get("amount", 1))
 	return n
 
@@ -467,11 +475,17 @@ func _refresh_grenades() -> void:
 	grenades = grenade_count()
 	grenades_changed.emit(grenades)
 
-## Consume one grenade for a throw: backpack first, then the equipped Extra slot.
-## Returns false if none could be spent.
+## Consume one grenade of the EQUIPPED TYPE for a throw: a matching backpack grenade
+## first, then the equipped Extra slot itself. Only the equipped type is ever spent, so
+## carrying other grenade types is never affected. Returns false if none could be spent.
 func _consume_grenade() -> bool:
+	var g: Dictionary = equip.get("extra", {})
+	if String(g.get("kind", "")) != "grenade":
+		return false
+	var gtype := String(g.get("gtype", "frag"))
+	# Spend a loose backpack grenade of the same type first; the equipped one goes last.
 	for i in inventory.size():
-		if String(inventory[i].get("kind", "")) == "grenade":
+		if String(inventory[i].get("kind", "")) == "grenade" and String(inventory[i].get("gtype", "frag")) == gtype:
 			var amt := int(inventory[i].get("amount", 1))
 			if amt > 1:
 				inventory[i]["amount"] = amt - 1
@@ -480,17 +494,15 @@ func _consume_grenade() -> bool:
 			inventory_changed.emit()
 			_refresh_grenades()
 			return true
-	var g: Dictionary = equip.get("extra", {})
-	if String(g.get("kind", "")) == "grenade":
-		var amt := int(g.get("amount", 1))
-		if amt > 1:
-			equip["extra"]["amount"] = amt - 1
-		else:
-			equip["extra"] = {}
-		equipment_changed.emit()
-		_refresh_grenades()
-		return true
-	return false
+	# None loose of this type -> spend the equipped grenade itself.
+	var amt2 := int(g.get("amount", 1))
+	if amt2 > 1:
+		equip["extra"]["amount"] = amt2 - 1
+	else:
+		equip["extra"] = {}
+	equipment_changed.emit()
+	_refresh_grenades()
+	return true
 
 # ---------------------------------------------------------------- adventure needs
 
@@ -721,6 +733,8 @@ var _gadget_on: bool = false       # flashlight / nvg / binoculars sustained sta
 var glassing: bool = false         # binoculars zoom active (weapon_manager reads this)
 var reveal_until: int = 0          # msec until which the minimap reveals all enemies
 var _flashlight: SpotLight3D = null
+var _torch_light: OmniLight3D = null    # warm omnidirectional glow, flickers while lit
+var _torch_flicker: float = 1.0         # smoothed flicker multiplier (~0.7..1.15)
 
 func equipped_gadget() -> String:
 	return String(equip.get("gadget", {}).get("gadget", ""))
@@ -734,7 +748,7 @@ func _use_gadget() -> void:
 			reveal_until = Time.get_ticks_msec() + 5000   # 5 s radar sweep
 			Audio.play_3d("res://assets/audio/ui_click.ogg", global_position, -4.0)
 		"shovel":
-			_dig_tunnel()   # carve a covered passage segment ahead
+			_dig_hole()   # dig a hole into the terrain just ahead
 		_:
 			_gadget_on = not _gadget_on
 			_apply_gadget()
@@ -753,11 +767,24 @@ func _apply_gadget() -> void:
 		# which sits on render layer 2 (set in weapon_manager).
 		_flashlight.light_cull_mask = 1
 		camera.add_child(_flashlight)
-	_flashlight.visible = _gadget_on and (g == "flashlight" or g == "torch")
-	# A torch is warmer/shorter than the flashlight.
+	# The flashlight is a tight white beam; a torch is a separate warm omni glow (below).
+	_flashlight.visible = _gadget_on and g == "flashlight"
 	if _flashlight.visible:
-		_flashlight.light_color = Color(1.0, 0.7, 0.4) if g == "torch" else Color(1, 1, 1)
-		_flashlight.spot_range = 20.0 if g == "torch" else 28.0
+		_flashlight.light_color = Color(1, 1, 1)
+		_flashlight.spot_range = 28.0
+	# Torch: a soft omnidirectional fire-glow that pools around you rather than casting a
+	# beam. Held down-and-forward like a hand torch; energy/range/tint are driven in
+	# _tick_gadget so it flickers. Warmer, shorter, and far softer-edged than the flashlight.
+	if _torch_light == null:
+		_torch_light = OmniLight3D.new()
+		_torch_light.omni_range = 13.0
+		_torch_light.light_color = Color(1.0, 0.6, 0.28)
+		_torch_light.light_energy = 3.2
+		_torch_light.omni_attenuation = 1.6   # falls off quickly, like real firelight
+		_torch_light.light_cull_mask = 1       # light the world, not the held viewmodel
+		_torch_light.position = Vector3(0.25, -0.35, -0.55)
+		camera.add_child(_torch_light)
+	_torch_light.visible = _gadget_on and g == "torch"
 	# Binoculars zoom (handled in camera FX / weapon manager).
 	glassing = _gadget_on and g == "binoculars"
 	# Night-vision overlay on the HUD.
@@ -769,6 +796,15 @@ func _apply_gadget() -> void:
 func _tick_gadget(delta: float) -> void:
 	_dig_cd = maxf(0.0, _dig_cd - delta)
 	var g := equipped_gadget()
+	# Flicker the torch flame every frame while it's lit: a fast random target chased
+	# smoothly so the glow shimmers and its warm/cool tint wavers, never a steady beam.
+	if _torch_light != null and _torch_light.visible:
+		var target := randf_range(0.72, 1.16)
+		_torch_flicker = lerpf(_torch_flicker, target, clampf(delta * 14.0, 0.0, 1.0))
+		_torch_light.light_energy = 3.2 * _torch_flicker
+		_torch_light.omni_range = 13.0 * (0.9 + 0.1 * _torch_flicker)
+		# Brighter licks run yellower; dips go a touch redder.
+		_torch_light.light_color = Color(1.0, 0.52 + 0.12 * _torch_flicker, 0.22 + 0.1 * _torch_flicker)
 	if g == "torch" and _gadget_on:
 		var piece: Dictionary = equip.get("gadget", {})
 		var fuel := float(piece.get("cur_fuel", 0.0)) - delta
@@ -795,56 +831,57 @@ func _jetpack(delta: float) -> void:
 		_air_speed = 0.0   # thrusting cancels fall damage
 	jp["cur_fuel"] = fuel
 
-## Shovel: place a covered tunnel segment (2 walls + roof) just ahead of the player,
-## oriented to their facing. Repeated digs extend it into a passage. Replicated.
+## Shovel: dig a real bowl-shaped hole into the terrain just ahead of the player.
+## Repeated digs deepen/widen the pit. Replicated so every peer deforms identically.
 var _dig_cd: float = 0.0
-func _dig_tunnel() -> void:
+func _dig_hole() -> void:
 	if _dig_cd > 0.0:
 		return
-	_dig_cd = 0.4
+	_dig_cd = 0.45
 	var fwd := -global_transform.basis.z
 	fwd.y = 0.0
 	fwd = fwd.normalized()
-	var pos := global_position + fwd * 3.0
-	_place_tunnel_segment.rpc(pos, rotation.y)
+	# Dig at the ground in front of the feet.
+	var pos := global_position + fwd * 1.6
+	pos.y -= 1.0
+	_dig_terrain_hole.rpc(pos)
 
 @rpc("any_peer", "call_local", "reliable")
-func _place_tunnel_segment(pos: Vector3, yaw: float) -> void:
-	var seg := Node3D.new()
-	seg.add_to_group("dug_tunnel")
-	get_tree().current_scene.add_child(seg)
-	seg.global_position = pos
-	seg.rotation.y = yaw
-	var inner := 3.0
-	var ht := 3.0
-	var depth := 3.2
-	var rock := Color(0.17, 0.15, 0.17)
-	# Two side walls + a roof; the floor is the terrain you walk on.
-	_seg_box(seg, Vector3(0.5, ht, depth), Vector3(inner * 0.5 + 0.25, ht * 0.5, 0), rock)
-	_seg_box(seg, Vector3(0.5, ht, depth), Vector3(-inner * 0.5 - 0.25, ht * 0.5, 0), rock)
-	_seg_box(seg, Vector3(inner + 1.0, 0.4, depth), Vector3(0, ht, 0), rock.lightened(0.04))
+func _dig_terrain_hole(pos: Vector3) -> void:
+	var map := get_tree().get_first_node_in_group("map")
+	if map != null and map.has_method("dig_hole"):
+		map.dig_hole(pos, 2.6, 1.2)
+	_dig_fx(pos)
 
-## A static collider+mesh box at a local position under `parent`.
-func _seg_box(parent: Node3D, size: Vector3, local_pos: Vector3, col: Color) -> void:
-	var sb := StaticBody3D.new()
-	sb.collision_layer = 1
-	sb.collision_mask = 0
-	parent.add_child(sb)
-	sb.position = local_pos
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.roughness = 1.0
-	mi.material_override = m
-	sb.add_child(mi)
-	var cs := CollisionShape3D.new()
-	var sh := BoxShape3D.new()
-	sh.size = size
-	cs.shape = sh
-	sb.add_child(cs)
+## A quick puff of dirt where the shovel bites.
+func _dig_fx(pos: Vector3) -> void:
+	Audio.play_3d("res://assets/audio/impact.ogg", pos, -4.0, 0.1)
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = true
+	p.amount = 14
+	p.lifetime = 0.6
+	p.explosiveness = 0.85
+	p.direction = Vector3(0, 1, 0)
+	p.spread = 40.0
+	p.initial_velocity_min = 2.0
+	p.initial_velocity_max = 4.0
+	p.gravity = Vector3(0, -9.0, 0)
+	p.scale_amount_min = 0.15
+	p.scale_amount_max = 0.35
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.12
+	mesh.height = 0.24
+	mesh.radial_segments = 5
+	mesh.rings = 3
+	p.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.4, 0.32, 0.22)
+	p.mesh.surface_set_material(0, mat)
+	get_tree().current_scene.add_child(p)
+	p.global_position = pos + Vector3.UP * 0.3
+	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
 
 ## Clear gadget state when the slot is emptied or changed.
 func _reset_gadget() -> void:
@@ -1096,6 +1133,33 @@ func inv_move(index: int, gx: int, gy: int) -> bool:
 		return false
 	it["gx"] = gx
 	it["gy"] = gy
+	inventory_changed.emit()
+	return true
+
+## Rotate a backpack item 90° by swapping its footprint. Square items are a no-op. Keeps
+## the item where it is when the rotated shape fits there, otherwise nudges the top-left
+## back inside the grid; fails (leaves it untouched) only if it can't fit rotated at all.
+func inv_rotate(index: int) -> bool:
+	if not is_multiplayer_authority() or index < 0 or index >= inventory.size():
+		return false
+	var it: Dictionary = inventory[index]
+	var w := int(it.get("w", 1))
+	var h := int(it.get("h", 1))
+	if w == h:
+		return false
+	var grid := _occupancy(backpack_w, backpack_h, index)
+	# Swapped footprint is h x w. Try in place, then pull it back in if it overhangs.
+	var nx := int(it.get("gx", 0))
+	var ny := int(it.get("gy", 0))
+	nx = clampi(nx, 0, maxi(0, backpack_w - h))
+	ny = clampi(ny, 0, maxi(0, backpack_h - w))
+	if not _fits(nx, ny, h, w, grid, backpack_w, backpack_h):
+		return false
+	it["w"] = h
+	it["h"] = w
+	it["gx"] = nx
+	it["gy"] = ny
+	it["rot"] = not bool(it.get("rot", false))
 	inventory_changed.emit()
 	return true
 
@@ -1606,6 +1670,10 @@ func hit(amount: float, attacker_id: int, zone: String = "") -> void:
 func receive_damage(amount: float, attacker_id: int, zone: String = "") -> void:
 	if dead or downed or fully_dead:
 		return
+	# Soften incoming fire from enemy bots (negative ids) so they don't shred you in two
+	# shots — your own weapons and PvP are unaffected.
+	if attacker_id < 0:
+		amount = minf(amount * BOT_DAMAGE_SCALE, BOT_HIT_CAP)
 	amount = _absorb_armor(zone, amount)   # worn armor soaks the zone's damage, then breaks
 	if perks.has("tough"):
 		amount *= 0.9

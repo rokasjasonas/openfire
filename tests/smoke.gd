@@ -385,15 +385,19 @@ func _ready() -> void:
 			for b in get_tree().get_nodes_in_group("bot"):
 				if b.combatant_id == raider_id:
 					b.queue_free()
-		# Tunnels: a shovel is craftable + digs a covered segment; map-gen places tunnels.
-		var shovel_ok: bool = String(ItemDB.make("shovel").get("gadget", "")) == "shovel"
-		var dug_before := get_tree().get_nodes_in_group("dug_tunnel").size()
-		me._place_tunnel_segment(me.global_position + Vector3(0, 0, 4), 0.0)
-		await get_tree().process_frame
-		var dig_ok: bool = get_tree().get_nodes_in_group("dug_tunnel").size() > dug_before
-		var dug := get_tree().get_nodes_in_group("dug_tunnel")
-		if not dug.is_empty():
-			dug[dug.size() - 1].queue_free()
+		# Shovel: craftable, and digging carves a real hole into the terrain heightmap
+		# (lowers the ground), rather than spawning a tunnel structure.
+		var shovel_ok: bool = String(ItemDB.make("shovel").get("gadget", "")) == "shovel" and me.has_method("_dig_hole")
+		var ti = load("res://scripts/world/terrain.gd").new()
+		ti._n = 5
+		var flat := PackedFloat32Array()
+		for k in 25:
+			flat.append(10.0)
+		ti._heights = flat
+		var before_h: float = ti._heights[12]          # centre cell of a 5x5 grid
+		ti.dig_hole(Vector3(0, 0, 0), 4.0, 2.0)         # world origin maps to the centre
+		var dig_ok: bool = ti.has_method("dig_hole") and ti._heights[12] < before_h
+		ti.free()
 		# No-ammo fallback: a melee swing is always available, and the starter pistol
 		# carries an infinite reserve so a reload never leaves you with nothing to fire.
 		var melee_ok: bool = me.weapons.has_method("melee")
@@ -490,8 +494,31 @@ func _ready() -> void:
 				b.queue_free()
 				break
 		giant_ok = giant_ok and giant_live and giant_melee_ok
-		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and follower_fights_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok and witness_ok and boat_ok and island_ok and giant_ok and scrap_ok and healthbar_ok
-		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " follower_fights=", follower_fights_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok, " witness=", witness_ok, " boat=", boat_ok, " island=", island_ok, " giant=", giant_ok, " giant_melee=", giant_melee_ok, " scrap=", scrap_ok, " healthbar=", healthbar_ok)
+		# Bot damage is softened against the player (halved + capped, no one-shots), while
+		# player-vs-player / own weapons are unaffected. Bots have negative ids.
+		var bot_dmg_ok := false
+		var h0: float = me.sync_health
+		me.sync_health = me.MAX_HEALTH
+		me.receive_damage(40.0, -777, "torso")        # bot torso: 40 * 0.5 = 20
+		var d_bot: float = me.MAX_HEALTH - me.sync_health
+		me.sync_health = me.MAX_HEALTH
+		me.receive_damage(40.0, 12345, "torso")        # player attacker: full 40
+		var d_pvp: float = me.MAX_HEALTH - me.sync_health
+		me.sync_health = me.MAX_HEALTH
+		me.receive_damage(500.0, -777, "head")         # huge bot hit: capped, can't one-shot
+		var d_cap: float = me.MAX_HEALTH - me.sync_health
+		bot_dmg_ok = d_bot < d_pvp and d_bot <= 21.0 and d_cap <= me.BOT_HIT_CAP + 0.5 and me.sync_health > 0.0
+		me.sync_health = h0
+		# Tuning: pistol is less accurate now, and the torch recipe costs 2 wood.
+		var torch_recipe := {}
+		for r in ItemDB.RECIPES:
+			if String(r.get("id", "")) == "torch":
+				torch_recipe = r
+				break
+		var tuning_ok: bool = float(WeaponDB.get_weapon("pistol").get("spread_deg", 0.0)) >= 3.0 \
+			and int((torch_recipe.get("in", {}) as Dictionary).get("wood", 0)) == 2
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and follower_fights_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok and witness_ok and boat_ok and island_ok and giant_ok and scrap_ok and healthbar_ok and bot_dmg_ok and tuning_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " follower_fights=", follower_fights_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok, " witness=", witness_ok, " boat=", boat_ok, " island=", island_ok, " giant=", giant_ok, " giant_melee=", giant_melee_ok, " scrap=", scrap_ok, " healthbar=", healthbar_ok, " bot_dmg=", bot_dmg_ok, " tuning=", tuning_ok)
 
 	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
 	# world — same seed -> same terrain.
@@ -655,7 +682,24 @@ func _ready() -> void:
 				stun_ok = b.get("_stun") > 1.0
 				b._stun = 0.0
 				break
-		gear_ok = defs_ok and equip_ok and on_ok and off_ok and glass_ok and scan_ok and type_ok and field_ok and stun_ok
+		# Type-aware grenades: equipping a frag while carrying a smoke must count/throw
+		# only frags — the smoke is never spent as a frag (regression guard).
+		me.inventory.clear()
+		me.equip["extra"] = ItemDB.make("grenade")        # frag equipped
+		me.inv_add(ItemDB.make("grenade_smoke"))          # a different type in the pack
+		me.inv_add(ItemDB.make("grenade"))                # a loose frag too
+		var count_ok: bool = me.grenade_count() == 2      # equipped frag + loose frag; smoke excluded
+		var c1: bool = me._consume_grenade()              # spends the loose frag first
+		var smoke_kept := false
+		for it in me.inventory:
+			if String(it.get("gtype", "")) == "smoke":
+				smoke_kept = true
+		var c2: bool = me._consume_grenade()              # now spends the equipped frag
+		var frag_gone: bool = String(me.equip.get("extra", {}).get("kind", "")) != "grenade"
+		var nade_type_ok: bool = count_ok and c1 and smoke_kept and c2 and frag_gone and me.inventory.size() == 1
+		me.equip["extra"] = {}
+		gear_ok = defs_ok and equip_ok and on_ok and off_ok and glass_ok and scan_ok and type_ok and field_ok and stun_ok and nade_type_ok
+		print("SMOKE: nade_type_ok=", nade_type_ok, " count=", count_ok, " c1=", c1, " smoke_kept=", smoke_kept, " c2=", c2, " frag_gone=", frag_gone)
 		me.inventory.clear()
 		me.equip["gadget"] = {}
 		me.glassing = false
@@ -961,7 +1005,7 @@ func _ready() -> void:
 	var revive_ok := false
 	if me and Game.is_coop():
 		var lives_before: int = Game.coop_lives
-		me.receive_damage(9999.0, -1)
+		me.receive_damage(9999.0, 2)   # positive id = non-enemy source -> full lethal damage
 		await get_tree().process_frame
 		var was_downed: bool = me.downed and not me.dead
 		me.apply_life_result(true)
@@ -1099,6 +1143,14 @@ func _ready() -> void:
 		for i in 10:
 			me.inv_add(ItemDB.make_weapon("rifle"))
 		var cap_ok: bool = me.inventory.size() == 8 and not me.inv_add(ItemDB.make_weapon("rifle"))
+		# Rotation: a 2x1 gun swaps to 1x2 in place and back; a 1x1 item can't rotate.
+		me.inventory.clear()
+		me.inv_add(ItemDB.make_weapon("rifle"))
+		var rot_ok: bool = me.inv_rotate(0) and int(me.inventory[0]["w"]) == 1 and int(me.inventory[0]["h"]) == 2
+		rot_ok = rot_ok and me.inv_rotate(0) and int(me.inventory[0]["w"]) == 2 and int(me.inventory[0]["h"]) == 1
+		me.inventory.clear()
+		me.inv_add(ItemDB.make_weapon("pistol"))
+		rot_ok = rot_ok and not me.inv_rotate(0)   # square footprint is a no-op
 		me.inventory.clear()
 		me.hunger = 10.0
 		me.inv_add(ItemDB.make("food"))
@@ -1113,8 +1165,8 @@ func _ready() -> void:
 				found_drop = true
 		var drop_ok: bool = me.inventory.is_empty() and found_drop
 		me.inventory.clear()
-		inventory_ok = add_ok and overlap_ok and size_ok and cap_ok and use_ok and drop_ok
-		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " size=", size_ok, " cap=", cap_ok, " use=", use_ok, " drop=", drop_ok)
+		inventory_ok = add_ok and overlap_ok and size_ok and cap_ok and rot_ok and use_ok and drop_ok
+		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " size=", size_ok, " cap=", cap_ok, " rot=", rot_ok, " use=", use_ok, " drop=", drop_ok)
 
 	# Procedural Adventure terrain: seeded heightmap mesh + collision + biome navmesh,
 	# water plane, scattered props, flattened POI/village sites and spawns.
@@ -1459,8 +1511,9 @@ func _ready() -> void:
 		for k in 3:
 			if me.inv_add(ItemDB.make("grenade")):
 				gn_added += 1
-		# Three loose grenades: counted, but not throwable until one is equipped.
-		var gn_count3: bool = me.grenade_count() == 3
+		# Three loose grenades: not throwable — and the throw count reads 0 — until one is
+		# equipped (the count reflects the equipped type only, so nothing equipped = 0).
+		var gn_count0: bool = me.grenade_count() == 0
 		var gn_noeq: bool = not me._grenade_equipped() and not me._can_throw_grenade()
 		var gn_gi := -1
 		for i in me.inventory.size():
@@ -1476,12 +1529,12 @@ func _ready() -> void:
 		var gn_a2: bool = me._grenade_equipped() and me.grenade_count() == 1
 		me._consume_grenade()
 		var gn_a3: bool = not me._grenade_equipped() and me.grenade_count() == 0 and not me._can_throw_grenade()
-		nade_item_ok = gn_added == 3 and gn_count3 and gn_noeq and gn_eq and gn_a1 and gn_a2 and gn_a3
+		nade_item_ok = gn_added == 3 and gn_count0 and gn_noeq and gn_eq and gn_a1 and gn_a2 and gn_a3
 		me.inventory.clear()
 		me.equip["extra"] = {}
 		me.grenades = 0
 		Game.config["mode"] = gn_prev_mode
-		print("SMOKE: nade_item_ok=", nade_item_ok, " added=", gn_added, " count3=", gn_count3, " noeq=", gn_noeq, " eq=", gn_eq, " a1=", gn_a1, " a2=", gn_a2, " a3=", gn_a3)
+		print("SMOKE: nade_item_ok=", nade_item_ok, " added=", gn_added, " count0=", gn_count0, " noeq=", gn_noeq, " eq=", gn_eq, " a1=", gn_a1, " a2=", gn_a2, " a3=", gn_a3)
 
 	# Adventure story: offline fallback produces all keys, and the LLM-response parser
 	# extracts our story JSON from an OpenAI-style chat reply.
@@ -1520,16 +1573,17 @@ func _ready() -> void:
 		var armor_equipped: bool = not (me.equip["body"] as Dictionary).is_empty() and me.inventory.is_empty()
 		# Armor is an extra-HP buffer: a torso hit drains armor (health untouched while it
 		# lasts); a head hit (no helmet) hits health directly.
+		# Positive attacker id = non-enemy source, so the raw (unscaled) damage is tested.
 		me.sync_health = 100.0
-		me.receive_damage(30.0, -1, "torso")   # vest has 80 hp -> soaks it all
+		me.receive_damage(30.0, 2, "torso")   # vest has 80 hp -> soaks it all
 		var torso_buffered: bool = is_equal_approx(me.sync_health, 100.0) and float(me.equip["body"].get("cur_hp", 0)) < 80.0
 		me.sync_health = 100.0
-		me.receive_damage(30.0, -1, "head")    # no helmet -> health takes it
+		me.receive_damage(30.0, 2, "head")    # no helmet -> health takes it
 		var head_unbuffered: bool = me.sync_health < 100.0
 		# Overflow + break: a hit past the vest's 80 hp destroys it and spills onto health
 		# (kept non-lethal so later tests still have a live player).
 		me.sync_health = 100.0
-		me.receive_damage(100.0, -1, "torso")
+		me.receive_damage(100.0, 2, "torso")
 		var armor_broke: bool = (me.equip["body"] as Dictionary).is_empty() and me.sync_health < 100.0 and me.sync_health > 0.0
 		# Equip a weapon -> fills a gun slot; unequip -> back to the backpack.
 		me.inv_add(ItemDB.make_weapon("rifle"))

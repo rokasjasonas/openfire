@@ -76,7 +76,28 @@ var _lowhp: ColorRect = null
 var _lowhp_amt: float = 0.0
 var _flashbang: ColorRect = null
 var _nvg: ColorRect = null
+var _nvg_mat: ShaderMaterial = null
 var _gadget_label: Label = null
+
+## Night-vision image intensifier: read the rendered scene, amplify low light into a
+## visible range, and tint it green (phosphor tube). Unlike a flat overlay this actually
+## brightens dark areas so you can see in them. `amount` (0..1) fades the effect in/out.
+const NVG_SHADER := "shader_type canvas_item;
+render_mode blend_mix;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
+uniform float amount = 0.0;
+void fragment() {
+	vec3 c = texture(screen_tex, SCREEN_UV).rgb;
+	float lum = dot(c, vec3(0.299, 0.587, 0.114));
+	// Gain curve: lift the darks hard, roll off the highlights so bright spots bloom.
+	float g = pow(clamp(lum * 4.0 + 0.06, 0.0, 1.0), 0.45);
+	vec3 nv = vec3(0.20, 1.0, 0.35) * g;
+	// Subtle scanlines + vignette sell the tube look without hurting readability.
+	nv *= 0.85 + 0.15 * sin(SCREEN_UV.y * 900.0);
+	vec2 d = SCREEN_UV - vec2(0.5);
+	nv *= 1.0 - dot(d, d) * 0.9;
+	COLOR = vec4(mix(c, nv, amount), 1.0);
+}"
 
 func _ready() -> void:
 	add_to_group("hud")
@@ -362,11 +383,18 @@ func _update_health_display() -> void:
 		car_health_label.text = "%s %d" % [icon, int(car.health)]
 
 func _update_vehicle_prompt() -> void:
-	if _player.driving != null and is_instance_valid(_player.driving):
-		if _player.driving.has_method("is_overturned") and _player.driving.is_overturned():
+	var v = _player.driving
+	if v != null and is_instance_valid(v):
+		# Prompts match each vehicle class's actual controls: aircraft fly (no flip /
+		# handbrake), boats steer + brake on the water, only ground cars flip / handbrake.
+		if v.is_in_group("aircraft"):
+			vehicle_prompt.text = "[W/S] Throttle   [A/D] Turn   [Space/Ctrl] Up/Down   [LMB] Fire   [E] Exit"
+		elif v.is_in_group("boat"):
+			vehicle_prompt.text = "[W/S] Throttle   [A/D] Steer   [Space] Brake   [E] Exit"
+		elif v.has_method("is_overturned") and v.is_overturned():
 			vehicle_prompt.text = "[R] Flip car    [E] Exit"
 		else:
-			vehicle_prompt.text = "[E] Exit    [Space] Handbrake    [R] Flip"
+			vehicle_prompt.text = "[W/S] Drive   [A/D] Steer   [Space] Handbrake   [R] Flip   [E] Exit"
 	elif _player.near_vehicle:
 		vehicle_prompt.text = "[E] Enter vehicle"
 	else:
@@ -608,20 +636,31 @@ func _update_gadget_label() -> void:
 		state = "  [Q]"
 	_gadget_label.text = "%s%s" % [GADGET_NAMES.get(g, g), state]
 
-## Night-vision: a green additive overlay that brightens dark scenes into a green wash.
+## Night-vision: an image-intensifier shader that amplifies the scene's low light into a
+## visible green picture. Sits behind the rest of the HUD so readouts stay legible on top.
 func set_nightvision(on: bool) -> void:
 	if _nvg == null:
 		_nvg = ColorRect.new()
 		_nvg.name = "NVG"
 		_nvg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_nvg.color = Color(0.25, 1.0, 0.35, 0.0)
+		_nvg.color = Color(1, 1, 1, 1)
 		_nvg.set_anchors_preset(Control.PRESET_FULL_RECT)
-		var m := CanvasItemMaterial.new()
-		m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-		_nvg.material = m
+		var sh := Shader.new()
+		sh.code = NVG_SHADER
+		_nvg_mat = ShaderMaterial.new()
+		_nvg_mat.shader = sh
+		_nvg.material = _nvg_mat
+		_nvg_mat.set_shader_parameter("amount", 0.0)
 		add_child(_nvg)
 		move_child(_nvg, 0)
-	_nvg.color.a = 0.28 if on else 0.0
+	var from: float = float(_nvg_mat.get_shader_parameter("amount"))
+	if on:
+		_nvg.visible = true
+	var tw := create_tween()
+	tw.tween_method(func(a: float): _nvg_mat.set_shader_parameter("amount", a),
+		from, 1.0 if on else 0.0, 0.25)
+	if not on:
+		tw.tween_callback(func(): _nvg.visible = false)
 
 ## Flashbang white-out: a full-screen white flash that fades over a couple seconds.
 func flashbang(intensity: float) -> void:
@@ -913,19 +952,23 @@ func set_objective(t: String) -> void:
 # ---------------------------------------------------------------- scoreboard
 
 func _input(event: InputEvent) -> void:
+	# Adventure: the configurable inventory key opens/closes the backpack (and, when
+	# it is Tab, takes precedence over the scoreboard). When an NPC talk dialog is
+	# open it closes the dialog and swaps straight to the backpack — this runs before
+	# the text-field guard below so it works even while the "ask" field has focus.
+	if Game.is_adventure() and _is_inventory_key(event):
+		if npc_dialog.visible:
+			_close_npc_dialog()
+		_toggle_inventory()
+		get_viewport().set_input_as_handled()
+		return
 	# While a text field has focus (e.g. asking an NPC), let it have the keyboard —
-	# don't fire game shortcuts like M (map) or Tab (backpack) into the typed message.
+	# don't fire game shortcuts like M (map) into the typed message.
 	# Escape still passes through so it can close the dialog.
 	if event is InputEventKey:
 		var focus := get_viewport().gui_get_focus_owner()
 		if (focus is LineEdit or focus is TextEdit) and not event.is_action_pressed("pause"):
 			return
-	# Adventure: the configurable inventory key opens/closes the backpack (and, when
-	# it is Tab, takes precedence over the scoreboard).
-	if Game.is_adventure() and _is_inventory_key(event):
-		_toggle_inventory()
-		get_viewport().set_input_as_handled()
-		return
 	# Full-screen world map on M (Adventure only, view-only overlay).
 	if Game.is_adventure() and event is InputEventKey and event.pressed and not event.echo \
 			and (event as InputEventKey).keycode == KEY_M:

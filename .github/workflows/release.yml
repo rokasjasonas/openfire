@@ -109,6 +109,16 @@ jobs:
           cp build/openfire-macos.zip "dist/openfire-${V}-macos.zip"
           echo "Artifacts:"; ls -lh dist
 
+      - name: Build ComfyUI bundle (auto-install asset)
+        run: |
+          set -euo pipefail
+          # ComfyUI source + cross-platform launchers; the game auto-downloads this on first
+          # launch (Settings.comfyui_bundle_url -> releases/latest/download/comfyui-bundle.zip)
+          # and installs PyTorch on first run. Stable filename so the "latest" URL is durable.
+          bash tools/make_comfyui_bundle.sh
+          cp build/comfyui-bundle.zip dist/comfyui-bundle.zip
+          ls -lh dist/comfyui-bundle.zip
+
       - name: Commit version bump & tag
         run: |
           set -euo pipefail

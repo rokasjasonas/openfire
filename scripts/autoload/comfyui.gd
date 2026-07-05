@@ -223,7 +223,11 @@ func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pac
 func _boot() -> void:
 	if is_installed():
 		ensure_server()
-	elif String(Settings.comfyui_bundle_url).strip_edges() != "":
+		return
+	# Auto-install only in a real windowed build — never during headless smoke or the editor
+	# (so tests and the editor don't pull a multi-GB bundle over the network).
+	var real_build := not OS.has_feature("editor") and DisplayServer.get_name() != "headless"
+	if real_build and String(Settings.comfyui_bundle_url).strip_edges() != "":
 		ensure_installed()   # auto-download + extract + launch — "download game, play"
 	else:
 		ensure_server()

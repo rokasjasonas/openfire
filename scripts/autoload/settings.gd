@@ -34,8 +34,9 @@ var comfyui_model_url: String = "https://huggingface.co/stable-diffusion-v1-5/st
 var comfyui_model_file: String = "v1-5-pruned-emaonly.safetensors"
 # A ready-to-run ComfyUI packaged as a .zip (Godot can extract .zip, not the .7z portable).
 # When set and no ComfyUI is bundled/reachable, the game auto-downloads + extracts it into
-# comfyui/ on first use ("download game, play"). Empty by default until a bundle is hosted.
-var comfyui_bundle_url: String = ""
+# comfyui/ on first use ("download game, play"). Defaults to the latest GitHub Release asset
+# that the release workflow attaches (see .github/workflows/release.yml + make_comfyui_bundle.sh).
+var comfyui_bundle_url: String = "https://github.com/rokasjasonas/openfire/releases/latest/download/comfyui-bundle.zip"
 # Expected download size in bytes — the % is computed against this because HuggingFace's
 # LFS redirects make the HTTP Content-Length unreliable. ~4.27 GB for SD 1.5 emaonly.
 var comfyui_model_size: int = 4265146304

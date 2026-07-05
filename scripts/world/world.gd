@@ -804,6 +804,7 @@ func _start_survival() -> void:
 			break
 	_spawn_wildlife()
 	set_process(true)
+	_request_faction_skins()   # AI-reskin NPC outfits per faction (cosmetic, async)
 	# Quests reference the villages/NPCs we just spawned, so build them last.
 	_quest_manager = QUEST_MANAGER.new()
 	_quest_manager.name = "QuestManager"
@@ -812,6 +813,44 @@ func _start_survival() -> void:
 	# Continuing a saved adventure: restore points/kills/player state on top.
 	if not Game.continue_data.is_empty():
 		call_deferred("_apply_continue")
+
+## Per faction, img2img-reskin a base character texture with the world theme and apply it to
+## that faction's NPCs when ready — so factions look visually distinct. Cosmetic / local;
+## silent no-op without ComfyUI; cached per faction+theme.
+const _SKIN_BASE := "res://assets/models/characters/Textures/texture-a.png"
+
+func _request_faction_skins() -> void:
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	if theme == "":
+		return
+	if not ComfyUI.asset_ready.is_connected(_on_faction_skin_ready):
+		ComfyUI.asset_ready.connect(_on_faction_skin_ready)
+	ComfyUI.ensure_server()
+	for fac in Game.adventure_village_factions:
+		var key := "skin_%s_%s" % [String(fac), theme]
+		var cached := ComfyUI.asset_texture(key)
+		if cached != null:
+			_apply_faction_skin(String(fac), cached)
+		else:
+			ComfyUI.reskin(_SKIN_BASE, "character outfit texture, the %s faction, %s, worn survival clothing and gear" % [String(fac), theme], key)
+
+func _on_faction_skin_ready(key: String, path: String) -> void:
+	if not key.begins_with("skin_") or not path.to_lower().ends_with(".png"):
+		return
+	var img := Image.new()
+	if img.load(path) != OK:
+		return
+	var tex := ImageTexture.create_from_image(img)
+	# key is "skin_<faction>_<theme>" — the faction is between the prefix and the theme suffix.
+	for fac in Game.adventure_village_factions:
+		if key == "skin_%s_%s" % [String(fac), String(Game.config.get("theme", ""))]:
+			_apply_faction_skin(String(fac), tex)
+			return
+
+func _apply_faction_skin(fac: String, tex: Texture2D) -> void:
+	for b in get_tree().get_nodes_in_group("bot"):
+		if String(b.get("faction")) == fac and b.has_method("apply_skin"):
+			b.apply_skin(tex)
 
 const ANIMAL_SCENE := preload("res://scenes/animal.tscn")
 

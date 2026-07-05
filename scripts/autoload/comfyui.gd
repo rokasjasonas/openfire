@@ -40,12 +40,27 @@ const DEFAULT_IMAGE_WORKFLOW := """{
   "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "openfire", "images": ["8", 0]}}
 }"""
 
+# img2img: re-theme an uploaded base image (%IMAGE%) while keeping its layout — a low denoise
+# so a character/UV texture is recoloured, not redrawn. Used for template-based NPC skins.
+const IMG2IMG_WORKFLOW := """{
+  "10": {"class_type": "LoadImage", "inputs": {"image": "%IMAGE%"}},
+  "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "%CKPT%"}},
+  "11": {"class_type": "VAEEncode", "inputs": {"pixels": ["10", 0], "vae": ["4", 2]}},
+  "3": {"class_type": "KSampler", "inputs": {"seed": %SEED%, "steps": %STEPS%, "cfg": 6.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 0.55, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["11", 0]}},
+  "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "%PROMPT%", "clip": ["4", 1]}},
+  "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "%NEG%", "clip": ["4", 1]}},
+  "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+  "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "openfire", "images": ["8", 0]}}
+}"""
+
 var _post: HTTPRequest      # POST /prompt
 var _hist: HTTPRequest      # GET /history/<id> (polling)
 var _view: HTTPRequest      # GET /view?filename=... (download)
 var _info: HTTPRequest      # GET /object_info (available checkpoints)
 var _dl: HTTPRequest        # model download
 var _dl_bundle: HTTPRequest # ComfyUI bundle download (auto-install)
+var _upload: HTTPRequest    # POST /upload/image for img2img base images
+var _upload_pending: Dictionary = {}   # {prompt, key} awaiting an upload to finish
 var _downloading: bool = false
 var _installing: bool = false
 var _cur_retried: bool = false   # did we already auto-fix the checkpoint for this job?
@@ -66,6 +81,7 @@ func _ready() -> void:
 	_info = _mk_http(_on_object_info)
 	_dl = _mk_http(_on_model_downloaded)
 	_dl_bundle = _mk_http(_on_bundle_downloaded)
+	_upload = _mk_http(_on_image_uploaded)
 	set_process(false)
 	_poll = Timer.new()
 	_poll.wait_time = 1.5
@@ -352,6 +368,58 @@ func bake(prompt: String, key: String, kind: String = "image") -> void:
 	_queue.append({"prompt": prompt, "key": key, "kind": kind})
 	_pump()
 
+## Template reskin: re-theme an existing texture (res:// path) via img2img so the result keeps
+## the original's UV layout — used for NPC skins. Uploads the base image to ComfyUI, then runs
+## the img2img workflow. Emits asset_ready(key, path) with the reskinned PNG (cached).
+func reskin(base_res_path: String, prompt: String, key: String) -> void:
+	if not enabled():
+		asset_failed.emit(key)
+		return
+	if has_asset(key):
+		asset_ready.emit(key, cache_path(key, "png"))
+		return
+	var tex = load(base_res_path)
+	if tex == null or not (tex is Texture2D):
+		asset_failed.emit(key)
+		return
+	var img := (tex as Texture2D).get_image()
+	if img == null:
+		asset_failed.emit(key)
+		return
+	if img.is_compressed():
+		img.decompress()
+	var png := img.save_png_to_buffer()
+	# Upload the base image, then (in _on_image_uploaded) queue the img2img job referencing it.
+	_upload_pending = {"prompt": prompt, "key": key}
+	var boundary := "openfireBoundary1234567890"
+	var body := PackedByteArray()
+	body.append_array(("--%s\r\nContent-Disposition: form-data; name=\"image\"; filename=\"%s.png\"\r\nContent-Type: image/png\r\n\r\n" % [boundary, _safe_key(key)]).to_utf8_buffer())
+	body.append_array(png)
+	body.append_array(("\r\n--%s--\r\n" % boundary).to_utf8_buffer())
+	var headers := ["Content-Type: multipart/form-data; boundary=%s" % boundary]
+	if _upload.request_raw(endpoint() + "/upload/image", headers, HTTPClient.METHOD_POST, body) != OK:
+		_upload_pending = {}
+		asset_failed.emit(key)
+
+func _on_image_uploaded(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
+	if _upload_pending.is_empty():
+		return
+	var pend := _upload_pending
+	_upload_pending = {}
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		asset_failed.emit(String(pend.get("key", "")))
+		return
+	var d = JSON.parse_string(body.get_string_from_utf8())
+	var name := ""
+	if typeof(d) == TYPE_DICTIONARY:
+		name = String(d.get("name", ""))
+	if name == "":
+		asset_failed.emit(String(pend.get("key", "")))
+		return
+	# Queue the img2img job carrying the uploaded image name.
+	_queue.append({"prompt": String(pend["prompt"]), "key": String(pend["key"]), "kind": "reskin", "image": name})
+	_pump()
+
 func _pump() -> void:
 	if not _cur.is_empty() or _queue.is_empty() or not enabled():
 		return
@@ -368,6 +436,8 @@ func _submit_current() -> void:
 		last_error = "No workflow for kind '%s' — add user://comfyui/workflow_%s.json." % [kind, kind]
 		_fail_current()
 		return
+	if _cur.has("image"):
+		graph = graph.replace("%IMAGE%", String(_cur["image"]))   # img2img base (reskin)
 	if typeof(JSON.parse_string(graph)) != TYPE_DICTIONARY:
 		_fail_current()   # sanity-check it parses, but DON'T re-stringify (see below)
 		return
@@ -394,6 +464,8 @@ func _build_workflow(prompt: String, seed_val: int, kind: String) -> String:
 		tpl = FileAccess.get_file_as_string(user_tpl)
 	elif kind == "image":
 		tpl = DEFAULT_IMAGE_WORKFLOW
+	elif kind == "reskin":
+		tpl = IMG2IMG_WORKFLOW
 	else:
 		return ""   # 3D/other kinds require a user-provided workflow template
 	return _apply_placeholders(tpl, prompt, seed_val)

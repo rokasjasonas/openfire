@@ -256,6 +256,21 @@ func _model_meshes(n: Node) -> Array:
 		out.append_array(_model_meshes(c))
 	return out
 
+## Apply an AI-reskinned texture to the character model. img2img keeps the source texture's
+## UV layout, so overriding the albedo texture re-themes the NPC without smearing.
+func apply_skin(tex: Texture2D) -> void:
+	if tex == null or body_model == null:
+		return
+	for m in _model_meshes(body_model):
+		var mi := m as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for s in mi.mesh.get_surface_count():
+			var mat = mi.get_active_material(s)
+			var dup: StandardMaterial3D = mat.duplicate() if mat is StandardMaterial3D else StandardMaterial3D.new()
+			dup.albedo_texture = tex
+			mi.set_surface_override_material(s, dup)
+
 func _process(delta: float) -> void:
 	# Remote copy: smoothly interpolate toward the replicated transform + animate.
 	# (Skipped on the authority, which moves itself in _physics_process.)

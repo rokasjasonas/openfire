@@ -222,42 +222,73 @@ func _on_debug_toggled(on: bool) -> void:
 	Settings.save()
 
 var _comfy_status: Label = null
+var _comfy_dl_bar: ProgressBar = null
 
 ## Opt-in ComfyUI asset bridge controls: enable, server endpoint, checkpoint, and a button
 ## to pre-bake a sample themed prop library into user://generated/ (needs a running ComfyUI).
 func _build_comfyui_options(vbox: Node) -> void:
 	var head := Label.new()
-	head.text = "AI assets (ComfyUI) — optional, needs a local ComfyUI + GPU"
+	head.text = "AI assets (ComfyUI)"
 	vbox.add_child(head)
-	var en := CheckButton.new()
-	en.text = "Enable ComfyUI asset baking"
-	en.button_pressed = Settings.comfyui_enabled
-	en.toggled.connect(func(on): Settings.comfyui_enabled = on; Settings.save())
-	vbox.add_child(en)
 	var ep := LineEdit.new()
 	ep.placeholder_text = "ComfyUI endpoint (http://127.0.0.1:8188)"
 	ep.text = Settings.comfyui_endpoint
 	ep.text_changed.connect(func(t): Settings.comfyui_endpoint = t.strip_edges(); Settings.save())
 	vbox.add_child(ep)
-	var ck := LineEdit.new()
-	ck.placeholder_text = "Checkpoint model filename"
-	ck.text = Settings.comfyui_checkpoint
-	ck.text_changed.connect(func(t): Settings.comfyui_checkpoint = t.strip_edges(); Settings.save())
-	vbox.add_child(ck)
+	# The model auto-downloads into the bundled checkpoints folder (next to the game).
+	var dl := Button.new()
+	dl.text = "Download the AI model (~4 GB, first time)"
+	dl.pressed.connect(_on_download_model)
+	vbox.add_child(dl)
+	_comfy_dl_bar = ProgressBar.new()
+	_comfy_dl_bar.min_value = 0.0
+	_comfy_dl_bar.max_value = 100.0
+	_comfy_dl_bar.custom_minimum_size = Vector2(420, 18)
+	_comfy_dl_bar.visible = false
+	vbox.add_child(_comfy_dl_bar)
 	var bake := Button.new()
 	bake.text = "Bake sample asset library"
 	bake.pressed.connect(_on_bake_library)
 	vbox.add_child(bake)
 	_comfy_status = Label.new()
 	_comfy_status.text = ""
+	_comfy_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_comfy_status.custom_minimum_size.x = 420
 	vbox.add_child(_comfy_status)
-	for n in [head, en, ep, ck, bake, _comfy_status]:
+	for n in [head, ep, dl, _comfy_dl_bar, bake, _comfy_status]:
 		vbox.move_child(n, %OptionsBackButton.get_index())
 
-func _on_bake_library() -> void:
-	if not Settings.comfyui_enabled:
-		_comfy_status.text = "Enable ComfyUI first."
+func _on_download_model() -> void:
+	if not ComfyUI.model_ready.is_connected(_on_model_ready_status):
+		ComfyUI.model_ready.connect(_on_model_ready_status)
+		ComfyUI.model_progress.connect(_on_model_progress)
+	if ComfyUI.has_local_model():
+		_comfy_status.text = "Model already present — you're set."
 		return
+	_comfy_status.text = "Downloading model… (a few GB, one time)"
+	if _comfy_dl_bar != null:
+		_comfy_dl_bar.visible = true
+		_comfy_dl_bar.value = 0.0
+	ComfyUI.download_model()
+
+func _on_model_progress(frac: float, downloaded: int, total: int) -> void:
+	var mb := func(n: int) -> String: return "%.0f MB" % (float(n) / 1048576.0)
+	if total > 0:
+		if _comfy_dl_bar != null:
+			_comfy_dl_bar.value = frac * 100.0
+		_comfy_status.text = "Downloading model…  %d%%   (%s / %s)" % [int(frac * 100.0), mb.call(downloaded), mb.call(total)]
+	else:
+		# Unknown length (no Content-Length): show bytes and a busy bar.
+		if _comfy_dl_bar != null:
+			_comfy_dl_bar.value = fmod(float(downloaded) / 1048576.0, 100.0)
+		_comfy_status.text = "Downloading model…  %s" % mb.call(downloaded)
+
+func _on_model_ready_status(_ok: bool, message: String) -> void:
+	if _comfy_dl_bar != null:
+		_comfy_dl_bar.visible = false
+	_comfy_status.text = message
+
+func _on_bake_library() -> void:
 	if not ComfyUI.bake_progress.is_connected(_on_bake_progress):
 		ComfyUI.bake_progress.connect(_on_bake_progress)
 		ComfyUI.bake_finished.connect(func(): _comfy_status.text = "Bake complete → user://generated/")

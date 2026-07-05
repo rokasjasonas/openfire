@@ -1,7 +1,10 @@
-# ComfyUI asset bridge (optional)
+# ComfyUI asset bridge
 
-OpenFire can pre-bake **themed props** (textures / billboard sprites, and GLB models with
-a 3D workflow) using a local **ComfyUI** server. It is **opt-in and off by default**.
+OpenFire uses a local **ComfyUI** server to pre-bake **themed props** (textures / billboard
+sprites, and GLB models with a 3D workflow). ComfyUI ships **alongside the game binary** and
+is always on — there is no enable toggle, and the checkpoints folder is derived from the
+game's own location (`<game_dir>/comfyui/models/checkpoints/`, or `user://comfyui/…` in the
+editor). The AI **model** auto-downloads there from the Options menu.
 
 ## Why it's a *bridge*, not embedded
 
@@ -17,12 +20,15 @@ disabled/unreachable, the game falls back to its procedural (primitive) objects.
 1. Install ComfyUI and a checkpoint model (e.g. an SDXL `.safetensors`) on a machine with a
    GPU. Confirm it runs at `http://127.0.0.1:8188`.
 2. In OpenFire → **Options → AI assets (ComfyUI)**:
-   - **Enable ComfyUI asset baking**
    - **Endpoint** — default `http://127.0.0.1:8188`
-   - **Checkpoint model filename** — the exact file in your ComfyUI `models/checkpoints/`
-3. (Optional, "embedded" launch) In `settings.cfg` set `[comfyui] exec` to a launch script
+   - **Download the AI model** — fetches a Stable Diffusion 1.5 checkpoint into the bundled
+     `comfyui/models/checkpoints/` folder (next to the game) and selects it. (Restart ComfyUI
+     once if it doesn't list the new file — it caches the folder on start.) On an HTTP 400 the
+     bridge also auto-detects any already-installed checkpoint and retries.
+   - Point ComfyUI itself at that same bundled `comfyui/models/` folder so it finds the model.
+4. (Optional, "embedded" launch) In `settings.cfg` set `[comfyui] exec` to a launch script
    and `args`; the game will start ComfyUI via `OS.create_process` when baking.
-4. Click **Bake sample asset library**. Watch ComfyUI process the queue; results land in
+5. Click **Bake sample asset library**. Watch ComfyUI process the queue; results land in
    `user://generated/*.png`.
 
 ## Custom / 3D workflows

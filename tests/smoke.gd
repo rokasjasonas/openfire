@@ -1383,14 +1383,8 @@ func _ready() -> void:
 	# key sanitising, cache paths, deterministic seeds, workflow build (prompt injected +
 	# valid JSON), graceful empty for an unconfigured 3D kind, and /history parsing.
 	var comfyui_ok := false
-	# enabled() must track the setting — toggle both ways, then restore the user's value
-	# (they may have ComfyUI on for real, so don't assume/clobber it).
-	var cy_prev_en = Settings.comfyui_enabled
-	Settings.comfyui_enabled = false
-	var cy_off_state: bool = not ComfyUI.enabled()
-	Settings.comfyui_enabled = true
-	var cy_off: bool = cy_off_state and ComfyUI.enabled()
-	Settings.comfyui_enabled = cy_prev_en
+	# ComfyUI is mandatory (ships with the game) — always enabled.
+	var cy_off: bool = ComfyUI.enabled()
 	var cy_key: bool = ComfyUI._safe_key("City Bench") == "city_bench" and not ComfyUI._safe_key("A/B c!").contains("/")
 	var cy_path: bool = ComfyUI.cache_path("forest log", "png").ends_with("forest_log.png")
 	var cy_seed: bool = ComfyUI._stable_seed("bench") == ComfyUI._stable_seed("bench") \
@@ -1403,8 +1397,13 @@ func _ready() -> void:
 	var ref: Dictionary = ComfyUI._extract_output_ref(mock, "pid1")
 	var cy_hist: bool = String(ref.get("filename", "")) == "openfire_0001.png" \
 		and ComfyUI._extract_output_ref(mock, "missing").is_empty()
-	comfyui_ok = cy_off and cy_key and cy_path and cy_seed and cy_wf and cy_no3d and cy_hist
-	print("SMOKE: comfyui_ok=", comfyui_ok, " off=", cy_off, " key=", cy_key, " path=", cy_path, " seed=", cy_seed, " wf=", cy_wf, " no3d=", cy_no3d, " hist=", cy_hist)
+	# Model path is derived from the bundled checkpoints folder (next to the binary) and
+	# ends with the model filename; no local file exists in the test env.
+	var cy_model: bool = ComfyUI.local_model_path().ends_with(Settings.comfyui_model_file) \
+		and ComfyUI.checkpoints_dir().ends_with("comfyui/models/checkpoints") \
+		and not ComfyUI.has_local_model()
+	comfyui_ok = cy_off and cy_key and cy_path and cy_seed and cy_wf and cy_no3d and cy_hist and cy_model
+	print("SMOKE: comfyui_ok=", comfyui_ok, " off=", cy_off, " key=", cy_key, " path=", cy_path, " seed=", cy_seed, " wf=", cy_wf, " no3d=", cy_no3d, " hist=", cy_hist, " model=", cy_model)
 
 	# Adventure start: an empty loadout fires safely (unarmed) and equipping a weapon
 	# from the backpack fills a free slot (rather than replacing slot 0).

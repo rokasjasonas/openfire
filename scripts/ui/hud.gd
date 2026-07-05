@@ -1046,9 +1046,6 @@ func _on_debug_generate() -> void:
 	var prompt := _dbg_ai_prompt.text.strip_edges()
 	if prompt == "":
 		return
-	if not ComfyUI.enabled():
-		_dbg_ai_status.text = "Enable ComfyUI in Options first."
-		return
 	if not ComfyUI.asset_ready.is_connected(_on_debug_asset):
 		ComfyUI.asset_ready.connect(_on_debug_asset)
 		ComfyUI.asset_failed.connect(_on_debug_asset_failed)

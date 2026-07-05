@@ -18,6 +18,8 @@ signal asset_ready(key: String, path: String)
 signal asset_failed(key: String)
 signal bake_progress(done: int, total: int)
 signal bake_finished()
+signal model_progress(fraction: float, downloaded: int, total: int)
+signal model_ready(ok: bool, message: String)
 
 const CACHE_DIR := "user://generated/"
 const CLIENT_ID := "openfire"
@@ -40,6 +42,8 @@ var _post: HTTPRequest      # POST /prompt
 var _hist: HTTPRequest      # GET /history/<id> (polling)
 var _view: HTTPRequest      # GET /view?filename=... (download)
 var _info: HTTPRequest      # GET /object_info (available checkpoints)
+var _dl: HTTPRequest        # model download
+var _downloading: bool = false
 var _cur_retried: bool = false   # did we already auto-fix the checkpoint for this job?
 var _poll: Timer
 var _launched: bool = false
@@ -56,6 +60,8 @@ func _ready() -> void:
 	_hist = _mk_http(_on_history)
 	_view = _mk_http(_on_view_done)
 	_info = _mk_http(_on_object_info)
+	_dl = _mk_http(_on_model_downloaded)
+	set_process(false)
 	_poll = Timer.new()
 	_poll.wait_time = 1.5
 	_poll.one_shot = false
@@ -71,8 +77,9 @@ func _mk_http(cb: Callable) -> HTTPRequest:
 
 # ---------------------------------------------------------------- config / cache
 
+## ComfyUI is a mandatory part of the game, shipped alongside the binary — always on.
 func enabled() -> bool:
-	return bool(Settings.get("comfyui_enabled"))
+	return true
 
 func endpoint() -> String:
 	var e := String(Settings.get("comfyui_endpoint")).strip_edges()
@@ -107,6 +114,70 @@ func asset_texture(key: String) -> Texture2D:
 	if img.load(p) != OK:
 		return null
 	return ImageTexture.create_from_image(img)
+
+# ---------------------------------------------------------------- model download
+
+## ComfyUI's bundled checkpoints folder, next to the game binary (comfyui ships with the
+## game). In the editor the executable is Godot itself, so fall back to user://.
+func checkpoints_dir() -> String:
+	var base := OS.get_executable_path().get_base_dir()
+	if base == "" or OS.has_feature("editor"):
+		return ProjectSettings.globalize_path("user://comfyui/models/checkpoints")
+	return base.path_join("comfyui/models/checkpoints")
+
+## Absolute path where the checkpoint should live (inside the bundled checkpoints folder).
+func local_model_path() -> String:
+	return checkpoints_dir().path_join(String(Settings.comfyui_model_file))
+
+func has_local_model() -> bool:
+	var p := local_model_path()
+	return p != "" and FileAccess.file_exists(p)
+
+## Download the configured checkpoint into the bundled checkpoints folder (next to the game
+## binary) so generation works without a manual model install. Emits model_progress /
+## model_ready. On success, points the checkpoint setting at it.
+func download_model() -> void:
+	if _downloading:
+		return
+	if has_local_model():
+		Settings.comfyui_checkpoint = String(Settings.comfyui_model_file)
+		Settings.save()
+		model_ready.emit(true, "Model already present.")
+		return
+	if String(Settings.comfyui_model_url).strip_edges() == "":
+		model_ready.emit(false, "No model URL configured.")
+		return
+	DirAccess.make_dir_recursive_absolute(checkpoints_dir())
+	_dl.download_file = local_model_path() + ".part"
+	if _dl.request(String(Settings.comfyui_model_url)) != OK:
+		model_ready.emit(false, "Couldn't start the download.")
+		return
+	_downloading = true
+	set_process(true)
+
+func _process(_delta: float) -> void:
+	if not _downloading:
+		return
+	var dl := _dl.get_downloaded_bytes()
+	var total := _dl.get_body_size()   # -1 / 0 when the server sends no Content-Length
+	var frac := (float(dl) / float(total)) if total > 0 else 0.0
+	model_progress.emit(frac, dl, total)
+
+func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
+	if not _downloading:
+		return
+	_downloading = false
+	set_process(false)
+	var part := local_model_path() + ".part"
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
+		DirAccess.rename_absolute(part, local_model_path())
+		Settings.comfyui_checkpoint = String(Settings.comfyui_model_file)
+		Settings.save()
+		model_ready.emit(true, "Model downloaded. (Restart ComfyUI if it doesn't see it.)")
+	else:
+		if FileAccess.file_exists(part):
+			DirAccess.remove_absolute(part)
+		model_ready.emit(false, "Download failed (HTTP %d / result %d)." % [code, result])
 
 # ---------------------------------------------------------------- managed server
 

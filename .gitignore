@@ -38,3 +38,8 @@ Thumbs.db
 
 # Adventure character saves (live next to the executable)
 characters/
+
+# ComfyUI checkpoints (multi-GB, auto-downloaded next to the binary — never committed)
+*.safetensors
+*.safetensors.part
+/comfyui/

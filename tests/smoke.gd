@@ -1228,8 +1228,9 @@ func _ready() -> void:
 		me.inventory.clear()
 		me.backpack_w = 4
 		me.backpack_h = 4
+		# Debug spawn drops items in the WORLD in front of you, not into the backpack.
 		var spawn_ok: bool = me.debug_spawn_item("scrap") and me.debug_spawn_item("rifle") \
-			and me.inventory.size() == 2 and not me.debug_spawn_item("not_a_real_item")
+			and me.inventory.is_empty() and not me.debug_spawn_item("not_a_real_item")
 		me.debug_set_noclip(true)
 		var nc_on: bool = bool(me.noclip) and me.collision_mask == 0
 		me.debug_set_noclip(false)
@@ -1382,7 +1383,14 @@ func _ready() -> void:
 	# key sanitising, cache paths, deterministic seeds, workflow build (prompt injected +
 	# valid JSON), graceful empty for an unconfigured 3D kind, and /history parsing.
 	var comfyui_ok := false
-	var cy_off: bool = not ComfyUI.enabled()
+	# enabled() must track the setting — toggle both ways, then restore the user's value
+	# (they may have ComfyUI on for real, so don't assume/clobber it).
+	var cy_prev_en = Settings.comfyui_enabled
+	Settings.comfyui_enabled = false
+	var cy_off_state: bool = not ComfyUI.enabled()
+	Settings.comfyui_enabled = true
+	var cy_off: bool = cy_off_state and ComfyUI.enabled()
+	Settings.comfyui_enabled = cy_prev_en
 	var cy_key: bool = ComfyUI._safe_key("City Bench") == "city_bench" and not ComfyUI._safe_key("A/B c!").contains("/")
 	var cy_path: bool = ComfyUI.cache_path("forest log", "png").ends_with("forest_log.png")
 	var cy_seed: bool = ComfyUI._stable_seed("bench") == ComfyUI._stable_seed("bench") \
@@ -1496,6 +1504,47 @@ func _ready() -> void:
 		Game.config["mode"] = prev_m4
 		npc_ident_ok = name_ok and role_ok and greet_ok
 		print("SMOKE: npc_ident_ok=", npc_ident_ok, " name=", name_ok, " role=", role_ok, " greet=", greet_ok)
+
+	# NPC negotiation buttons: a friendly NPC heals/gives/follows; commands order followers;
+	# an unfriendly NPC refuses to heal.
+	var npc_negotiate_ok := false
+	if world and me:
+		var prev_mn = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.adventure_setup(7)
+		var nfac: String = String(Game.adventure_village_factions[0])
+		Game.adventure_stance[nfac] = "friendly"
+		var nnid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 7, nfac, {"name": "Ally", "role": "Guard"})
+		await get_tree().process_frame
+		var nn: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == nnid:
+				nn = b
+		me._talking_npc = nn
+		me.sync_health = 50.0
+		var heal_msg: String = me.npc_request("heal")
+		var neg_heal: bool = me.sync_health > 50.0 and heal_msg != ""
+		me.inventory.clear()
+		me.backpack_w = 4
+		me.backpack_h = 4
+		var give_msg: String = me.npc_request("give")
+		var neg_give: bool = me.inventory.size() == 1 and give_msg != ""
+		var follow_msg: String = me.npc_request("follow")
+		var neg_follow: bool = nn != null and bool(nn.recruited) and nn.follow_target == me and follow_msg != ""
+		me.npc_request("wait")
+		var neg_wait: bool = nn != null and bool(nn.holding)
+		me.npc_request("regroup")
+		var neg_regroup: bool = nn != null and not bool(nn.holding)
+		# Unfriendly NPC refuses to heal (recruited NPC is faction "player", not friendly).
+		me.sync_health = 50.0
+		var refuse_msg: String = me.npc_request("heal")
+		var neg_refuse: bool = me.sync_health == 50.0 and refuse_msg != ""
+		npc_negotiate_ok = neg_heal and neg_give and neg_follow and neg_wait and neg_regroup and neg_refuse
+		me._talking_npc = null
+		me.inventory.clear()
+		me.sync_health = me.MAX_HEALTH
+		Game.config["mode"] = prev_mn
+		print("SMOKE: npc_negotiate_ok=", npc_negotiate_ok, " heal=", neg_heal, " give=", neg_give, " follow=", neg_follow, " wait=", neg_wait, " regroup=", neg_regroup, " refuse=", neg_refuse)
 
 	# Adventure quests: hunt completion via kills, offer/accept, tracker text.
 	var quests_ok := false
@@ -2169,7 +2218,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and safe_zone_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and comfyui_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and safe_zone_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and comfyui_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and npc_negotiate_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

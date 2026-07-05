@@ -602,5 +602,7 @@ func emit_state() -> void:
 	var id = loadout[current_index] if filled else ""
 	var w := _current()
 	var a: Dictionary = ammo.get(id, {"mag": 0, "reserve": 0})
-	player.ammo_changed.emit(int(a["mag"]), int(a["reserve"]))
+	# Infinite-reserve weapons (e.g. the starter pistol) report -1 so the HUD shows ∞.
+	var reserve := -1 if (filled and bool(w.get("infinite", false))) else int(a["reserve"])
+	player.ammo_changed.emit(int(a["mag"]), reserve)
 	player.weapon_changed.emit("Unarmed" if not filled else String(w["name"]))

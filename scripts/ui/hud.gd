@@ -80,13 +80,23 @@ var _nvg_mat: ShaderMaterial = null
 var _gadget_label: Label = null
 
 # Solo debug menu ([0]) — built lazily the first time it's opened.
-var _debug_panel: Panel = null
+var _debug_panel: Control = null
 var _dbg_values: Dictionary = {}       # "health"/"thirst"/"hunger" -> value Label
 var _dbg_noclip: CheckButton = null
 var _dbg_item: OptionButton = null
 var _dbg_item_ids: Array = []
 var _dbg_ai_prompt: LineEdit = null
 var _dbg_ai_status: Label = null
+
+# Loading-screen 3D preview: a spinning random game model in the bottom-right; Space cycles.
+# Rendered at high res in an offscreen SubViewport and downscaled into a TextureRect
+# (supersampling) so it's crisp and anti-aliased.
+var _load_preview: TextureRect = null
+var _load_vp: SubViewport = null
+var _load_pivot: Node3D = null
+var _load_hint: Label = null
+var _load_models: Array = []
+var _load_idx: int = 0
 
 ## Night-vision image intensifier: read the rendered scene, amplify low light into a
 ## visible range, and tint it green (phosphor tube). Unlike a flat overlay this actually
@@ -145,6 +155,7 @@ func _ready() -> void:
 	%TradeClose.pressed.connect(_close_trade)
 	%NpcAskBtn.pressed.connect(_on_npc_ask)
 	%NpcAsk.text_submitted.connect(func(_t): _on_npc_ask())
+	_build_npc_actions()
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -169,6 +180,17 @@ func _process(delta: float) -> void:
 	var loading := Game.is_adventure() and Game.match_active and (_player == null or not is_instance_valid(_player))
 	if generating_panel.visible != loading:
 		generating_panel.visible = loading
+		_show_gameplay_hud(not loading)   # hide the minimap/health/etc. while loading
+		if loading:
+			_show_loading_preview()
+		elif _load_preview != null:
+			_load_preview.visible = false
+			if _load_hint != null:
+				_load_hint.visible = false
+			_load_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	# Spin the loading-screen model preview.
+	if _load_preview != null and _load_preview.visible and _load_pivot != null:
+		_load_pivot.rotation.y += delta * 1.1
 	# Adventure: the story briefing is an intro — fade it out a while after you spawn so
 	# the play screen stays clean (the quest tracker carries the live objectives).
 	if Game.is_adventure() and objective_label.visible and _spawn_msec > 0 \
@@ -243,6 +265,39 @@ func _on_hire() -> void:
 		add_event("◆ Hired a follower.")
 		Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0)
 	_close_npc_dialog()
+
+## Negotiation buttons in the talk dialog (Follow / Wait / Regroup / Go there / Heal /
+## Give). The NPC's response is decided player-side by stance and shown in the dialogue.
+func _build_npc_actions() -> void:
+	var row := HBoxContainer.new()
+	row.name = "NpcActions"
+	row.add_theme_constant_override("separation", 6)
+	for a in [["follow", "Follow me"], ["wait", "Wait here"], ["regroup", "Regroup"],
+			["goto", "Go there"], ["heal", "Heal me"], ["give", "Ask for supplies"]]:
+		var b := Button.new()
+		b.text = String(a[1])
+		var act := String(a[0])
+		b.pressed.connect(func(): _on_npc_action(act))
+		row.add_child(b)
+	# Sit the actions just above the Hire button in the dialog.
+	var host: Node = %NpcHire.get_parent()
+	host.add_child(row)
+	host.move_child(row, %NpcHire.get_index())
+
+func _on_npc_action(act: String) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var pos := Vector3.INF
+	if act == "goto":
+		# Send followers ~12 m ahead of the way the player is facing.
+		var fwd: Vector3 = -_player.global_transform.basis.z
+		fwd.y = 0.0
+		pos = _player.global_position + fwd.normalized() * 12.0
+	var msg := String(_player.npc_request(act, pos))
+	if msg != "":
+		npc_body.text += "\n\n» " + msg
+		_scroll_dialogue_bottom()
+		Audio.play_ui("res://assets/audio/ui_click.ogg", -6.0)
 
 func _close_npc_dialog() -> void:
 	%NpcAsk.release_focus()
@@ -577,6 +632,178 @@ func _update_fps() -> void:
 		add_child(_fps_label)
 	_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
 
+# The always-on gameplay HUD widgets (restored to visible when play begins) and the
+# event/conditional ones (their own logic decides when they show). Hidden during the
+# Adventure loading screen so only the generating overlay is on screen.
+const _HUD_ALWAYS := ["Minimap", "Crosshair", "HealthBar", "HealthLabel", "AmmoLabel",
+	"WeaponLabel", "GrenadeLabel", "EventLog", "QuestTracker", "HungerBar", "HungerLabel",
+	"ThirstBar", "ThirstLabel"]
+const _HUD_CONDITIONAL := ["OxygenBar", "OxygenLabel", "CarHealthBar", "CarHealthLabel",
+	"VehiclePrompt", "NpcPrompt", "ObjectiveLabel", "DamageDirection", "LivesLabel",
+	"TeamScoreLabel", "DeathLabel", "Celebration"]
+
+## Show/hide the in-game HUD. While a world is loading, everything is hidden so only the
+## generating overlay shows; when play begins the always-on widgets come back and the
+## conditional ones are left for their own update logic (briefing shows only if it has text).
+func _show_gameplay_hud(show: bool) -> void:
+	for n in _HUD_ALWAYS:
+		var node: Node = get_node_or_null(NodePath(n))
+		if node != null:
+			(node as CanvasItem).visible = show
+	if _fps_label != null:
+		_fps_label.visible = show
+	if _gadget_label != null:
+		_gadget_label.visible = show
+	if not show:
+		for n in _HUD_CONDITIONAL:
+			var node: Node = get_node_or_null(NodePath(n))
+			if node != null:
+				(node as CanvasItem).visible = false
+	else:
+		objective_label.visible = objective_label.text.strip_edges() != ""
+
+# ---------------------------------------------------------------- loading preview
+
+## Fallback model list (works in exported builds where DirAccess can't scan res://).
+const _PREVIEW_FALLBACK := [
+	"res://assets/models/vehicles/sedan.glb", "res://assets/models/vehicles/suv.glb",
+	"res://assets/models/vehicles/hatchback-sports.glb", "res://assets/models/vehicles/race-future.glb",
+	"res://assets/models/weapons/blaster-a.glb", "res://assets/models/weapons/blaster-h.glb",
+	"res://assets/models/weapons/blaster-r.glb", "res://assets/models/weapons/blaster-c.glb",
+	"res://assets/models/weapons/grenade-b.glb", "res://assets/models/weapons/crate-medium.glb",
+	"res://assets/models/weapons/scope-large-a.glb", "res://assets/models/weapons/target-small.glb",
+	"res://assets/models/characters/character-a.glb", "res://assets/models/characters/character-f.glb",
+	"res://assets/models/characters/character-k.glb", "res://assets/models/characters/character-p.glb",
+]
+
+## Show the spinning bottom-right model preview during loading (built on first use).
+func _show_loading_preview() -> void:
+	if _load_preview == null:
+		_build_loading_preview()
+	_load_preview.visible = true
+	if _load_hint != null:
+		_load_hint.visible = true
+	_load_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	if not _load_models.is_empty():
+		_load_idx = randi() % _load_models.size()
+		_load_show_current()
+
+func _build_loading_preview() -> void:
+	_load_models = _scan_preview_models()
+	# Offscreen SubViewport rendered at 4x the display size, with MSAA — downscaled into
+	# the TextureRect below for crisp, anti-aliased models.
+	_load_vp = SubViewport.new()
+	_load_vp.name = "LoadVP"
+	_load_vp.transparent_bg = true
+	_load_vp.own_world_3d = true
+	_load_vp.msaa_3d = Viewport.MSAA_4X
+	_load_vp.size = Vector2i(1024, 1024)
+	_load_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_load_vp)
+	var cam := Camera3D.new()
+	cam.position = Vector3(0.0, 0.35, 2.6)
+	cam.rotation_degrees.x = -8.0
+	_load_vp.add_child(cam)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-45.0, -35.0, 0.0)
+	key.light_energy = 1.3
+	_load_vp.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(20.0, 140.0, 0.0)
+	fill.light_energy = 0.5
+	_load_vp.add_child(fill)
+	_load_pivot = Node3D.new()
+	_load_vp.add_child(_load_pivot)
+	# Display: the viewport texture downscaled into a ~260 px box (supersampling = crisp).
+	_load_preview = TextureRect.new()
+	_load_preview.name = "LoadPreview"
+	_load_preview.texture = _load_vp.get_texture()
+	_load_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_load_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_load_preview.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_load_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_load_preview.anchor_left = 1.0
+	_load_preview.anchor_top = 1.0
+	_load_preview.anchor_right = 1.0
+	_load_preview.anchor_bottom = 1.0
+	_load_preview.offset_left = -284.0
+	_load_preview.offset_top = -308.0
+	_load_preview.offset_right = -24.0
+	_load_preview.offset_bottom = -48.0
+	add_child(_load_preview)
+	# A little "[Space] next" hint under the preview (child so it toggles with it).
+	var hint := Label.new()
+	hint.name = "PreviewHint"
+	hint.text = "[Space] next"
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.modulate = Color(1, 1, 1, 0.6)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.anchor_left = 0.0
+	hint.anchor_top = 1.0
+	hint.anchor_right = 1.0
+	hint.anchor_bottom = 1.0
+	hint.offset_top = 2.0
+	hint.offset_bottom = 20.0
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_load_preview.add_child(hint)
+	_load_hint = hint
+
+## Scan the model folders (editor), falling back to the baked list (export).
+func _scan_preview_models() -> Array:
+	var out: Array = []
+	for dir in ["res://assets/models/weapons/", "res://assets/models/vehicles/", "res://assets/models/characters/"]:
+		var da := DirAccess.open(dir)
+		if da == null:
+			continue
+		for f in da.get_files():
+			if f.to_lower().ends_with(".glb"):
+				out.append(dir + f)
+	if out.size() < 4:
+		out = _PREVIEW_FALLBACK.duplicate()
+	out.shuffle()
+	return out
+
+func _load_next_model() -> void:
+	if _load_models.is_empty():
+		return
+	_load_idx = (_load_idx + 1) % _load_models.size()
+	_load_show_current()
+
+## Instance the current model into the pivot, centred and scaled to fit the little view.
+func _load_show_current() -> void:
+	if _load_pivot == null or _load_models.is_empty():
+		return
+	for c in _load_pivot.get_children():
+		c.queue_free()
+	_load_pivot.rotation = Vector3.ZERO
+	var scene = load(String(_load_models[_load_idx]))
+	if scene == null or not (scene is PackedScene):
+		return
+	var inst := (scene as PackedScene).instantiate()
+	_load_pivot.add_child(inst)
+	var aabb := _model_aabb(inst)
+	if aabb.size.length() > 0.001:
+		var s := 1.5 / maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
+		inst.scale = Vector3.ONE * s
+		inst.position = -(aabb.position + aabb.size * 0.5) * s   # centre on the pivot
+
+## Merged AABB of every MeshInstance3D under `node` (in node-local space).
+func _model_aabb(node: Node) -> AABB:
+	var box := AABB()
+	var first := true
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		var m := mi as MeshInstance3D
+		if m.mesh == null:
+			continue
+		var t: Transform3D = node.global_transform.affine_inverse() * m.global_transform
+		var a := t * m.mesh.get_aabb()
+		if first:
+			box = a
+			first = false
+		else:
+			box = box.merge(a)
+	return box
+
 func _setup_postfx() -> void:
 	_postfx = ColorRect.new()
 	_postfx.name = "PostFX"
@@ -694,19 +921,24 @@ func _toggle_debug_menu() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _build_debug_panel() -> void:
-	_debug_panel = Panel.new()
-	_debug_panel.name = "DebugPanel"
-	_debug_panel.set_anchors_preset(Control.PRESET_CENTER_LEFT)
-	_debug_panel.position = Vector2(24, 90)
-	_debug_panel.custom_minimum_size = Vector2(360, 0)
-	add_child(_debug_panel)
+	# A full-screen CenterContainer centres the panel; a PanelContainer auto-sizes to its
+	# content, so the menu stays centred no matter how tall it grows.
+	var holder := CenterContainer.new()
+	holder.name = "DebugHolder"
+	holder.set_anchors_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE   # only the panel catches clicks
+	add_child(holder)
+	var panel := PanelContainer.new()
+	panel.name = "DebugPanel"
+	panel.custom_minimum_size = Vector2(360, 0)
+	holder.add_child(panel)
+	_debug_panel = panel
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 14)
 	margin.add_theme_constant_override("margin_right", 14)
 	margin.add_theme_constant_override("margin_top", 12)
 	margin.add_theme_constant_override("margin_bottom", 12)
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_debug_panel.add_child(margin)
+	panel.add_child(margin)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 8)
 	margin.add_child(vb)
@@ -805,8 +1037,9 @@ func _on_debug_spawn() -> void:
 	else:
 		add_event("⚙ Couldn't spawn %s (pack full?)" % id)
 
-## Ask ComfyUI to generate a 3D model from the typed prompt; _on_debug_asset spawns it
-## in front of the player when the GLB lands. Needs ComfyUI enabled + a 3D workflow set up.
+## Ask ComfyUI to generate from the typed prompt; _on_debug_asset spawns the result in
+## front of the player. Uses a 3D (GLB) workflow if you've set one up, otherwise falls
+## back to an IMAGE (spawned as a billboard) so it works with a plain image model too.
 func _on_debug_generate() -> void:
 	if _player == null or _dbg_ai_prompt == null:
 		return
@@ -819,31 +1052,20 @@ func _on_debug_generate() -> void:
 	if not ComfyUI.asset_ready.is_connected(_on_debug_asset):
 		ComfyUI.asset_ready.connect(_on_debug_asset)
 		ComfyUI.asset_failed.connect(_on_debug_asset_failed)
+	# Prefer a real 3D model only if a model workflow template exists; else image+billboard.
+	var kind := "model" if FileAccess.file_exists("user://comfyui/workflow_model.json") else "image"
 	var key := "dbg_" + prompt
-	_dbg_ai_status.text = "Generating '%s'… (watch ComfyUI; this can take a while)" % prompt
+	_dbg_ai_status.text = "Generating %s '%s'… (watch ComfyUI; this can take a while)" % [kind, prompt]
 	ComfyUI.ensure_server()
-	ComfyUI.bake(prompt + ", single object, plain background", key, "model")
+	ComfyUI.bake(prompt + ", single object, plain background", key, kind)
 
 func _on_debug_asset_failed(key: String) -> void:
 	if key.begins_with("dbg_") and _dbg_ai_status != null:
-		_dbg_ai_status.text = "Generation failed — is ComfyUI running with a 3D (GLB) workflow?"
+		var why := String(ComfyUI.last_error)
+		_dbg_ai_status.text = why if why != "" else "Generation failed (no detail). Is ComfyUI running at the endpoint?"
 
-func _on_debug_asset(key: String, path: String) -> void:
-	if not key.begins_with("dbg_") or _player == null:
-		return
-	if not path.to_lower().ends_with(".glb"):
-		_dbg_ai_status.text = "Got an image, not a GLB — configure a 3D workflow (see docs/comfyui.md)."
-		return
-	var doc := GLTFDocument.new()
-	var state := GLTFState.new()
-	if doc.append_from_file(path, state) != OK:
-		_dbg_ai_status.text = "Couldn't load the generated GLB."
-		return
-	var node := doc.generate_scene(state)
-	if node == null:
-		_dbg_ai_status.text = "GLB produced no scene."
-		return
-	# Place a few metres ahead of the player, snapped to the ground.
+## In front of the player, ground-snapped, for spawning a generated asset.
+func _debug_spawn_pos() -> Vector3:
 	var fwd: Vector3 = -_player.global_transform.basis.z
 	fwd.y = 0.0
 	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
@@ -854,9 +1076,38 @@ func _on_debug_asset(key: String, path: String) -> void:
 	var hit: Dictionary = space.intersect_ray(q)
 	if not hit.is_empty():
 		pos.y = float(hit.position.y)
-	node.position = pos
-	get_tree().current_scene.add_child(node)
-	_dbg_ai_status.text = "Spawned '%s' in front of you." % key.trim_prefix("dbg_")
+	return pos
+
+func _on_debug_asset(key: String, path: String) -> void:
+	if not key.begins_with("dbg_") or _player == null:
+		return
+	var pos := _debug_spawn_pos()
+	if path.to_lower().ends_with(".glb"):
+		var doc := GLTFDocument.new()
+		var state := GLTFState.new()
+		if doc.append_from_file(path, state) != OK:
+			_dbg_ai_status.text = "Couldn't load the generated GLB."
+			return
+		var node := doc.generate_scene(state)
+		if node == null:
+			_dbg_ai_status.text = "GLB produced no scene."
+			return
+		node.position = pos
+		get_tree().current_scene.add_child(node)
+		_dbg_ai_status.text = "Spawned model '%s'." % key.trim_prefix("dbg_")
+	else:
+		# Image asset -> a billboard sprite standing in front of you.
+		var tex := ComfyUI.asset_texture(key)
+		if tex == null:
+			_dbg_ai_status.text = "Generated an image but couldn't load it."
+			return
+		var spr := Sprite3D.new()
+		spr.texture = tex
+		spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		spr.pixel_size = 2.0 / maxf(float(tex.get_height()), 1.0)   # ~2 m tall
+		spr.position = pos + Vector3.UP * 1.2
+		get_tree().current_scene.add_child(spr)
+		_dbg_ai_status.text = "Spawned image billboard '%s'." % key.trim_prefix("dbg_")
 
 ## Refresh the live stat readouts + noclip state.
 func _refresh_debug() -> void:
@@ -923,6 +1174,7 @@ func _toggle_inventory() -> void:
 		return
 	inventory_panel.visible = not inventory_panel.visible
 	if inventory_panel.visible:
+		_size_inventory_panel()   # fit the panel to the backpack so the frame wraps it
 		tabs.current_tab = 0   # always open on the Inventory tab, not the last-used one
 		_refresh_inventory()
 		_refresh_stats()
@@ -937,10 +1189,43 @@ func open_crafting() -> void:
 	if result_panel.visible or pause_panel.visible:
 		return
 	inventory_panel.visible = true
+	_size_inventory_panel()
 	tabs.current_tab = 2   # Crafting tab
 	_refresh_inventory()
 	_refresh_crafting()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+## Resize + recentre the backpack window so its frame always wraps the grid (which grows
+## with the backpack), clamped to the screen. The VBox fills the panel minus a margin.
+func _size_inventory_panel() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var gw := 200.0
+	var gh := 200.0
+	if _player != null and is_instance_valid(_player):
+		gw = maxf(200.0, float(_player.backpack_w) * 50.0)
+		gh = maxf(200.0, float(_player.backpack_h) * 50.0)
+	# equip column + separation + grid + side margins ; tabs header + capacity + rows + hint
+	var content_w := clampf(196.0 + 14.0 + gw + 40.0, 480.0, vp.x - 40.0)
+	var content_h := clampf(44.0 + 24.0 + maxf(256.0, gh) + 30.0 + 24.0, 360.0, vp.y - 40.0)
+	inventory_panel.anchor_left = 0.5
+	inventory_panel.anchor_top = 0.5
+	inventory_panel.anchor_right = 0.5
+	inventory_panel.anchor_bottom = 0.5
+	inventory_panel.offset_left = -content_w * 0.5
+	inventory_panel.offset_right = content_w * 0.5
+	inventory_panel.offset_top = -content_h * 0.5
+	inventory_panel.offset_bottom = content_h * 0.5
+	var vb := inventory_panel.get_node_or_null("VBox")
+	if vb is Control:
+		var c := vb as Control
+		c.anchor_left = 0.0
+		c.anchor_top = 0.0
+		c.anchor_right = 1.0
+		c.anchor_bottom = 1.0
+		c.offset_left = 16.0
+		c.offset_top = 12.0
+		c.offset_right = -16.0
+		c.offset_bottom = -12.0
 
 func _refresh_inventory() -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -1149,7 +1434,7 @@ func _flash_damage(amount: float, health_frac: float) -> void:
 	_flash_tween.tween_property(damage_flash, "color:a", 0.0, 0.5).set_ease(Tween.EASE_OUT)
 
 func _on_ammo(mag: int, reserve: int) -> void:
-	ammo_label.text = "%d / %d" % [mag, reserve]
+	ammo_label.text = "%d / ∞" % mag if reserve < 0 else "%d / %d" % [mag, reserve]
 
 func _on_weapon(wname: String) -> void:
 	weapon_label.text = wname
@@ -1161,6 +1446,12 @@ func set_objective(t: String) -> void:
 # ---------------------------------------------------------------- scoreboard
 
 func _input(event: InputEvent) -> void:
+	# While the world is loading, Space cycles the spinning preview model.
+	if _load_preview != null and _load_preview.visible and event is InputEventKey \
+			and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_SPACE:
+		_load_next_model()
+		get_viewport().set_input_as_handled()
+		return
 	# Debug menu ([0]): only when debug mode is enabled and this is a solo adventure.
 	# Skip while a text field has focus so typing "0" (e.g. asking an NPC) isn't eaten.
 	if event is InputEventKey and event.pressed and not event.echo \
@@ -1175,6 +1466,8 @@ func _input(event: InputEvent) -> void:
 	# open it closes the dialog and swaps straight to the backpack — this runs before
 	# the text-field guard below so it works even while the "ask" field has focus.
 	if Game.is_adventure() and _is_inventory_key(event):
+		if _debug_panel != null and _debug_panel.visible:
+			_debug_panel.visible = false   # Tab from the debug menu -> straight to backpack
 		if npc_dialog.visible:
 			_close_npc_dialog()
 		_toggle_inventory()
@@ -1204,7 +1497,9 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		# Escape closes whatever overlay is open first; only opens the pause menu
 		# when nothing else is up.
-		if trade_panel.visible:
+		if _debug_panel != null and _debug_panel.visible:
+			_toggle_debug_menu()   # Esc closes the debug menu (restores mouse capture)
+		elif trade_panel.visible:
 			_close_trade()
 		elif npc_dialog.visible:
 			_close_npc_dialog()

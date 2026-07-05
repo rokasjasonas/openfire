@@ -628,8 +628,19 @@ func _can_see(c: Node) -> bool:
 # ---------------------------------------------------------------- behaviours
 
 func _do_patrol() -> void:
-	# A hired follower sticks near the player it serves when there's nothing to fight.
+	# A hired follower sticks near the player it serves when there's nothing to fight —
+	# unless ordered to hold position (Wait) or move to a spot (Go there).
 	if recruited and is_instance_valid(follow_target):
+		if goto_target != Vector3.INF:
+			if global_position.distance_to(goto_target) > 2.5:
+				_move_toward(goto_target, move_speed * 0.95)
+			else:
+				goto_target = Vector3.INF   # arrived -> resume following
+			return
+		if holding:
+			velocity.x = move_toward(velocity.x, 0.0, 0.32)
+			velocity.z = move_toward(velocity.z, 0.0, 0.32)
+			return
 		var d := global_position.distance_to(follow_target.global_position)
 		if d > 4.0:
 			_move_toward(follow_target.global_position, move_speed * (0.95 if d > 12.0 else 0.6))
@@ -644,6 +655,17 @@ func _do_patrol() -> void:
 # ---------------------------------------------------------------- recruiting
 var recruited: bool = false
 var follow_target: Node3D = null
+var holding: bool = false            # follower ordered to Wait (hold position)
+var goto_target: Vector3 = Vector3.INF   # follower ordered to move to this spot
+
+## Follower orders from the talk menu.
+func set_hold(on: bool) -> void:
+	holding = on
+	goto_target = Vector3.INF
+
+func set_goto(pos: Vector3) -> void:
+	goto_target = pos
+	holding = false
 
 ## Hire this NPC as a follower: it joins the player's side and follows + fights for them.
 func recruit(by_player: Node) -> void:

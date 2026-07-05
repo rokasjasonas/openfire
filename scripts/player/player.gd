@@ -480,18 +480,16 @@ func debug_add_thirst(n: float) -> void:
 func debug_add_hunger(n: float) -> void:
 	hunger = clampf(hunger + n, 0.0, MAX_NEED)
 
-## Spawn any item/weapon by id straight into the backpack (drops at your feet if full).
+## Spawn any item/weapon by id as a world pickup a couple of metres in front of you (so it
+## lands in the world to grab, not silently into the backpack).
 func debug_spawn_item(id: String) -> bool:
 	var it: Dictionary = ItemDB.make_weapon(id) if WeaponDB.has_weapon(id) else ItemDB.make(id)
 	if it.is_empty():
 		return false
-	if inv_add(it):
-		return true
-	var world := get_tree().get_first_node_in_group("world")
-	if world != null and world.has_method("spawn_item_pickup"):
-		world.spawn_item_pickup(global_position + Vector3(0, 0.6, 0) - global_transform.basis.z * 1.2, id)
-		return true
-	return false
+	var pos := global_position + (-global_transform.basis.z) * 2.0 + Vector3.UP * 0.5
+	_spawn_dropped_item.rpc(combatant_id, _drop_counter, it, pos)
+	_drop_counter += 1
+	return true
 
 func add_grenades(n: int) -> void:
 	if not is_multiplayer_authority():
@@ -1550,6 +1548,62 @@ func hire_npc() -> bool:
 	if _talking_npc.has_method("recruit"):
 		_talking_npc.recruit(self)
 	return true
+
+## Talk-menu negotiation with the NPC you're speaking to. Returns a short result line for
+## the dialog. Heal / Give need a friendly stance; Follow is free when friendly; Wait /
+## Regroup / Go there command your existing followers.
+func npc_request(action: String, target_pos: Vector3 = Vector3.INF) -> String:
+	if not is_multiplayer_authority() or _talking_npc == null or not is_instance_valid(_talking_npc):
+		return ""
+	var npc := _talking_npc
+	var friendly := String(Game.adventure_stance.get(String(npc.get("faction")), "neutral")) == "friendly"
+	var nm := String(npc.get("display_name"))
+	match action:
+		"follow":
+			if bool(npc.get("recruited")):
+				return "%s is already with you." % nm
+			if not friendly:
+				return "\"Earn our trust first.\"  (Trade or run a job — or Hire them.)"
+			if npc.has_method("recruit"):
+				npc.recruit(self)
+			return "%s falls in behind you." % nm
+		"wait":
+			return "Your followers hold position." if _order_followers("wait") > 0 else "You have no followers."
+		"regroup":
+			return "Your followers regroup on you." if _order_followers("regroup") > 0 else "You have no followers."
+		"goto":
+			if target_pos == Vector3.INF:
+				return ""
+			return "Your followers move out." if _order_followers("goto", target_pos) > 0 else "You have no followers."
+		"heal":
+			if not friendly:
+				return "\"I don't patch up strangers.\""
+			if sync_health >= MAX_HEALTH:
+				return "You're already at full health."
+			heal(40)
+			return "%s tends your wounds." % nm
+		"give":
+			if not friendly:
+				return "\"Supplies are for our own.\""
+			var gift: String = ["food", "water", "medkit", "ammo"][randi() % 4]
+			if inv_add(ItemDB.make(gift)):
+				return "%s hands you %s." % [nm, gift]
+			return "Your pack is full — make room first."
+	return ""
+
+## Apply a follower order to every bot recruited to this player. Returns how many obeyed.
+func _order_followers(order: String, pos: Vector3 = Vector3.INF) -> int:
+	var n := 0
+	for b in get_tree().get_nodes_in_group("bot"):
+		if bool(b.get("recruited")) and b.get("follow_target") == self:
+			if order == "wait" and b.has_method("set_hold"):
+				b.set_hold(true)
+			elif order == "regroup" and b.has_method("set_hold"):
+				b.set_hold(false)
+			elif order == "goto" and b.has_method("set_goto"):
+				b.set_goto(pos)
+			n += 1
+	return n
 
 func _npc_greeting(npc: Node) -> String:
 	var fac := String(npc.get("faction"))

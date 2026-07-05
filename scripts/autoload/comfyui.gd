@@ -39,6 +39,8 @@ const DEFAULT_IMAGE_WORKFLOW := """{
 var _post: HTTPRequest      # POST /prompt
 var _hist: HTTPRequest      # GET /history/<id> (polling)
 var _view: HTTPRequest      # GET /view?filename=... (download)
+var _info: HTTPRequest      # GET /object_info (available checkpoints)
+var _cur_retried: bool = false   # did we already auto-fix the checkpoint for this job?
 var _poll: Timer
 var _launched: bool = false
 var _queue: Array = []      # pending [{prompt, key, kind, ext}]
@@ -47,11 +49,13 @@ var _cur_prompt_id: String = ""
 var _polls_left: int = 0
 var _bake_done: int = 0
 var _bake_total: int = 0
+var last_error: String = ""   # human-readable reason the last bake failed (for the UI)
 
 func _ready() -> void:
 	_post = _mk_http(_on_prompt_posted)
 	_hist = _mk_http(_on_history)
 	_view = _mk_http(_on_view_done)
+	_info = _mk_http(_on_object_info)
 	_poll = Timer.new()
 	_poll.wait_time = 1.5
 	_poll.one_shot = false
@@ -175,8 +179,16 @@ func _pump() -> void:
 	if not _cur.is_empty() or _queue.is_empty() or not enabled():
 		return
 	_cur = _queue.pop_front()
-	var graph := _build_workflow(String(_cur["prompt"]), _stable_seed(String(_cur["key"])), String(_cur.get("kind", "image")))
+	last_error = ""
+	_cur_retried = false
+	_submit_current()
+
+## Build + POST the current job's workflow. Reused for the auto-checkpoint retry.
+func _submit_current() -> void:
+	var kind := String(_cur.get("kind", "image"))
+	var graph := _build_workflow(String(_cur["prompt"]), _stable_seed(String(_cur["key"])), kind)
 	if graph == "":
+		last_error = "No workflow for kind '%s' — add user://comfyui/workflow_%s.json." % [kind, kind]
 		_fail_current()
 		return
 	var parsed = JSON.parse_string(graph)
@@ -228,7 +240,63 @@ func _on_prompt_posted(result: int, code: int, _h: PackedStringArray, body: Pack
 			_polls_left = 120   # ~3 min at 1.5s before giving up
 			_poll.start()
 			return
+	# A 400 is usually a checkpoint that isn't installed. Fetch the real list, fix the
+	# setting, and retry once before giving up.
+	if result == HTTPRequest.RESULT_SUCCESS and code == 400 and not _cur_retried and not _cur.is_empty():
+		_cur_retried = true
+		last_error = "ComfyUI rejected it (400): auto-detecting your installed checkpoint and retrying…"
+		_info.cancel_request()
+		if _info.request(endpoint() + "/object_info/CheckpointLoaderSimple") == OK:
+			return
+	# Surface WHY it failed so the UI can show something actionable.
+	if result != HTTPRequest.RESULT_SUCCESS:
+		last_error = "Can't reach ComfyUI at %s (network error %d) — is the server running there?" % [endpoint(), result]
+	else:
+		last_error = "ComfyUI rejected the workflow (HTTP %d): %s" % [code, _err_snippet(body)]
 	_fail_current()
+
+## Response to /object_info/CheckpointLoaderSimple: pick a valid checkpoint (the configured
+## one if installed, else the first available) and re-submit the current job.
+func _on_object_info(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
+		var list := _checkpoint_list(JSON.parse_string(body.get_string_from_utf8()))
+		if not list.is_empty() and not list.has(String(Settings.comfyui_checkpoint)):
+			Settings.comfyui_checkpoint = String(list[0])
+			Settings.save()
+	if not _cur.is_empty():
+		_submit_current()   # retry with the corrected checkpoint
+	else:
+		_fail_current()
+
+## Extract the installed checkpoint names from a ComfyUI /object_info response.
+func _checkpoint_list(info) -> Array:
+	if typeof(info) != TYPE_DICTIONARY:
+		return []
+	var node = info.get("CheckpointLoaderSimple", {})
+	if typeof(node) != TYPE_DICTIONARY:
+		return []
+	var req = node.get("input", {}).get("required", {})
+	if typeof(req) != TYPE_DICTIONARY:
+		return []
+	var ck = req.get("ckpt_name", [])
+	if typeof(ck) == TYPE_ARRAY and not ck.is_empty() and typeof(ck[0]) == TYPE_ARRAY:
+		return ck[0]   # ComfyUI wraps the choices list: [ [name1, name2, ...], {...} ]
+	return []
+
+## Pull a short, human-readable reason out of a ComfyUI error body (which lists
+## error.message and per-node errors, e.g. a checkpoint that isn't installed).
+func _err_snippet(body: PackedByteArray) -> String:
+	var txt := body.get_string_from_utf8()
+	var d = JSON.parse_string(txt)
+	if typeof(d) == TYPE_DICTIONARY:
+		var err = d.get("error", {})
+		if typeof(err) == TYPE_DICTIONARY and err.has("message"):
+			var msg := String(err["message"])
+			var ne = d.get("node_errors", {})
+			if typeof(ne) == TYPE_DICTIONARY and not ne.is_empty():
+				msg += " (check the checkpoint name matches an installed model)"
+			return msg
+	return txt.substr(0, 160)
 
 func _tick_poll() -> void:
 	if _cur_prompt_id == "":
@@ -250,6 +318,15 @@ func _on_history(result: int, code: int, _h: PackedStringArray, body: PackedByte
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		return   # keep polling
 	var hist = JSON.parse_string(body.get_string_from_utf8())
+	# The job may have run and ERRORED (bad workflow / missing model / OOM). Detect that
+	# so we fail fast with a message instead of polling to the 3-minute timeout.
+	if typeof(hist) == TYPE_DICTIONARY and hist.has(_cur_prompt_id):
+		var status = (hist[_cur_prompt_id] as Dictionary).get("status", {})
+		if typeof(status) == TYPE_DICTIONARY and String(status.get("status_str", "")) == "error":
+			last_error = "ComfyUI failed to run the workflow (missing model, bad node, or out of memory) — see the ComfyUI console."
+			_poll.stop()
+			_fail_current()
+			return
 	var ref := _extract_output_ref(hist, _cur_prompt_id)
 	if ref.is_empty():
 		return   # not finished yet — keep polling

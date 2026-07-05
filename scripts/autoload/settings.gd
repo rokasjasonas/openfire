@@ -23,6 +23,13 @@ var llm_api_key: String = ""
 # Embedded llama.cpp model (downloaded on first use into user://models/).
 var llm_model_url: String = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
 var llm_model_file: String = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+# ComfyUI asset bridge (opt-in). Talks to a local ComfyUI server to pre-bake themed
+# textures/models into user://generated/. Off by default; needs a GPU + ComfyUI install.
+var comfyui_enabled: bool = false
+var comfyui_endpoint: String = "http://127.0.0.1:8188"
+var comfyui_checkpoint: String = "sd_xl_base_1.0.safetensors"   # the ComfyUI model to use
+var comfyui_exec: String = ""    # optional launch command so the game can start ComfyUI
+var comfyui_args: String = "--listen 127.0.0.1 --port 8188"
 
 func _ready() -> void:
 	load_settings()
@@ -42,6 +49,11 @@ func load_settings() -> void:
 		llm_api_key = String(cfg.get_value("ai", "api_key", llm_api_key))
 		llm_model_url = String(cfg.get_value("ai", "model_url", llm_model_url))
 		llm_model_file = String(cfg.get_value("ai", "model_file", llm_model_file))
+		comfyui_enabled = bool(cfg.get_value("comfyui", "enabled", comfyui_enabled))
+		comfyui_endpoint = String(cfg.get_value("comfyui", "endpoint", comfyui_endpoint))
+		comfyui_checkpoint = String(cfg.get_value("comfyui", "checkpoint", comfyui_checkpoint))
+		comfyui_exec = String(cfg.get_value("comfyui", "exec", comfyui_exec))
+		comfyui_args = String(cfg.get_value("comfyui", "args", comfyui_args))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
@@ -56,6 +68,11 @@ func save() -> void:
 	cfg.set_value("video", "fov", fov)
 	cfg.set_value("video", "quality", quality)
 	cfg.set_value("misc", "debug_mode", debug_mode)
+	cfg.set_value("comfyui", "enabled", comfyui_enabled)
+	cfg.set_value("comfyui", "endpoint", comfyui_endpoint)
+	cfg.set_value("comfyui", "checkpoint", comfyui_checkpoint)
+	cfg.set_value("comfyui", "exec", comfyui_exec)
+	cfg.set_value("comfyui", "args", comfyui_args)
 	cfg.save(PATH)
 
 ## Apply settings that affect global systems (audio bus). Per-player look/FOV are

@@ -213,12 +213,60 @@ func _setup_options() -> void:
 	var vbox: Node = %OptionsBackButton.get_parent()
 	vbox.add_child(dbg)
 	vbox.move_child(dbg, %OptionsBackButton.get_index())   # sit just above the Back button
+	_build_comfyui_options(vbox)
 	%OptionsButton.pressed.connect(_show_options)
 	%OptionsBackButton.pressed.connect(_show_setup)
 
 func _on_debug_toggled(on: bool) -> void:
 	Settings.debug_mode = on
 	Settings.save()
+
+var _comfy_status: Label = null
+
+## Opt-in ComfyUI asset bridge controls: enable, server endpoint, checkpoint, and a button
+## to pre-bake a sample themed prop library into user://generated/ (needs a running ComfyUI).
+func _build_comfyui_options(vbox: Node) -> void:
+	var head := Label.new()
+	head.text = "AI assets (ComfyUI) — optional, needs a local ComfyUI + GPU"
+	vbox.add_child(head)
+	var en := CheckButton.new()
+	en.text = "Enable ComfyUI asset baking"
+	en.button_pressed = Settings.comfyui_enabled
+	en.toggled.connect(func(on): Settings.comfyui_enabled = on; Settings.save())
+	vbox.add_child(en)
+	var ep := LineEdit.new()
+	ep.placeholder_text = "ComfyUI endpoint (http://127.0.0.1:8188)"
+	ep.text = Settings.comfyui_endpoint
+	ep.text_changed.connect(func(t): Settings.comfyui_endpoint = t.strip_edges(); Settings.save())
+	vbox.add_child(ep)
+	var ck := LineEdit.new()
+	ck.placeholder_text = "Checkpoint model filename"
+	ck.text = Settings.comfyui_checkpoint
+	ck.text_changed.connect(func(t): Settings.comfyui_checkpoint = t.strip_edges(); Settings.save())
+	vbox.add_child(ck)
+	var bake := Button.new()
+	bake.text = "Bake sample asset library"
+	bake.pressed.connect(_on_bake_library)
+	vbox.add_child(bake)
+	_comfy_status = Label.new()
+	_comfy_status.text = ""
+	vbox.add_child(_comfy_status)
+	for n in [head, en, ep, ck, bake, _comfy_status]:
+		vbox.move_child(n, %OptionsBackButton.get_index())
+
+func _on_bake_library() -> void:
+	if not Settings.comfyui_enabled:
+		_comfy_status.text = "Enable ComfyUI first."
+		return
+	if not ComfyUI.bake_progress.is_connected(_on_bake_progress):
+		ComfyUI.bake_progress.connect(_on_bake_progress)
+		ComfyUI.bake_finished.connect(func(): _comfy_status.text = "Bake complete → user://generated/")
+	_comfy_status.text = "Baking… (watch ComfyUI)"
+	ComfyUI.ensure_server()
+	ComfyUI.bake_library(ComfyUI.sample_library())
+
+func _on_bake_progress(done: int, total: int) -> void:
+	_comfy_status.text = "Baking %d / %d…" % [done, total]
 
 func _on_llm_embed_changed(idx: int) -> void:
 	var m: Dictionary = AI_MODELS[clampi(idx, 0, AI_MODELS.size() - 1)]

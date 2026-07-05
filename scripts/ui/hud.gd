@@ -85,6 +85,8 @@ var _dbg_values: Dictionary = {}       # "health"/"thirst"/"hunger" -> value Lab
 var _dbg_noclip: CheckButton = null
 var _dbg_item: OptionButton = null
 var _dbg_item_ids: Array = []
+var _dbg_ai_prompt: LineEdit = null
+var _dbg_ai_status: Label = null
 
 ## Night-vision image intensifier: read the rendered scene, amplify low light into a
 ## visible range, and tint it green (phosphor tube). Unlike a flat overlay this actually
@@ -741,6 +743,23 @@ func _build_debug_panel() -> void:
 	_dbg_noclip.button_pressed = bool(_player.get("noclip"))
 	_dbg_noclip.toggled.connect(func(on): if _player != null: _player.debug_set_noclip(on))
 	vb.add_child(_dbg_noclip)
+	vb.add_child(HSeparator.new())
+	# AI 3D model: type a prompt -> ComfyUI generates a GLB -> spawn it in front of you.
+	var ailbl := Label.new()
+	ailbl.text = "AI 3D model (ComfyUI) — spawns in front"
+	vb.add_child(ailbl)
+	_dbg_ai_prompt = LineEdit.new()
+	_dbg_ai_prompt.placeholder_text = "describe a 3D object…"
+	_dbg_ai_prompt.text_submitted.connect(func(_t): _on_debug_generate())
+	vb.add_child(_dbg_ai_prompt)
+	var gen := Button.new()
+	gen.text = "Generate & spawn"
+	gen.pressed.connect(_on_debug_generate)
+	vb.add_child(gen)
+	_dbg_ai_status = Label.new()
+	_dbg_ai_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_dbg_ai_status.custom_minimum_size.x = 330
+	vb.add_child(_dbg_ai_status)
 
 ## One stat row: label + value + [-25] [+25] [Max] wired to the player's debug setters.
 func _dbg_stat_row(stat: String) -> HBoxContainer:
@@ -785,6 +804,59 @@ func _on_debug_spawn() -> void:
 		add_event("⚙ Spawned %s" % id)
 	else:
 		add_event("⚙ Couldn't spawn %s (pack full?)" % id)
+
+## Ask ComfyUI to generate a 3D model from the typed prompt; _on_debug_asset spawns it
+## in front of the player when the GLB lands. Needs ComfyUI enabled + a 3D workflow set up.
+func _on_debug_generate() -> void:
+	if _player == null or _dbg_ai_prompt == null:
+		return
+	var prompt := _dbg_ai_prompt.text.strip_edges()
+	if prompt == "":
+		return
+	if not ComfyUI.enabled():
+		_dbg_ai_status.text = "Enable ComfyUI in Options first."
+		return
+	if not ComfyUI.asset_ready.is_connected(_on_debug_asset):
+		ComfyUI.asset_ready.connect(_on_debug_asset)
+		ComfyUI.asset_failed.connect(_on_debug_asset_failed)
+	var key := "dbg_" + prompt
+	_dbg_ai_status.text = "Generating '%s'… (watch ComfyUI; this can take a while)" % prompt
+	ComfyUI.ensure_server()
+	ComfyUI.bake(prompt + ", single object, plain background", key, "model")
+
+func _on_debug_asset_failed(key: String) -> void:
+	if key.begins_with("dbg_") and _dbg_ai_status != null:
+		_dbg_ai_status.text = "Generation failed — is ComfyUI running with a 3D (GLB) workflow?"
+
+func _on_debug_asset(key: String, path: String) -> void:
+	if not key.begins_with("dbg_") or _player == null:
+		return
+	if not path.to_lower().ends_with(".glb"):
+		_dbg_ai_status.text = "Got an image, not a GLB — configure a 3D workflow (see docs/comfyui.md)."
+		return
+	var doc := GLTFDocument.new()
+	var state := GLTFState.new()
+	if doc.append_from_file(path, state) != OK:
+		_dbg_ai_status.text = "Couldn't load the generated GLB."
+		return
+	var node := doc.generate_scene(state)
+	if node == null:
+		_dbg_ai_status.text = "GLB produced no scene."
+		return
+	# Place a few metres ahead of the player, snapped to the ground.
+	var fwd: Vector3 = -_player.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
+	var pos: Vector3 = _player.global_position + fwd * 3.0
+	var space: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(pos + Vector3.UP * 5.0, pos - Vector3.UP * 20.0)
+	q.collision_mask = 1
+	var hit: Dictionary = space.intersect_ray(q)
+	if not hit.is_empty():
+		pos.y = float(hit.position.y)
+	node.position = pos
+	get_tree().current_scene.add_child(node)
+	_dbg_ai_status.text = "Spawned '%s' in front of you." % key.trim_prefix("dbg_")
 
 ## Refresh the live stat readouts + noclip state.
 func _refresh_debug() -> void:

@@ -1378,6 +1378,26 @@ func _ready() -> void:
 	features_ok = canon_ok and extract_ok and shape_ok and near_ok
 	print("SMOKE: features_ok=", features_ok, " canon=", canon_ok, " extract=", extract_ok, " shape=", shape_ok, " near=", near_ok)
 
+	# ComfyUI asset bridge (opt-in, off by default): the pure helpers work with no server —
+	# key sanitising, cache paths, deterministic seeds, workflow build (prompt injected +
+	# valid JSON), graceful empty for an unconfigured 3D kind, and /history parsing.
+	var comfyui_ok := false
+	var cy_off: bool = not ComfyUI.enabled()
+	var cy_key: bool = ComfyUI._safe_key("City Bench") == "city_bench" and not ComfyUI._safe_key("A/B c!").contains("/")
+	var cy_path: bool = ComfyUI.cache_path("forest log", "png").ends_with("forest_log.png")
+	var cy_seed: bool = ComfyUI._stable_seed("bench") == ComfyUI._stable_seed("bench") \
+		and ComfyUI._stable_seed("bench") != ComfyUI._stable_seed("lamppost")
+	var wf: String = ComfyUI._build_workflow("a wooden circus wagon", 123, "image")
+	var wf_parsed = JSON.parse_string(wf)
+	var cy_wf: bool = typeof(wf_parsed) == TYPE_DICTIONARY and wf.contains("a wooden circus wagon") and wf.contains("123")
+	var cy_no3d: bool = ComfyUI._build_workflow("x", 1, "model") == ""   # no template -> graceful empty
+	var mock = JSON.parse_string('{"pid1":{"outputs":{"9":{"images":[{"filename":"openfire_0001.png","subfolder":"","type":"output"}]}}}}')
+	var ref: Dictionary = ComfyUI._extract_output_ref(mock, "pid1")
+	var cy_hist: bool = String(ref.get("filename", "")) == "openfire_0001.png" \
+		and ComfyUI._extract_output_ref(mock, "missing").is_empty()
+	comfyui_ok = cy_off and cy_key and cy_path and cy_seed and cy_wf and cy_no3d and cy_hist
+	print("SMOKE: comfyui_ok=", comfyui_ok, " off=", cy_off, " key=", cy_key, " path=", cy_path, " seed=", cy_seed, " wf=", cy_wf, " no3d=", cy_no3d, " hist=", cy_hist)
+
 	# Adventure start: an empty loadout fires safely (unarmed) and equipping a weapon
 	# from the backpack fills a free slot (rather than replacing slot 0).
 	var survival_start_ok := false
@@ -2149,7 +2169,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and safe_zone_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and safe_zone_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and comfyui_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

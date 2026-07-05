@@ -811,6 +811,17 @@ func _add_water() -> void:
 	mat.roughness = 0.08
 	mi.material_override = mat
 	add_child(mi)   # not under the region, so it is never walkable
+	_water_mat = mat
+
+## Apply a themed water surface texture (kept translucent + reflective). The whole plane is
+## one quad, so a single UV tiling reads across it.
+var _water_mat: StandardMaterial3D = null
+func apply_water_texture(tex: Texture2D) -> void:
+	if _water_mat == null or tex == null:
+		return
+	_water_mat.albedo_texture = tex
+	_water_mat.albedo_color = Color(1, 1, 1, 0.7)
+	_water_mat.uv1_scale = Vector3(_size / 24.0, _size / 24.0, 1.0)   # tile across the plane
 
 func _add_perimeter() -> void:
 	var h := MOUNTAIN_AMP + 80.0

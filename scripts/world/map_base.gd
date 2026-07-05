@@ -52,6 +52,28 @@ func build_level() -> void:
 
 # ---------------------------------------------------------------- environment
 
+## Apply a themed AI sky image as the environment's panorama sky (the square image wraps the
+## dome — the seam sits at the back). Also tints fog/ambient toward the sky so it's coherent.
+func apply_sky_texture(tex: Texture2D) -> void:
+	var we := get_node_or_null("WorldEnvironment")
+	if not (we is WorldEnvironment) or we.environment == null or tex == null:
+		return
+	var env: Environment = we.environment
+	var sky := Sky.new()
+	var skymat := PanoramaSkyMaterial.new()
+	skymat.panorama = tex
+	sky.sky_material = skymat
+	env.sky = sky
+	env.background_mode = Environment.BG_SKY
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	# Pull a rough average tint from the sky for the fog so distance blends into it.
+	var img := tex.get_image()
+	if img != null:
+		if img.is_compressed():
+			img.decompress()
+		img.resize(1, 1, Image.INTERPOLATE_BILINEAR)
+		env.fog_light_color = img.get_pixel(0, 0)
+
 func _build_environment() -> void:
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"

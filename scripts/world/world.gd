@@ -92,37 +92,46 @@ func _build_adventure_terrain() -> void:
 	map_holder.add_child(map)
 	_request_ground_texture()
 
-## Ask ComfyUI for a themed tiling ground texture ("rotten forest", "candy mountains", …)
-## and paint it across the whole terrain when it's ready. Cosmetic / local; silent no-op
-## without ComfyUI. Cached per theme so revisiting a world reuses it.
+## Ask ComfyUI for a set of themed textures (ground, water surface, sky) and paint them onto
+## the world when ready, so the whole scene reads as the theme ("rotten forest", "candy
+## mountains", …). Cosmetic / local; silent no-op without ComfyUI; cached per theme.
 func _request_ground_texture() -> void:
 	var theme := String(Game.config.get("theme", "")).strip_edges()
 	if theme == "":
 		return
-	var key := "ground_" + theme
-	var tex := ComfyUI.asset_texture(key)
-	if tex != null:
-		_apply_ground_texture(tex)
-		return
-	if not ComfyUI.asset_ready.is_connected(_on_ground_texture_ready):
-		ComfyUI.asset_ready.connect(_on_ground_texture_ready)
-	_ground_tex_key = key
+	if not ComfyUI.asset_ready.is_connected(_on_theme_texture_ready):
+		ComfyUI.asset_ready.connect(_on_theme_texture_ready)
 	ComfyUI.ensure_server()
-	ComfyUI.bake("seamless tileable top-down ground texture of %s, aerial overhead view, repeating pattern, natural detail" % theme, key, "image")
+	for spec in [
+		["tex_ground_", "apply_ground_texture", "seamless tileable top-down ground texture of %s, aerial overhead view, repeating pattern, natural detail"],
+		["tex_water_", "apply_water_texture", "seamless tileable water surface of %s, top-down, ripples and reflections, repeating pattern"],
+		["tex_sky_", "apply_sky_texture", "panoramic sky of %s, wide horizon, clouds, atmospheric, matte painting"],
+	]:
+		var key := String(spec[0]) + theme
+		var cached := ComfyUI.asset_texture(key)
+		if cached != null:
+			_apply_theme_texture(String(spec[1]), cached)
+		else:
+			ComfyUI.bake(String(spec[2]) % theme, key, "image")
 
-var _ground_tex_key: String = ""
-
-func _on_ground_texture_ready(key: String, path: String) -> void:
-	if key != _ground_tex_key or not path.to_lower().ends_with(".png"):
+func _on_theme_texture_ready(key: String, path: String) -> void:
+	if not key.begins_with("tex_") or not path.to_lower().ends_with(".png"):
 		return
 	var img := Image.new()
-	if img.load(path) == OK:
-		_apply_ground_texture(ImageTexture.create_from_image(img))
+	if img.load(path) != OK:
+		return
+	var tex := ImageTexture.create_from_image(img)
+	if key.begins_with("tex_ground_"):
+		_apply_theme_texture("apply_ground_texture", tex)
+	elif key.begins_with("tex_water_"):
+		_apply_theme_texture("apply_water_texture", tex)
+	elif key.begins_with("tex_sky_"):
+		_apply_theme_texture("apply_sky_texture", tex)
 
-func _apply_ground_texture(tex: Texture2D) -> void:
+func _apply_theme_texture(method: String, tex: Texture2D) -> void:
 	for m in map_holder.get_children():
-		if m.has_method("apply_ground_texture"):
-			m.apply_ground_texture(tex)
+		if m.has_method(method):
+			m.call(method, tex)
 
 # ---------------------------------------------------------------- start handshake
 

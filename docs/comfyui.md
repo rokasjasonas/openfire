@@ -15,6 +15,21 @@ so it feels built-in. Generation is slow (seconds–minutes per asset, GPU-gated
 are **pre-baked once** into `user://generated/` and reused — never generated mid-match. When
 disabled/unreachable, the game falls back to its procedural (primitive) objects.
 
+## Bundling a standalone ComfyUI (the intended shipping layout)
+
+Place a self-contained ComfyUI in **`<game_dir>/comfyui/`** so the game launches and owns it:
+
+- **Windows** — unzip the official **ComfyUI portable** so you get
+  `<game_dir>/comfyui/ComfyUI/`, `<game_dir>/comfyui/python_embeded/`, and the
+  `run_nvidia_gpu.bat` / `run_cpu.bat` launchers directly in `<game_dir>/comfyui/`. The game
+  auto-runs one of those on startup (`ComfyUI._bundled_launcher`).
+- **Linux/macOS** — ship `tools/comfyui_start.sh` as `<game_dir>/comfyui/start.sh`; its first
+  run creates a venv and installs ComfyUI + PyTorch.
+
+The game downloads the model into `<game_dir>/comfyui/models/checkpoints/` and writes
+`extra_model_paths.yaml` (into `comfyui/` and, if present, `comfyui/ComfyUI/`) so ComfyUI —
+portable or not — reads the model with no manual config. Endpoint stays `127.0.0.1:8188`.
+
 ## Setup
 
 1. Install ComfyUI and a checkpoint model (e.g. an SDXL `.safetensors`) on a machine with a
@@ -25,7 +40,11 @@ disabled/unreachable, the game falls back to its procedural (primitive) objects.
      `comfyui/models/checkpoints/` folder (next to the game) and selects it. (Restart ComfyUI
      once if it doesn't list the new file — it caches the folder on start.) On an HTTP 400 the
      bridge also auto-detects any already-installed checkpoint and retries.
-   - Point ComfyUI itself at that same bundled `comfyui/models/` folder so it finds the model.
+   - The game writes an **`extra_model_paths.yaml`** in the bundled `comfyui/` folder that
+     maps ComfyUI to the downloaded model. Launch your ComfyUI with
+     `--extra-model-paths-config <game>/comfyui/extra_model_paths.yaml` (the game does this
+     automatically when it launches ComfyUI via the optional `[comfyui] exec`), or copy that
+     file into your ComfyUI install. Restart ComfyUI once so it re-scans.
 4. (Optional, "embedded" launch) In `settings.cfg` set `[comfyui] exec` to a launch script
    and `args`; the game will start ComfyUI via `OS.create_process` when baking.
 5. Click **Bake sample asset library**. Watch ComfyUI process the queue; results land in

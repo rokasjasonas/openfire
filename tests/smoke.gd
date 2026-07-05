@@ -1402,6 +1402,12 @@ func _ready() -> void:
 	var cy_model: bool = ComfyUI.local_model_path().ends_with(Settings.comfyui_model_file) \
 		and ComfyUI.checkpoints_dir().ends_with("comfyui/models/checkpoints") \
 		and not ComfyUI.has_local_model()
+	# extra_model_paths.yaml is written pointing ComfyUI at the bundled checkpoints folder.
+	ComfyUI.write_model_paths_yaml()
+	var cy_yaml: bool = ComfyUI.comfyui_base_dir().ends_with("comfyui") \
+		and FileAccess.file_exists(ComfyUI.model_paths_yaml()) \
+		and FileAccess.get_file_as_string(ComfyUI.model_paths_yaml()).contains("checkpoints")
+	cy_model = cy_model and cy_yaml
 	comfyui_ok = cy_off and cy_key and cy_path and cy_seed and cy_wf and cy_no3d and cy_hist and cy_model
 	print("SMOKE: comfyui_ok=", comfyui_ok, " off=", cy_off, " key=", cy_key, " path=", cy_path, " seed=", cy_seed, " wf=", cy_wf, " no3d=", cy_no3d, " hist=", cy_hist, " model=", cy_model)
 

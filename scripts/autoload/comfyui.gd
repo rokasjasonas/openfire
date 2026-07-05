@@ -68,6 +68,9 @@ func _ready() -> void:
 	add_child(_poll)
 	_poll.timeout.connect(_tick_poll)
 	DirAccess.make_dir_recursive_absolute(CACHE_DIR)
+	# Boot the bundled ComfyUI at game start (deferred) so it's warming up by the time the
+	# player generates anything. No-op when nothing is bundled next to the binary.
+	call_deferred("ensure_server")
 
 func _mk_http(cb: Callable) -> HTTPRequest:
 	var h := HTTPRequest.new()
@@ -117,17 +120,42 @@ func asset_texture(key: String) -> Texture2D:
 
 # ---------------------------------------------------------------- model download
 
-## ComfyUI's bundled checkpoints folder, next to the game binary (comfyui ships with the
-## game). In the editor the executable is Godot itself, so fall back to user://.
-func checkpoints_dir() -> String:
+## The standalone "comfyui" folder that ships next to the game binary (the ComfyUI portable
+## / install lives here). In the editor the executable is Godot itself, so fall back to user://.
+func comfyui_base_dir() -> String:
 	var base := OS.get_executable_path().get_base_dir()
 	if base == "" or OS.has_feature("editor"):
-		return ProjectSettings.globalize_path("user://comfyui/models/checkpoints")
-	return base.path_join("comfyui/models/checkpoints")
+		return ProjectSettings.globalize_path("user://comfyui")
+	return base.path_join("comfyui")
+
+## Where the checkpoint is downloaded (under the bundled comfyui folder).
+func checkpoints_dir() -> String:
+	return comfyui_base_dir().path_join("models/checkpoints")
 
 ## Absolute path where the checkpoint should live (inside the bundled checkpoints folder).
 func local_model_path() -> String:
 	return checkpoints_dir().path_join(String(Settings.comfyui_model_file))
+
+func model_paths_yaml() -> String:
+	return comfyui_base_dir().path_join("extra_model_paths.yaml")
+
+## Write a ComfyUI extra_model_paths.yaml pointing at the bundled models folder. Written both
+## to the comfyui/ root (for `--extra-model-paths-config`) AND into the ComfyUI app dir if a
+## portable layout exists (ComfyUI auto-reads extra_model_paths.yaml next to its main.py),
+## so a bundled/portable ComfyUI finds the downloaded model with no launch flags.
+func write_model_paths_yaml() -> void:
+	var base := comfyui_base_dir()
+	DirAccess.make_dir_recursive_absolute(base.path_join("models/checkpoints"))
+	var yaml := "openfire:\n    base_path: %s\n    checkpoints: models/checkpoints/\n    vae: models/vae/\n    loras: models/loras/\n" % base
+	var targets := [model_paths_yaml()]
+	# Portable ComfyUI is usually at comfyui/ComfyUI/ — drop a copy there too if it exists.
+	if DirAccess.dir_exists_absolute(base.path_join("ComfyUI")):
+		targets.append(base.path_join("ComfyUI/extra_model_paths.yaml"))
+	for t in targets:
+		var f := FileAccess.open(t, FileAccess.WRITE)
+		if f != null:
+			f.store_string(yaml)
+			f.close()
 
 func has_local_model() -> bool:
 	var p := local_model_path()
@@ -148,6 +176,7 @@ func download_model() -> void:
 		model_ready.emit(false, "No model URL configured.")
 		return
 	DirAccess.make_dir_recursive_absolute(checkpoints_dir())
+	write_model_paths_yaml()   # so ComfyUI can be pointed at the model we're about to fetch
 	_dl.download_file = local_model_path() + ".part"
 	if _dl.request(String(Settings.comfyui_model_url)) != OK:
 		model_ready.emit(false, "Couldn't start the download.")
@@ -173,7 +202,8 @@ func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pac
 		DirAccess.rename_absolute(part, local_model_path())
 		Settings.comfyui_checkpoint = String(Settings.comfyui_model_file)
 		Settings.save()
-		model_ready.emit(true, "Model downloaded. (Restart ComfyUI if it doesn't see it.)")
+		write_model_paths_yaml()
+		model_ready.emit(true, "Model downloaded. Point ComfyUI at %s (restart it if already running)." % model_paths_yaml())
 	else:
 		if FileAccess.file_exists(part):
 			DirAccess.remove_absolute(part)
@@ -188,11 +218,31 @@ func ensure_server() -> void:
 		server_checked.emit(false)
 		return
 	var exec := String(Settings.get("comfyui_exec")).strip_edges()
+	if exec == "":
+		exec = _bundled_launcher()   # auto-detect a ComfyUI shipped next to the game
 	if exec != "" and not _launched and FileAccess.file_exists(exec):
-		var args := String(Settings.get("comfyui_args")).strip_edges().split(" ", false)
-		if OS.create_process(exec, args) > 0:
+		var args := Array(String(Settings.get("comfyui_args")).strip_edges().split(" ", false))
+		# Point the launched ComfyUI at the bundled model folder so it finds our download.
+		if not args.has("--extra-model-paths-config"):
+			write_model_paths_yaml()
+			args.append("--extra-model-paths-config")
+			args.append(model_paths_yaml())
+		if OS.create_process(exec, PackedStringArray(args)) > 0:
 			_launched = true
 	_check_health()
+
+## A ComfyUI launcher shipped in the game's own comfyui/ folder, if present. The game runs
+## this automatically so ComfyUI is "embedded" from the player's side. The distribution is
+## responsible for placing a ComfyUI + launcher script here (start.sh / start.bat).
+func _bundled_launcher() -> String:
+	var base := comfyui_base_dir()
+	var names := ["start.bat", "run_nvidia_gpu.bat", "run_cpu.bat"] if OS.get_name() == "Windows" \
+		else ["start.sh", "run.sh"]
+	for n in names:
+		var p := base.path_join(n)
+		if FileAccess.file_exists(p):
+			return p
+	return ""
 
 func _check_health() -> void:
 	# /system_stats returns 200 when ComfyUI is up. Reuse the history node (idle here).
@@ -331,7 +381,14 @@ func _on_prompt_posted(result: int, code: int, _h: PackedStringArray, body: Pack
 func _on_object_info(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
 		var list := _checkpoint_list(JSON.parse_string(body.get_string_from_utf8()))
-		if not list.is_empty() and not list.has(String(Settings.comfyui_checkpoint)):
+		if list.is_empty():
+			# ComfyUI can see NO models — it's reading a different folder than where the game
+			# downloaded one. Retrying won't help; point it at the config the game wrote.
+			write_model_paths_yaml()
+			last_error = "ComfyUI has no models. Launch it with:  --extra-model-paths-config \"%s\"  (or copy that file into your ComfyUI folder), then restart." % model_paths_yaml()
+			_fail_current()
+			return
+		if not list.has(String(Settings.comfyui_checkpoint)):
 			Settings.comfyui_checkpoint = String(list[0])
 			Settings.save()
 	if not _cur.is_empty():

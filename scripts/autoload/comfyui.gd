@@ -20,6 +20,8 @@ signal bake_progress(done: int, total: int)
 signal bake_finished()
 signal model_progress(fraction: float, downloaded: int, total: int)
 signal model_ready(ok: bool, message: String)
+signal install_progress(stage: String, fraction: float)
+signal install_done(ok: bool, message: String)
 
 const CACHE_DIR := "user://generated/"
 const CLIENT_ID := "openfire"
@@ -43,7 +45,9 @@ var _hist: HTTPRequest      # GET /history/<id> (polling)
 var _view: HTTPRequest      # GET /view?filename=... (download)
 var _info: HTTPRequest      # GET /object_info (available checkpoints)
 var _dl: HTTPRequest        # model download
+var _dl_bundle: HTTPRequest # ComfyUI bundle download (auto-install)
 var _downloading: bool = false
+var _installing: bool = false
 var _cur_retried: bool = false   # did we already auto-fix the checkpoint for this job?
 var _poll: Timer
 var _launched: bool = false
@@ -61,6 +65,7 @@ func _ready() -> void:
 	_view = _mk_http(_on_view_done)
 	_info = _mk_http(_on_object_info)
 	_dl = _mk_http(_on_model_downloaded)
+	_dl_bundle = _mk_http(_on_bundle_downloaded)
 	set_process(false)
 	_poll = Timer.new()
 	_poll.wait_time = 1.5
@@ -68,9 +73,9 @@ func _ready() -> void:
 	add_child(_poll)
 	_poll.timeout.connect(_tick_poll)
 	DirAccess.make_dir_recursive_absolute(CACHE_DIR)
-	# Boot the bundled ComfyUI at game start (deferred) so it's warming up by the time the
-	# player generates anything. No-op when nothing is bundled next to the binary.
-	call_deferred("ensure_server")
+	# Boot at game start (deferred): auto-install ComfyUI from a bundle if configured, else
+	# launch a bundled one, else just health-check a reachable server. No-op if nothing applies.
+	call_deferred("_boot")
 
 func _mk_http(cb: Callable) -> HTTPRequest:
 	var h := HTTPRequest.new()
@@ -185,12 +190,14 @@ func download_model() -> void:
 	set_process(true)
 
 func _process(_delta: float) -> void:
-	if not _downloading:
-		return
-	var dl := _dl.get_downloaded_bytes()
-	var total := _dl.get_body_size()   # -1 / 0 when the server sends no Content-Length
-	var frac := (float(dl) / float(total)) if total > 0 else 0.0
-	model_progress.emit(frac, dl, total)
+	if _downloading:
+		var dl := _dl.get_downloaded_bytes()
+		var total := _dl.get_body_size()   # -1 / 0 when the server sends no Content-Length
+		model_progress.emit((float(dl) / float(total)) if total > 0 else 0.0, dl, total)
+	elif _installing:
+		var bd := _dl_bundle.get_downloaded_bytes()
+		var bt := _dl_bundle.get_body_size()
+		install_progress.emit("Downloading ComfyUI…", (float(bd) / float(bt)) if bt > 0 else 0.0)
 
 func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
 	if not _downloading:
@@ -208,6 +215,83 @@ func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pac
 		if FileAccess.file_exists(part):
 			DirAccess.remove_absolute(part)
 		model_ready.emit(false, "Download failed (HTTP %d / result %d)." % [code, result])
+
+# ---------------------------------------------------------------- auto-install
+
+## Startup: install (if a bundle is set and nothing's here yet) then launch, or just launch
+## a present ComfyUI, or fall through to health-checking whatever's already running.
+func _boot() -> void:
+	if is_installed():
+		ensure_server()
+	elif String(Settings.comfyui_bundle_url).strip_edges() != "":
+		ensure_installed()   # auto-download + extract + launch — "download game, play"
+	else:
+		ensure_server()
+
+## True once a ready-to-run ComfyUI exists next to the game (a launcher is present).
+func is_installed() -> bool:
+	return _bundled_launcher() != ""
+
+## "Download game, play": if no ComfyUI is bundled and a bundle URL is configured, download
+## the ComfyUI .zip and extract it into comfyui/ so the game can launch it — all automatic.
+## Emits install_progress / install_done. No-op when already installed or no URL is set.
+func ensure_installed() -> void:
+	if is_installed() or _installing:
+		install_done.emit(is_installed(), "")
+		return
+	var url := String(Settings.comfyui_bundle_url).strip_edges()
+	if url == "":
+		install_done.emit(false, "No ComfyUI bundle configured to auto-install.")
+		return
+	_installing = true
+	install_progress.emit("Downloading ComfyUI…", 0.0)
+	var zip := comfyui_base_dir().path_join("_bundle.zip")
+	DirAccess.make_dir_recursive_absolute(comfyui_base_dir())
+	_dl_bundle.download_file = zip
+	if _dl_bundle.request(url) != OK:
+		_installing = false
+		install_done.emit(false, "Couldn't start the ComfyUI download.")
+		return
+	set_process(true)
+
+func _on_bundle_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
+	if not _installing:
+		return
+	set_process(false)
+	var zip := comfyui_base_dir().path_join("_bundle.zip")
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		_installing = false
+		install_done.emit(false, "ComfyUI download failed (HTTP %d)." % code)
+		return
+	install_progress.emit("Extracting ComfyUI…", 1.0)
+	var ok := _extract_zip(zip, comfyui_base_dir())
+	if FileAccess.file_exists(zip):
+		DirAccess.remove_absolute(zip)
+	_installing = false
+	if ok and is_installed():
+		install_done.emit(true, "ComfyUI installed. Starting it…")
+		ensure_server()
+	else:
+		install_done.emit(false, "Extracted, but no launcher found in the bundle.")
+
+## Extract a .zip into `dest` (Godot's ZIPReader handles .zip; the ComfyUI portable's .7z
+## is not supported, hence the .zip bundle requirement). Returns true on success.
+func _extract_zip(zip_path: String, dest: String) -> bool:
+	var reader := ZIPReader.new()
+	if reader.open(zip_path) != OK:
+		return false
+	for name in reader.get_files():
+		var out := dest.path_join(name)
+		if name.ends_with("/"):
+			DirAccess.make_dir_recursive_absolute(out)
+			continue
+		DirAccess.make_dir_recursive_absolute(out.get_base_dir())
+		var f := FileAccess.open(out, FileAccess.WRITE)
+		if f != null:
+			f.store_buffer(reader.read_file(name))
+			f.close()
+	reader.close()
+	return true
 
 # ---------------------------------------------------------------- managed server
 

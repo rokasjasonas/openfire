@@ -15,7 +15,16 @@ so it feels built-in. Generation is slow (seconds–minutes per asset, GPU-gated
 are **pre-baked once** into `user://generated/` and reused — never generated mid-match. When
 disabled/unreachable, the game falls back to its procedural (primitive) objects.
 
-## Bundling a standalone ComfyUI (the intended shipping layout)
+## Fully automatic ("download game, play")
+
+Set `[comfyui] bundle_url` (settings.cfg) to a **ready-to-run ComfyUI packaged as a `.zip`**
+(Godot can extract `.zip`, not the portable's `.7z`, so repackage as zip). On first launch,
+with no ComfyUI present, the game **auto-downloads that zip, extracts it into `comfyui/`, and
+launches it** (`ComfyUI._boot` → `ensure_installed`), then downloads the model and writes the
+config. Zero manual steps — the only cost is the one-time ~GB download and a GPU to run it.
+The `.zip` must contain a launcher at its root (`run_nvidia_gpu.bat` / `start.sh`).
+
+## Bundling a standalone ComfyUI (place it yourself)
 
 Place a self-contained ComfyUI in **`<game_dir>/comfyui/`** so the game launches and owns it:
 

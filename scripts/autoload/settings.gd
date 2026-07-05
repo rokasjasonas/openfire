@@ -32,6 +32,10 @@ var comfyui_exec: String = ""    # optional launch command so the game can start
 var comfyui_args: String = "--listen 127.0.0.1 --port 8188"
 var comfyui_model_url: String = "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
 var comfyui_model_file: String = "v1-5-pruned-emaonly.safetensors"
+# A ready-to-run ComfyUI packaged as a .zip (Godot can extract .zip, not the .7z portable).
+# When set and no ComfyUI is bundled/reachable, the game auto-downloads + extracts it into
+# comfyui/ on first use ("download game, play"). Empty by default until a bundle is hosted.
+var comfyui_bundle_url: String = ""
 # Expected download size in bytes — the % is computed against this because HuggingFace's
 # LFS redirects make the HTTP Content-Length unreliable. ~4.27 GB for SD 1.5 emaonly.
 var comfyui_model_size: int = 4265146304
@@ -61,6 +65,7 @@ func load_settings() -> void:
 		comfyui_model_url = String(cfg.get_value("comfyui", "model_url", comfyui_model_url))
 		comfyui_model_file = String(cfg.get_value("comfyui", "model_file", comfyui_model_file))
 		comfyui_model_size = int(cfg.get_value("comfyui", "model_size", comfyui_model_size))
+		comfyui_bundle_url = String(cfg.get_value("comfyui", "bundle_url", comfyui_bundle_url))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
@@ -82,6 +87,7 @@ func save() -> void:
 	cfg.set_value("comfyui", "model_url", comfyui_model_url)
 	cfg.set_value("comfyui", "model_file", comfyui_model_file)
 	cfg.set_value("comfyui", "model_size", comfyui_model_size)
+	cfg.set_value("comfyui", "bundle_url", comfyui_bundle_url)
 	cfg.save(PATH)
 
 ## Apply settings that affect global systems (audio bus). Per-player look/FOV are

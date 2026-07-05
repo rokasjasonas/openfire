@@ -1408,6 +1408,20 @@ func _ready() -> void:
 		and FileAccess.file_exists(ComfyUI.model_paths_yaml()) \
 		and FileAccess.get_file_as_string(ComfyUI.model_paths_yaml()).contains("checkpoints")
 	cy_model = cy_model and cy_yaml
+	# Auto-install: _extract_zip unpacks a .zip bundle into a folder.
+	var cy_zip := true
+	var zpath := ProjectSettings.globalize_path("user://_cytest.zip")
+	var zp := ZIPPacker.new()
+	if zp.open(zpath) == OK:
+		zp.start_file("sub/hello.txt")
+		zp.write_file("hi".to_utf8_buffer())
+		zp.close_file()
+		zp.close()
+		var zdest := ProjectSettings.globalize_path("user://_cyx")
+		cy_zip = ComfyUI._extract_zip(zpath, zdest) \
+			and FileAccess.get_file_as_string(zdest.path_join("sub/hello.txt")) == "hi"
+		DirAccess.remove_absolute(zpath)
+	cy_model = cy_model and cy_zip
 	comfyui_ok = cy_off and cy_key and cy_path and cy_seed and cy_wf and cy_no3d and cy_hist and cy_model
 	print("SMOKE: comfyui_ok=", comfyui_ok, " off=", cy_off, " key=", cy_key, " path=", cy_path, " seed=", cy_seed, " wf=", cy_wf, " no3d=", cy_no3d, " hist=", cy_hist, " model=", cy_model)
 

@@ -1154,6 +1154,22 @@ func _ready() -> void:
 		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok and tag_hidden_ok
 		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok, " tag_hidden=", tag_hidden_ok)
 
+	# Safe start bubble: roaming raiders keep out of a radius around the start village and
+	# around living players, so a freshly-spawned player isn't immediately swarmed.
+	var safe_zone_ok := false
+	if world:
+		var startc := Vector3(500, 0, 500)
+		var village_ok: bool = world._in_safe_spawn_zone(startc + Vector3(30, 0, 0), startc, []) \
+			and not world._in_safe_spawn_zone(startc + Vector3(150, 0, 0), startc, [])
+		var player_ok := true
+		if me:
+			var mp: Vector3 = me.global_position
+			# start passed as ZERO so only the living-player rule applies here.
+			player_ok = world._in_safe_spawn_zone(mp + Vector3(20, 0, 0), Vector3.ZERO, [me]) \
+				and not world._in_safe_spawn_zone(mp + Vector3(200, 0, 0), Vector3.ZERO, [me])
+		safe_zone_ok = village_ok and player_ok
+		print("SMOKE: safe_zone_ok=", safe_zone_ok, " village=", village_ok, " player=", player_ok)
+
 	# Adventure backpack: spatial grid placement, no-overlap, capacity, use, drop.
 	var inventory_ok := false
 	if me:
@@ -2133,7 +2149,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and safe_zone_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

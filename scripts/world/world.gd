@@ -677,8 +677,21 @@ func drop_loot_at(pos: Vector3, n: int) -> void:
 # ---------------------------------------------------------------- adventure
 
 const SURVIVAL_ACT_DIST := 110.0   # NPCs beyond this from every player freeze (no AI)
+const SAFE_SPAWN_RADIUS := 90.0    # no hostile raiders/titans spawn this close to the start
 var _survival_rng := RandomNumberGenerator.new()
 var _surv_act_t := 0.0
+
+## True if `p` sits inside the protected start bubble (near the start village or a living
+## player), so roaming raiders keep clear and can't swarm a just-spawned player. Uses
+## horizontal (XZ) distance so a hill under the village doesn't shrink the bubble.
+func _in_safe_spawn_zone(p: Vector3, start_c: Vector3, players: Array) -> bool:
+	if start_c != Vector3.ZERO and Vector2(p.x - start_c.x, p.z - start_c.z).length() < SAFE_SPAWN_RADIUS:
+		return true
+	for pl in players:
+		if is_instance_valid(pl) and not pl.get("dead"):
+			if Vector2(p.x - pl.global_position.x, p.z - pl.global_position.z).length() < SAFE_SPAWN_RADIUS:
+				return true
+	return false
 
 func _start_survival() -> void:
 	# (No generic banner \u2014 the LLM briefing set in _on_story_ready stays as the intro.)
@@ -711,20 +724,31 @@ func _start_survival() -> void:
 			var drole := "Elder" if d == 0 else ("Quartermaster" if d == 1 else "Guard")
 			var dperson := NameGen.npc_person(fac)
 			spawn_enemy(skill, false, pos, "", team, fac, {"name": dperson["name"], "role": drole, "persona": dperson["trait"]})
-	# Roaming raiders scattered around the settlements (emergent clashes).
+	# Roaming raiders scattered around the settlements (emergent clashes) — but never
+	# inside the safe bubble around the start village, so a freshly-spawned player isn't
+	# spawn-camped. Candidates too close re-roll to another POI; give up after a few tries.
+	var start_c: Vector3 = pois[0].global_position if not pois.is_empty() else Vector3.ZERO
+	var players: Array = get_tree().get_nodes_in_group("player")
 	for r in pois.size() * 10:
 		if pois.is_empty():
 			break
-		var poi: Node3D = pois[_survival_rng.randi() % pois.size()]
-		var radius: float = float(poi.get_meta("radius", 24.0))
-		var ang := _survival_rng.randf() * TAU
-		var rr := radius * _survival_rng.randf_range(1.8, 3.2)
-		var x := poi.global_position.x + cos(ang) * rr
-		var z := poi.global_position.z + sin(ang) * rr
-		var y := _ground_y(x, z, poi.global_position.y) + 1.0
-		# Snap onto the navmesh so raiders never land off-map, in the sea, or on a peak.
-		var spot := _snap_to_nav(Vector3(x, y, z))
-		spot.y += 1.0
+		var spot := Vector3.INF
+		for attempt in 6:
+			var poi: Node3D = pois[_survival_rng.randi() % pois.size()]
+			var radius: float = float(poi.get_meta("radius", 24.0))
+			var ang := _survival_rng.randf() * TAU
+			var rr := radius * _survival_rng.randf_range(1.8, 3.2)
+			var x := poi.global_position.x + cos(ang) * rr
+			var z := poi.global_position.z + sin(ang) * rr
+			var y := _ground_y(x, z, poi.global_position.y) + 1.0
+			# Snap onto the navmesh so raiders never land off-map, in the sea, or on a peak.
+			var cand := _snap_to_nav(Vector3(x, y, z))
+			cand.y += 1.0
+			if not _in_safe_spawn_zone(cand, start_c, players):
+				spot = cand
+				break
+		if spot == Vector3.INF:
+			continue   # nowhere outside the safe bubble this time — one fewer raider
 		var rrole := "Raid Boss" if r % 8 == 0 else "Raider"
 		var rperson := NameGen.npc_person(Game.RAIDER_FACTION)
 		spawn_enemy(skill, false, spot, _random_enemy_type(), 1, Game.RAIDER_FACTION, {"name": rperson["name"], "role": rrole, "persona": rperson["trait"]})

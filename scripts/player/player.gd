@@ -87,6 +87,9 @@ var hunger: float = MAX_NEED
 var thirst: float = MAX_NEED
 var _need_dmg_accum: float = 0.0
 
+# Debug (solo only): free-fly noclip toggled from the [0] debug menu.
+var noclip: bool = false
+
 # Swimming / oxygen / ladders (authority-owned).
 var oxygen: float = MAX_OXYGEN
 var in_water: bool = false
@@ -357,7 +360,9 @@ func _physics_process(delta: float) -> void:
 
 	_ladder_detach = maxf(0.0, _ladder_detach - delta)
 	is_climbing = not in_water and near_ladder != null and _ladder_detach <= 0.0 and _wants_climb()
-	if in_water:
+	if noclip:
+		_noclip_move(delta)
+	elif in_water:
 		_swim(delta)
 	elif is_climbing:
 		_climb(delta, near_ladder)
@@ -439,6 +444,54 @@ func heal(value: int) -> void:
 		return
 	sync_health = minf(MAX_HEALTH, sync_health + value)
 	health_changed.emit(sync_health, MAX_HEALTH)
+
+# ---------------------------------------------------------------- debug (solo)
+# These back the [0] debug menu. They only ever run for the local authority player in a
+# solo game, so they mutate state directly rather than routing through combat RPCs.
+
+## Free-fly movement: drift along the camera's look direction, ignoring gravity/collision.
+func _noclip_move(delta: float) -> void:
+	var id := Input.get_vector("move_left", "move_right", "move_forward", "move_back") if _input_enabled else Vector2.ZERO
+	var move := camera.global_transform.basis * Vector3(id.x, 0, id.y)
+	if _input_enabled and Input.is_action_pressed("jump"):
+		move.y += 1.0
+	if _input_enabled and Input.is_action_pressed("crouch"):
+		move.y -= 1.0
+	var speed := 22.0 if (_input_enabled and Input.is_action_pressed("sprint")) else 10.0
+	velocity = Vector3.ZERO
+	if move.length() > 0.01:
+		global_position += move.normalized() * speed * delta
+	sync_pos = global_position
+
+## Enable/disable noclip: turn off world collision so you can pass through geometry.
+func debug_set_noclip(on: bool) -> void:
+	noclip = on
+	collision_mask = 0 if on else 7   # 7 = the player's normal world/prop/vehicle mask
+	if on:
+		velocity = Vector3.ZERO
+
+func debug_add_health(n: float) -> void:
+	sync_health = clampf(sync_health + n, 0.0, MAX_HEALTH)
+	health_changed.emit(sync_health, MAX_HEALTH)
+
+func debug_add_thirst(n: float) -> void:
+	thirst = clampf(thirst + n, 0.0, MAX_NEED)
+
+func debug_add_hunger(n: float) -> void:
+	hunger = clampf(hunger + n, 0.0, MAX_NEED)
+
+## Spawn any item/weapon by id straight into the backpack (drops at your feet if full).
+func debug_spawn_item(id: String) -> bool:
+	var it: Dictionary = ItemDB.make_weapon(id) if WeaponDB.has_weapon(id) else ItemDB.make(id)
+	if it.is_empty():
+		return false
+	if inv_add(it):
+		return true
+	var world := get_tree().get_first_node_in_group("world")
+	if world != null and world.has_method("spawn_item_pickup"):
+		world.spawn_item_pickup(global_position + Vector3(0, 0.6, 0) - global_transform.basis.z * 1.2, id)
+		return true
+	return false
 
 func add_grenades(n: int) -> void:
 	if not is_multiplayer_authority():

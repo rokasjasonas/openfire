@@ -176,16 +176,56 @@ func mode_name() -> String:
 # each other (so raiders attack villages, etc.). Stances live host-side (the AI runs
 # on the host); provoking a neutral village flips it hostile.
 
-const ADVENTURE_VILLAGE_FACTIONS := ["Ridgeback Clan", "Verdant Pact", "Ashfall Brotherhood"]
+# Default clan names used only as a last-resort fallback; each world normally gets its
+# own themed faction names (LLM-invented, procedurally seeded if no LLM) via
+# set_adventure_factions() before the villages spawn — see world.gd _kick_story.
+const DEFAULT_VILLAGE_FACTIONS := ["Ridgeback Clan", "Verdant Pact", "Ashfall Brotherhood"]
+var adventure_village_factions: Array = DEFAULT_VILLAGE_FACTIONS.duplicate()
 const RAIDER_FACTION := "raiders"
 const TITAN_FACTION := "titans"   # roaming giants: hostile to everyone, friendly to no one
 var adventure_stance: Dictionary = {}   # faction -> "friendly" | "neutral" | "hostile"
+
+# Parts for procedurally-seeded faction names (the offline fallback when no LLM themes
+# the world). Combined as "<Prefix><Core> <Kind>", e.g. "Ashmoor Clan".
+const _FAC_PREFIX := ["Iron", "Ash", "Frost", "Dust", "Ember", "Grey", "Red", "Salt", "Thorn",
+	"Storm", "Rust", "Bone", "Black", "Gold", "Pale", "Night", "Sun", "Blood", "Stone", "Green"]
+const _FAC_CORE := ["wake", "moor", "vale", "hold", "reach", "fall", "root", "cliff", "mere",
+	"marsh", "ridge", "haven", "forge", "crest", "gate", "wood", "spire", "hollow"]
+const _FAC_KIND := ["Clan", "Pact", "Host", "Kin", "Circle", "Covenant", "Order", "Band",
+	"Coalition", "League", "Brotherhood", "Tribe"]
+
+## Deterministically build `n` distinct faction names from a world seed (co-op peers and
+## saves reproduce the same set). Used as the offline fallback for faction naming.
+func generate_faction_names(seed_val: int, n: int) -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_val ^ 0x5AF7   # decorrelate from other seed uses
+	var out: Array = []
+	var guard := 0
+	while out.size() < n and guard < 200:
+		guard += 1
+		var nm := "%s%s %s" % [_FAC_PREFIX[rng.randi() % _FAC_PREFIX.size()],
+			_FAC_CORE[rng.randi() % _FAC_CORE.size()], _FAC_KIND[rng.randi() % _FAC_KIND.size()]]
+		if not out.has(nm):
+			out.append(nm)
+	return out
+
+## Install this world's village faction names (themed, from the generated story). Drops
+## blanks / the reserved "raiders" key / duplicates and sorts them so every peer derives
+## an identical ordered list (stances + team numbers stay in sync). Empty -> defaults.
+func set_adventure_factions(names: Array) -> void:
+	var clean: Array = []
+	for n in names:
+		var s := String(n).strip_edges()
+		if s != "" and s.to_lower() != RAIDER_FACTION and not clean.has(s):
+			clean.append(s)
+	clean.sort()
+	adventure_village_factions = clean if not clean.is_empty() else DEFAULT_VILLAGE_FACTIONS.duplicate()
 
 func adventure_setup(seed_val: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	adventure_stance.clear()
-	for f in ADVENTURE_VILLAGE_FACTIONS:
+	for f in adventure_village_factions:
 		var r := rng.randf()
 		adventure_stance[f] = "friendly" if r < 0.34 else ("neutral" if r < 0.67 else "hostile")
 	adventure_stance[RAIDER_FACTION] = "hostile"

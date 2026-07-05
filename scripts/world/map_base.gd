@@ -38,6 +38,8 @@ func _ready() -> void:
 	region.navigation_mesh = nm
 	add_child(region)
 	build_level()
+	if has_meta("dark"):
+		_apply_dark()   # enclosed landforms (dungeon) go dim + torch-lit
 	region.bake_navigation_mesh(false)
 	# Post-bake hook: lets a map add things that must NOT be part of the navmesh (e.g.
 	# vehicles, so bots never path/snap onto their roofs). Called dynamically because the
@@ -68,6 +70,23 @@ func _build_environment() -> void:
 	sun.shadow_blur = [1.0, 1.3, 1.6][clampi(Settings.quality, 0, 2)]
 	sun.light_angular_distance = 1.0   # soft penumbra
 	add_child(sun)
+
+## Enclosed landforms (dungeon) set meta "dark": kill the sun and drop the ambient to a
+## dim underground gloom, so the torches placed by the terrain actually read as lighting.
+func _apply_dark() -> void:
+	var sun := get_node_or_null("Sun")
+	if sun is DirectionalLight3D:
+		sun.light_energy = 0.06
+		sun.shadow_enabled = false
+	var we := get_node_or_null("WorldEnvironment")
+	if we is WorldEnvironment and we.environment != null:
+		var env: Environment = we.environment
+		env.background_mode = Environment.BG_COLOR
+		env.background_color = Color(0.02, 0.02, 0.03)
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.ambient_light_color = Color(0.10, 0.10, 0.13)
+		env.ambient_light_energy = 0.35
+		env.ssao_enabled = false
 
 ## Configure a cinematic, moody look on `env`, scaled by quality (0 Low .. 2 High).
 ## Higher tiers add the expensive bits (SSAO, glow, volumetric fog).

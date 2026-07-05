@@ -79,6 +79,13 @@ var _nvg: ColorRect = null
 var _nvg_mat: ShaderMaterial = null
 var _gadget_label: Label = null
 
+# Solo debug menu ([0]) — built lazily the first time it's opened.
+var _debug_panel: Panel = null
+var _dbg_values: Dictionary = {}       # "health"/"thirst"/"hunger" -> value Label
+var _dbg_noclip: CheckButton = null
+var _dbg_item: OptionButton = null
+var _dbg_item_ids: Array = []
+
 ## Night-vision image intensifier: read the rendered scene, amplify low light into a
 ## visible range, and tint it green (phosphor tube). Unlike a flat overlay this actually
 ## brightens dark areas so you can see in them. `amount` (0..1) fades the effect in/out.
@@ -149,6 +156,8 @@ func _process(delta: float) -> void:
 		_update_result_label()
 	_update_gadget_label()
 	_update_fps()
+	if _debug_panel != null and _debug_panel.visible:
+		_refresh_debug()   # keep the live stat readouts current while the menu is open
 	# Animate the low-health blood vignette with a heartbeat pulse.
 	if _lowhp != null and _lowhp.material is ShaderMaterial:
 		var cur: float = float(_lowhp.material.get_shader_parameter("intensity"))
@@ -662,6 +671,134 @@ func set_nightvision(on: bool) -> void:
 	if not on:
 		tw.tween_callback(func(): _nvg.visible = false)
 
+# ---------------------------------------------------------------- debug menu (solo)
+
+## Toggle the [0] debug/cheat menu. Guarded to solo adventures with debug mode enabled
+## so it can never touch a co-op session.
+func _toggle_debug_menu() -> void:
+	if not Settings.debug_mode or not Game.is_adventure() or _player == null:
+		return
+	if not (Net.is_host() and Net.players.size() <= 1):
+		add_event("⚙ Debug menu is available in solo games only.")
+		return
+	if _debug_panel == null:
+		_build_debug_panel()
+	_debug_panel.visible = not _debug_panel.visible
+	if _debug_panel.visible:
+		_refresh_debug()
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif not inventory_panel.visible and not npc_dialog.visible and not pause_panel.visible \
+			and not result_panel.visible and not trade_panel.visible:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _build_debug_panel() -> void:
+	_debug_panel = Panel.new()
+	_debug_panel.name = "DebugPanel"
+	_debug_panel.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	_debug_panel.position = Vector2(24, 90)
+	_debug_panel.custom_minimum_size = Vector2(360, 0)
+	add_child(_debug_panel)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_debug_panel.add_child(margin)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	margin.add_child(vb)
+	var title := Label.new()
+	title.text = "DEBUG  ·  [0] to close"
+	title.add_theme_font_size_override("font_size", 18)
+	vb.add_child(title)
+	# Stat rows: -25 / +25 / Max, with a live value readout.
+	for stat in ["health", "thirst", "hunger"]:
+		vb.add_child(_dbg_stat_row(stat))
+	vb.add_child(HSeparator.new())
+	# Item spawner.
+	var irow := HBoxContainer.new()
+	irow.add_theme_constant_override("separation", 6)
+	_dbg_item = OptionButton.new()
+	_dbg_item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dbg_item_ids.clear()
+	for id in ItemDB.DEFS.keys():
+		_dbg_item.add_item(String(ItemDB.DEFS[id].get("name", id)))
+		_dbg_item_ids.append(String(id))
+	for wid in WeaponDB.all_ids():
+		_dbg_item.add_item("%s (weapon)" % String(WeaponDB.get_weapon(wid).get("name", wid)))
+		_dbg_item_ids.append(String(wid))
+	irow.add_child(_dbg_item)
+	var spawn_btn := Button.new()
+	spawn_btn.text = "Spawn"
+	spawn_btn.pressed.connect(_on_debug_spawn)
+	irow.add_child(spawn_btn)
+	vb.add_child(irow)
+	vb.add_child(HSeparator.new())
+	# No-clip toggle.
+	_dbg_noclip = CheckButton.new()
+	_dbg_noclip.text = "No-clip (fly through walls)"
+	_dbg_noclip.button_pressed = bool(_player.get("noclip"))
+	_dbg_noclip.toggled.connect(func(on): if _player != null: _player.debug_set_noclip(on))
+	vb.add_child(_dbg_noclip)
+
+## One stat row: label + value + [-25] [+25] [Max] wired to the player's debug setters.
+func _dbg_stat_row(stat: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var name_lbl := Label.new()
+	name_lbl.text = stat.capitalize()
+	name_lbl.custom_minimum_size.x = 72
+	row.add_child(name_lbl)
+	var val := Label.new()
+	val.custom_minimum_size.x = 44
+	row.add_child(val)
+	_dbg_values[stat] = val
+	for d in [-25.0, 25.0]:
+		var b := Button.new()
+		b.text = "%+d" % int(d)
+		b.pressed.connect(func(): _debug_stat(stat, d))
+		row.add_child(b)
+	var mx := Button.new()
+	mx.text = "Max"
+	mx.pressed.connect(func(): _debug_stat(stat, 9999.0))
+	row.add_child(mx)
+	return row
+
+func _debug_stat(stat: String, delta: float) -> void:
+	if _player == null:
+		return
+	match stat:
+		"health": _player.debug_add_health(delta)
+		"thirst": _player.debug_add_thirst(delta)
+		"hunger": _player.debug_add_hunger(delta)
+	_refresh_debug()
+
+func _on_debug_spawn() -> void:
+	if _player == null or _dbg_item == null:
+		return
+	var idx := _dbg_item.selected
+	if idx < 0 or idx >= _dbg_item_ids.size():
+		return
+	var id := String(_dbg_item_ids[idx])
+	if _player.debug_spawn_item(id):
+		add_event("⚙ Spawned %s" % id)
+	else:
+		add_event("⚙ Couldn't spawn %s (pack full?)" % id)
+
+## Refresh the live stat readouts + noclip state.
+func _refresh_debug() -> void:
+	if _player == null or _debug_panel == null:
+		return
+	if _dbg_values.has("health"):
+		_dbg_values["health"].text = "%d" % int(round(_player.sync_health))
+	if _dbg_values.has("thirst"):
+		_dbg_values["thirst"].text = "%d" % int(round(_player.thirst))
+	if _dbg_values.has("hunger"):
+		_dbg_values["hunger"].text = "%d" % int(round(_player.hunger))
+	if _dbg_noclip != null:
+		_dbg_noclip.button_pressed = bool(_player.get("noclip"))
+
 ## Flashbang white-out: a full-screen white flash that fades over a couple seconds.
 func flashbang(intensity: float) -> void:
 	if _flashbang == null:
@@ -952,6 +1089,15 @@ func set_objective(t: String) -> void:
 # ---------------------------------------------------------------- scoreboard
 
 func _input(event: InputEvent) -> void:
+	# Debug menu ([0]): only when debug mode is enabled and this is a solo adventure.
+	# Skip while a text field has focus so typing "0" (e.g. asking an NPC) isn't eaten.
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_0:
+		var fo := get_viewport().gui_get_focus_owner()
+		if not (fo is LineEdit or fo is TextEdit):
+			_toggle_debug_menu()
+			get_viewport().set_input_as_handled()
+			return
 	# Adventure: the configurable inventory key opens/closes the backpack (and, when
 	# it is Tab, takes precedence over the scoreboard). When an NPC talk dialog is
 	# open it closes the dialog and swaps straight to the backpack — this runs before

@@ -33,6 +33,16 @@ var _sites: Array = []
 # Climate derived deterministically from the story theme — biases biomes, snowline,
 # water level, vegetation and palette so the map reflects the prompt.
 var _climate: Dictionary = {}
+# Landform archetype (terrain SHAPE + structures), orthogonal to climate (which is
+# palette/temperature). Chosen from the theme so "flat lands", "city" and "dungeon"
+# build visibly different worlds, not just re-tinted grassland.
+var _landform: Dictionary = {}
+var _landform_key: String = "rolling"
+# Named features extracted from the prompt ("one big mountain", "heart-shaped lake",
+# "crash site near X"), each resolved to a world position. Terrain-shaping features
+# (mountain/lake/crater/…) modulate the heightmap; landmark/biome features are placed
+# after the terrain builds. See _resolve_features / _feature_height / _place_features.
+var _features: Array = []
 
 # Seeded noise fields (created in _make_noise).
 var _nc: FastNoiseLite       # continentalness (very low freq)
@@ -56,8 +66,12 @@ func build_level() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = sd
 	_make_noise(sd)
-	_climate = _theme_climate(String(Game.config.get("theme", "")))
-	_water = 6.0 + float(_climate.get("water", 0.0))
+	var theme_str := String(Game.config.get("theme", ""))
+	_climate = _theme_climate(theme_str)
+	_landform_key = _theme_landform(theme_str)
+	_landform = LANDFORMS[_landform_key]
+	set_meta("landform_key", _landform_key)
+	_water = 6.0 + float(_climate.get("water", 0.0)) + float(_landform.get("water", 0.0))
 	# Expose the resolved climate for world systems (weather, ambience).
 	for key in CLIMATES:
 		if CLIMATES[key] == _climate:
@@ -73,6 +87,7 @@ func build_level() -> void:
 	NavigationServer3D.map_set_cell_size(region.get_navigation_map(), cell)
 
 	_sites = _pick_sites(rng)
+	_features = _resolve_features(rng)   # prompt features (mountains, lakes, landmarks…)
 
 	# Build the heightmap once; reused by mesh + collision.
 	_heights.resize(_n * _n)
@@ -95,8 +110,14 @@ func build_level() -> void:
 	_scatter_trash(rng)
 	_scatter_scrap(rng)       # rusty barrels + abandoned wrecks, for plentiful metal
 	_build_scrapyard(rng)     # a junkyard landmark stocked with scrap + a weapon
+	_place_features(rng)   # landmark clusters + local biomes (before props are batched)
 	_finalize_props()   # batch all tree/rock visuals into one MultiMesh
-	_add_floating_islands(rng)
+	if not _landform.get("dungeon", false):
+		_add_floating_islands(rng)   # sky islands make no sense under a dungeon roof
+	if _landform.get("city", false):
+		_build_city(rng)
+	if _landform.get("dungeon", false):
+		_build_dungeon(rng)
 	_place_sites()
 	# Vehicles are placed in post_bake() (after the navmesh bake) so their tops never
 	# become walkable / a snap target — otherwise bots end up standing on them.
@@ -141,12 +162,29 @@ func _land_height(wx: float, wz: float) -> float:
 	var cont01: float = _nc.get_noise_2d(w.x, w.y) * 0.5 + 0.5          # 0..1
 	var base := SEA_FLOOR + cont01 * (PLAIN_HI - SEA_FLOOR)             # sea .. foothills
 	var land_mask := smoothstep(0.34, 0.50, cont01)                    # 0 sea .. 1 land
-	var hills := (_nh.get_noise_2d(w.x, w.y) * 0.5 + 0.5) * HILL_AMP * land_mask
+	# Landform multipliers reshape each relief band (defaults = the classic rolling look).
+	var lf := _landform
+	var m_hill := float(lf.get("hill", 1.0))
+	var m_mtn := float(lf.get("mtn", 1.0))
+	var m_det := float(lf.get("detail", 1.0))
+	var hills := (_nh.get_noise_2d(w.x, w.y) * 0.5 + 0.5) * HILL_AMP * m_hill * land_mask
 	var mtn_mask := smoothstep(0.58, 0.82, cont01)
 	var ridge := pow(1.0 - absf(_nm.get_noise_2d(w.x, w.y)), 3.0)       # sharp ridgelines
-	var mountains := mtn_mask * ridge * MOUNTAIN_AMP
-	var detail := _nd.get_noise_2d(w.x, w.y) * DETAIL_AMP * land_mask
+	var mountains := mtn_mask * ridge * MOUNTAIN_AMP * m_mtn
+	var detail := _nd.get_noise_2d(w.x, w.y) * DETAIL_AMP * m_det * land_mask
+	# Dunes: regular wind-ribbed waves layered onto the sand.
+	if lf.get("dunes", false):
+		detail += sin(w.x * 0.06) * 5.0 * land_mask
 	var h := base + hills + mountains + detail
+	# Mesa/plateau: terrace the land into stepped tables with sheer sides.
+	if lf.get("terrace", false):
+		var band := 18.0
+		h = round(h / band) * band + clampf((h - round(h / band) * band) * 3.0, -2.0, 2.0)
+	# Flatten toward a level plain (flat lands / tundra / urban / dungeon floors).
+	var flat := float(lf.get("flat", 0.0))
+	if flat > 0.0:
+		var plain := _water + 8.0
+		h = lerpf(h, plain, flat * land_mask)
 	# Island edge-falloff: sink the outer rim into the sea for a natural coastline.
 	var edge: float = maxf(absf(wx), absf(wz)) / (_size * 0.5)
 	h -= smoothstep(0.80, 1.0, edge) * 70.0
@@ -154,6 +192,7 @@ func _land_height(wx: float, wz: float) -> float:
 
 func _height(wx: float, wz: float) -> float:
 	var h := _land_height(wx, wz)
+	h = _feature_height(wx, wz, h)   # named prompt features reshape the land first
 	if h < _water:
 		h = minf(h, _water - STEP * 2.0)   # steep banks exceed agent_max_slope -> nav stops at shore
 	for s in _sites:
@@ -162,6 +201,62 @@ func _height(wx: float, wz: float) -> float:
 			var t := 1.0 - smoothstep(s.r * 0.55, s.r, d)  # 1 at centre, 0 at edge
 			h = lerpf(h, s.h, t)
 	return h
+
+## Apply terrain-shaping features (mountain / lake / crater / plateau / valley) to the raw
+## land height at (wx, wz). Landmark + biome features don't touch height (placed later).
+func _feature_height(wx: float, wz: float, h: float) -> float:
+	for f in _features:
+		if String(f["cat"]) != "terrain":
+			continue
+		var r: float = float(f["r"])
+		var dx := wx - float(f["x"])
+		var dz := wz - float(f["z"])
+		var d := Vector2(dx, dz).length()
+		if d > r * 1.4:
+			continue
+		var t: float = 1.0 - smoothstep(0.0, r, d)     # 1 centre .. 0 edge
+		var base: float = float(f["base"])
+		match String(f["type"]):
+			"mountain":
+				var peak := 150.0 if float(f["r"]) > FEATURES["mountain"]["r"] else 95.0
+				h += peak * pow(t, 1.7)
+			"volcano":
+				h += 120.0 * pow(t, 1.7)
+				if d < r * 0.22:
+					h -= 55.0 * (1.0 - smoothstep(0.0, r * 0.22, d))   # summit crater
+			"crater", "sinkhole":
+				h -= (44.0 if String(f["type"]) == "crater" else 30.0) * pow(t, 0.8)
+			"plateau":
+				h = lerpf(h, maxf(base + 42.0, _water + 22.0), smoothstep(0.0, 0.6, t))
+			"valley":
+				h -= 34.0 * t
+			"lake":
+				var m := _lake_inside(dx, dz, r, String(f["shape"]))
+				if m > 0.0:
+					h = minf(h, _water - 2.0 - 7.0 * m)   # carve below the water plane so it fills
+	return h
+
+## Inside-ness (0..1) of a lake footprint of radius `r` at local offset (lx, lz), by shape.
+## Non-round shapes use their implicit curve so "heart-shaped lake" reads as a heart.
+func _lake_inside(lx: float, lz: float, r: float, shape: String) -> float:
+	match shape:
+		"heart":
+			# Classic heart implicit: (u²+v²-1)³ - u²v³ ≤ 0, oriented point-down.
+			var u := lx / (r * 0.92)
+			var v := -lz / (r * 0.92)
+			var q := u * u + v * v - 1.0
+			var val := q * q * q - u * u * v * v * v
+			return clampf(1.0 - val * 3.0, 0.0, 1.0) if val <= 0.0 else 0.0
+		"long":
+			var uu := lx / r
+			var vv := lz / (r * 0.42)
+			return clampf(1.0 - (uu * uu + vv * vv), 0.0, 1.0)
+		"crescent":
+			var a := 1.0 - clampf((lx * lx + lz * lz) / (r * r), 0.0, 1.0)
+			var bite := 1.0 - clampf(((lx - r * 0.5) * (lx - r * 0.5) + lz * lz) / (r * r * 0.64), 0.0, 1.0)
+			return clampf(a - bite * 1.4, 0.0, 1.0)
+		_:  # round (default)
+			return clampf(1.0 - Vector2(lx, lz).length() / r, 0.0, 1.0)
 
 func _pick_sites(rng: RandomNumberGenerator) -> Array:
 	var sites: Array = []
@@ -232,6 +327,219 @@ func _kw(t: String, words: Array) -> bool:
 		if t.find(String(w)) >= 0:
 			return true
 	return false
+
+# ---------------------------------------------------------------- landforms
+
+## Landform presets: multipliers that reshape the relief plus flags that switch on
+## special generators. `hill/mtn/detail` scale the noise bands, `flat` (0..1) pulls the
+## land toward a level plain, `water` shifts the sea, `caves`/`builds` scale structure
+## counts, and `city`/`dungeon`/`terrace`/`dunes` toggle bespoke generation.
+const LANDFORMS := {
+	"rolling":     {"hill": 1.0,  "mtn": 1.0,  "detail": 1.0, "flat": 0.0,  "water": 0.0, "caves": 1.0, "builds": 1.0},
+	"plains":      {"hill": 0.35, "mtn": 0.05, "detail": 0.7, "flat": 0.72, "water": 0.0, "caves": 0.4, "builds": 1.1, "veg": 0.7, "rocks": 0.5},
+	"highlands":   {"hill": 1.4,  "mtn": 1.95, "detail": 1.2, "flat": 0.0,  "water": -1.0,"caves": 1.4, "builds": 0.7, "rocks": 1.6},
+	"mesa":        {"hill": 0.5,  "mtn": 1.15, "detail": 0.8, "flat": 0.35, "water": -2.5,"caves": 0.9, "builds": 0.8, "veg": 0.4, "rocks": 1.3, "terrace": true},
+	"caverns":     {"hill": 0.9,  "mtn": 0.7,  "detail": 1.7, "flat": 0.1,  "water": -1.0,"caves": 3.6, "builds": 0.6, "rocks": 2.0},
+	"dunes":       {"hill": 0.85, "mtn": 0.08, "detail": 1.25,"flat": 0.2,  "water": -3.0,"caves": 0.2, "builds": 0.6, "veg": 0.15,"rocks": 0.4, "dunes": true},
+	"wetlands":    {"hill": 0.3,  "mtn": 0.04, "detail": 0.9, "flat": 0.75, "water": 3.5, "caves": 0.3, "builds": 0.9, "veg": 1.4},
+	"archipelago": {"hill": 0.7,  "mtn": 0.5,  "detail": 1.0, "flat": 0.15, "water": 8.5, "caves": 0.5, "builds": 0.8},
+	"badlands":    {"hill": 0.6,  "mtn": 0.95, "detail": 1.45,"flat": 0.3,  "water": -3.5,"caves": 1.1, "builds": 0.7, "veg": 0.25,"rocks": 1.8},
+	"urban":       {"hill": 0.18, "mtn": 0.0,  "detail": 0.4, "flat": 0.88, "water": -1.0,"caves": 0.1, "builds": 0.0, "veg": 0.1, "rocks": 0.2, "city": true},
+	"dungeon":     {"hill": 0.0,  "mtn": 0.0,  "detail": 0.0, "flat": 1.0,  "water": -40.0,"caves": 0.0, "builds": 0.0, "veg": 0.0, "rocks": 0.0, "dungeon": true},
+}
+
+## Pick the landform preset: the host's classification (Game.config["landform"]) if valid,
+## else keyword-match the theme, else "rolling". Deterministic (config + theme only).
+func _theme_landform(theme: String) -> String:
+	var key := String(Game.config.get("landform", ""))
+	if LANDFORMS.has(key):
+		return key
+	var t := theme.to_lower()
+	# Order matters: most specific / most enclosing first.
+	if _kw(t, ["dungeon", "crypt", "catacomb", "vault", "labyrinth", "sewer", "mine", "tomb", "bunker"]):
+		return "dungeon"
+	if _kw(t, ["city", "urban", "metropolis", "downtown", "street", "slum", "tokyo", "cyberpunk", "megacity", "town"]):
+		return "urban"
+	if _kw(t, ["cave", "cavern", "grotto", "hollow", "underground", "subterran"]):
+		return "caverns"
+	if _kw(t, ["mountain", "alpine", "highland", "peak", "summit", "crag", "ridge", "cliff"]):
+		return "highlands"
+	if _kw(t, ["mesa", "plateau", "canyon", "butte", "gorge"]):
+		return "mesa"
+	if _kw(t, ["swamp", "marsh", "bog", "wetland", "bayou", "fen", "mire", "delta"]):
+		return "wetlands"
+	if _kw(t, ["island", "archipelago", "atoll", "isles", "coast", "lagoon", "reef"]):
+		return "archipelago"
+	if _kw(t, ["dune", "sand sea", "erg", "sahara", "desert plain"]):
+		return "dunes"
+	if _kw(t, ["badland", "wasteland", "barren", "scorched earth", "eroded", "dust bowl"]):
+		return "badlands"
+	if _kw(t, ["flat", "plain", "prairie", "steppe", "tundra", "grassland", "savanna", "field", "meadow"]):
+		return "plains"
+	return "rolling"
+
+# ---------------------------------------------------------------- named features
+
+## Feature vocabulary. `cat`: "terrain" reshapes the heightmap, "landmark" drops a themed
+## prop cluster, "biome" overrides local vegetation/ground. `r` is the base radius (metres).
+const FEATURES := {
+	"mountain":     {"cat": "terrain",  "r": 82.0},
+	"volcano":      {"cat": "terrain",  "r": 86.0},
+	"crater":       {"cat": "terrain",  "r": 46.0},
+	"sinkhole":     {"cat": "terrain",  "r": 32.0},
+	"plateau":      {"cat": "terrain",  "r": 62.0},
+	"valley":       {"cat": "terrain",  "r": 72.0},
+	"lake":         {"cat": "terrain",  "r": 56.0},
+	"crash_site":   {"cat": "landmark", "r": 20.0},
+	"ruins":        {"cat": "landmark", "r": 26.0},
+	"monument":     {"cat": "landmark", "r": 16.0},
+	"campsite":     {"cat": "landmark", "r": 14.0},
+	"tower":        {"cat": "landmark", "r": 10.0},
+	"graveyard":    {"cat": "landmark", "r": 20.0},
+	"forest_grove": {"cat": "biome",    "r": 62.0},
+	"oasis":        {"cat": "biome",    "r": 30.0},
+	"swamp_patch":  {"cat": "biome",    "r": 56.0},
+	"rocky_field":  {"cat": "biome",    "r": 54.0},
+	"dead_forest":  {"cat": "biome",    "r": 56.0},
+}
+
+## Synonyms → canonical feature type, so free-text prompts (and the LLM) resolve loosely.
+const FEATURE_ALIASES := {
+	"mountain": "mountain", "peak": "mountain", "mount": "mountain", "summit": "mountain",
+	"volcano": "volcano", "caldera": "volcano",
+	"crater": "crater", "meteor": "crater", "impact": "crater",
+	"sinkhole": "sinkhole", "pit": "sinkhole",
+	"plateau": "plateau", "mesa": "plateau", "butte": "plateau",
+	"valley": "valley", "basin": "valley", "gorge": "valley", "canyon": "valley", "ravine": "valley",
+	"lake": "lake", "pond": "lake", "pool": "lake", "lagoon": "lake", "tarn": "lake", "reservoir": "lake",
+	"crash": "crash_site", "wreck": "crash_site", "wreckage": "crash_site", "crashsite": "crash_site",
+	"ruin": "ruins", "ruins": "ruins", "temple": "ruins", "fort": "ruins", "citadel": "ruins",
+	"monument": "monument", "stonehenge": "monument", "obelisk": "monument", "statue": "monument", "henge": "monument", "shrine": "monument",
+	"stone circle": "monument", "standing stone": "monument", "car crash": "crash_site", "crash site": "crash_site", "plane crash": "crash_site",
+	"camp": "campsite", "campsite": "campsite", "tents": "campsite", "outpost": "campsite",
+	"tower": "tower", "watchtower": "tower", "lighthouse": "tower",
+	"graveyard": "graveyard", "cemetery": "graveyard", "graves": "graveyard", "necropolis": "graveyard",
+	"forest": "forest_grove", "grove": "forest_grove", "woods": "forest_grove", "jungle": "forest_grove", "woodland": "forest_grove",
+	"oasis": "oasis",
+	"swamp": "swamp_patch", "marsh": "swamp_patch", "bog": "swamp_patch", "wetland": "swamp_patch",
+	"boulders": "rocky_field", "rockfield": "rocky_field", "rocks": "rocky_field", "scree": "rocky_field",
+	"deadwood": "dead_forest", "deadforest": "dead_forest",
+}
+
+func _canon_feature(s: String) -> String:
+	var k := s.strip_edges().to_lower().replace(" ", "_").replace("-", "_")
+	if FEATURES.has(k):
+		return k
+	return String(FEATURE_ALIASES.get(k, ""))
+
+## Turn the prompt's feature specs (from the LLM, or keyword-extracted) into concrete
+## placed instances with world positions, honouring "near" relations (anchors first).
+func _resolve_features(rng: RandomNumberGenerator) -> Array:
+	var specs: Array = Game.config.get("features", [])
+	if specs.is_empty():
+		specs = _extract_features_kw(String(Game.config.get("theme", "")))
+	var out: Array = []
+	var by_id: Dictionary = {}
+	var span := _size * 0.36
+	# Two passes: place anchors (no "near") first so dependents can attach to them.
+	for anchors_pass in [true, false]:
+		for spec in specs:
+			if typeof(spec) != TYPE_DICTIONARY:
+				continue
+			var type := _canon_feature(String(spec.get("type", "")))
+			if type == "":
+				continue
+			var near := String(spec.get("near", "")).strip_edges()
+			if (near == "") != anchors_pass:
+				continue
+			var fdef: Dictionary = FEATURES[type]
+			var size := String(spec.get("size", "")).to_lower()
+			var scale := 1.0
+			if size in ["big", "huge", "large", "giant", "massive"]:
+				scale = 1.5
+			elif size in ["small", "tiny", "little"]:
+				scale = 0.6
+			var r := minf(float(fdef["r"]) * scale, _size * 0.32)   # keep features on-map
+			var count := clampi(int(spec.get("count", 1)), 1, 4)
+			for k in count:
+				if out.size() >= 12:
+					break
+				var pos := Vector2.ZERO
+				var placed := false
+				if near != "" and by_id.has(near):
+					var anc: Dictionary = by_id[near]
+					var ang := rng.randf() * TAU
+					var dist := float(anc["r"]) + r * 0.65 + 10.0
+					pos = Vector2(float(anc["x"]) + cos(ang) * dist, float(anc["z"]) + sin(ang) * dist)
+					pos.x = clampf(pos.x, -span, span)
+					pos.y = clampf(pos.y, -span, span)
+					placed = true
+				else:
+					var att := 0
+					while att < 50:
+						att += 1
+						var p := Vector2(rng.randf_range(-span, span), rng.randf_range(-span, span))
+						if _feature_spot_ok(p, r, out):
+							pos = p
+							placed = true
+							break
+				if not placed:
+					continue
+				var inst := {
+					"type": type, "cat": String(fdef["cat"]), "x": pos.x, "z": pos.y,
+					"r": r, "size": size, "shape": String(spec.get("shape", "round")).to_lower(),
+					"kind": String(spec.get("kind", "")), "id": String(spec.get("id", "")),
+					"base": _land_height(pos.x, pos.y),
+				}
+				out.append(inst)
+				if String(inst["id"]) != "":
+					by_id[inst["id"]] = inst
+	return out
+
+## A candidate feature centre is OK if it clears the map edge, the village sites and any
+## already-placed feature (so features don't stack on top of each other).
+func _feature_spot_ok(p: Vector2, r: float, placed: Array) -> bool:
+	if _near_site(p.x, p.y, r * 0.4 + 12.0):   # features may sit fairly near villages
+		return false
+	for f in placed:
+		if Vector2(p.x - float(f["x"]), p.y - float(f["z"])).length() < r + float(f["r"]) + 12.0:
+			return false
+	return true
+
+## Offline fallback: scan the prompt for feature words and build a simple spec list,
+## picking up "big/small", lake shapes, and a crude "near" relation.
+func _extract_features_kw(theme: String) -> Array:
+	var t := theme.to_lower()
+	var big := _kw(t, ["big", "huge", "large", "giant", "massive", "tall", "great"])
+	var small := _kw(t, ["small", "tiny", "little"])
+	var found: Array = []
+	var seen: Dictionary = {}
+	for word in FEATURE_ALIASES:
+		if t.find(word) < 0:
+			continue
+		var type: String = FEATURE_ALIASES[word]
+		if seen.has(type):
+			continue
+		seen[type] = true
+		var spec := {"type": type}
+		if FEATURES[type]["cat"] == "terrain":
+			if big:
+				spec["size"] = "big"
+			elif small:
+				spec["size"] = "small"
+		if type == "lake":
+			for shp in ["heart", "crescent", "star", "long", "round"]:
+				if t.find(shp) >= 0:
+					spec["shape"] = shp
+		found.append(spec)
+		if found.size() >= 6:
+			break
+	# Crude relation: "X near/by/beside Y" -> attach the later features to the first.
+	if found.size() >= 2 and _kw(t, ["near", " by ", "beside", "next to", "at the foot"]):
+		found[0]["id"] = "anchor"
+		for i in range(1, found.size()):
+			found[i]["near"] = "anchor"
+	return found
 
 func _temp_at(wx: float, wz: float) -> float:
 	return clampf(_ntemp.get_noise_2d(wx, wz) * 0.5 + 0.5 + float(_climate.get("temp", 0.0)), 0.0, 1.0)
@@ -518,8 +826,9 @@ func _sample_height(wx: float, wz: float) -> float:
 func _scatter_vegetation(rng: RandomNumberGenerator) -> void:
 	var area := _size * _size
 	var veg: float = float(_climate.get("veg", 1.0))   # theme density (desert sparse, jungle dense)
-	var tree_budget := clampi(int(area / 2600.0 * veg), 20, 700)
-	var rock_budget := clampi(int(area / 9000.0), 20, 170)
+	var vmul: float = float(_landform.get("veg", 1.0))  # landform: urban/dungeon strip trees
+	var tree_budget := clampi(int(area / 2600.0 * veg * vmul), 0, 700)
+	var rock_budget := clampi(int(area / 9000.0 * float(_landform.get("rocks", 1.0))), 0, 220)
 	var span := _size * 0.47
 
 	# Trees — clustered into forests by the forest-density field, gated by biome.
@@ -822,6 +1131,91 @@ func _scatter_loot(rng: RandomNumberGenerator) -> void:
 				_:
 					add_pickup("ammo", pos)
 
+# ---------------------------------------------------------------- feature placement
+
+## Place the landmark-cluster and local-biome features (terrain-shaping ones already
+## reshaped the heightmap). Uses the same prop helpers as the rest of the world so
+## everything is destructible / consistent, and samples the finished heightmap for Y.
+func _place_features(rng: RandomNumberGenerator) -> void:
+	for f in _features:
+		var cat := String(f["cat"])
+		if cat == "terrain":
+			continue
+		var cx := float(f["x"])
+		var cz := float(f["z"])
+		var r := float(f["r"])
+		match String(f["type"]):
+			"crash_site":
+				for i in rng.randi_range(2, 4):
+					var p := _feat_pt(cx, cz, r * 0.7, rng)
+					_make_wreck(p, rng.randf() * TAU, rng)
+				for i in rng.randi_range(2, 5):
+					_make_barrel(_feat_pt(cx, cz, r * 0.85, rng), rng)
+			"ruins":
+				for i in rng.randi_range(3, 6):
+					var a := rng.randf() * TAU
+					var p := _feat_pt2(cx, cz, a, rng.randf_range(2.0, r * 0.7))
+					p.y -= 0.3
+					_building(rng, p, Color(0.52, 0.50, 0.47), Vector2(cos(a + PI), sin(a + PI)),
+						rng.randf_range(5.0, 9.0), rng.randf_range(5.0, 9.0), rng.randf_range(2.4, 3.6), "none", true)
+			"monument":
+				var stones := rng.randi_range(6, 10)
+				for i in stones:
+					var a := TAU * float(i) / float(stones)
+					var p := _feat_pt2(cx, cz, a, r * 0.7)
+					_visual_box(Vector3(1.3, rng.randf_range(3.6, 5.6), 0.9), p + Vector3(0, 2.4, 0), Color(0.5, 0.5, 0.53))
+			"campsite":
+				for i in rng.randi_range(2, 4):
+					var p := _feat_pt(cx, cz, r * 0.7, rng)
+					_visual_box(Vector3(2.4, 1.7, 2.8), p + Vector3(0, 0.85, 0), Color(0.55, 0.48, 0.36))
+				_visual_box(Vector3(1.4, 0.5, 1.4), Vector3(cx, _sample_height(cx, cz) + 0.25, cz), Color(0.18, 0.14, 0.1))
+			"tower":
+				add_watchtower(Vector3(cx, _sample_height(cx, cz) - 0.3, cz), rng.randf_range(9.0, 13.0))
+			"graveyard":
+				for gxi in 4:
+					for gzi in 4:
+						var p := _feat_pt2(cx, cz, 0.0, 0.0)
+						p.x = cx + (float(gxi) - 1.5) * 3.2
+						p.z = cz + (float(gzi) - 1.5) * 3.2
+						p.y = _sample_height(p.x, p.z)
+						_visual_box(Vector3(0.9, 1.1, 0.25), p + Vector3(0, 0.55, 0), Color(0.5, 0.5, 0.52))
+			"forest_grove":
+				for i in int(r * 0.9):
+					var p := _feat_pt(cx, cz, r, rng)
+					if p.y > _water + 1.0:
+						_add_tree(rng, p, "forest")
+			"oasis":
+				for i in rng.randi_range(5, 9):
+					var p := _feat_pt2(cx, cz, rng.randf() * TAU, rng.randf_range(r * 0.4, r))
+					if p.y > _water + 1.0:
+						_add_tree(rng, p, "forest")
+			"swamp_patch":
+				for i in int(r * 0.5):
+					var p := _feat_pt(cx, cz, r, rng)
+					if p.y > _water:
+						_visual_box(Vector3(0.2, rng.randf_range(1.5, 2.6), 0.2), p + Vector3(0, 1.0, 0), Color(0.3, 0.4, 0.2))
+			"rocky_field":
+				for i in int(r * 0.4):
+					var p := _feat_pt(cx, cz, r, rng)
+					if p.y > _water:
+						_add_boulder(rng, p)
+			"dead_forest":
+				for i in int(r * 0.6):
+					var p := _feat_pt(cx, cz, r, rng)
+					if p.y > _water:
+						_add_tree(rng, p, "snow")
+
+## A random point within `rad` of a feature centre, snapped to the finished heightmap.
+func _feat_pt(cx: float, cz: float, rad: float, rng: RandomNumberGenerator) -> Vector3:
+	var a := rng.randf() * TAU
+	var d := rad * sqrt(rng.randf())   # uniform over the disc, not clustered at centre
+	return _feat_pt2(cx, cz, a, d)
+
+func _feat_pt2(cx: float, cz: float, ang: float, dist: float) -> Vector3:
+	var x := cx + cos(ang) * dist
+	var z := cz + sin(ang) * dist
+	return Vector3(x, _sample_height(x, z), z)
+
 # ---------------------------------------------------------------- villages
 
 ## A ring of simple huts around each flattened site, so villages read as places.
@@ -832,8 +1226,11 @@ func _build_villages(rng: RandomNumberGenerator) -> void:
 		Color(0.52, 0.38, 0.30),  # clay
 		Color(0.66, 0.60, 0.48),  # sandstone
 	]
+	var bmul := float(_landform.get("builds", 1.0))
 	for s in _sites:
-		var n := rng.randi_range(4, 7)
+		var n := int(round(rng.randi_range(4, 7) * bmul))
+		if n <= 0:
+			continue   # urban / dungeon landforms build their own structures instead
 		for b in n:
 			var ang := TAU * float(b) / float(n) + rng.randf_range(-0.3, 0.3)
 			# Stay inside the fully-flattened core (< 0.55 r) so buildings sit level.
@@ -842,6 +1239,104 @@ func _build_villages(rng: RandomNumberGenerator) -> void:
 			var bz := float(s.z) + sin(ang) * rr
 			var by := _sample_height(bx, bz) - 0.3   # sink the foundation a touch
 			_add_building(rng, Vector3(bx, by, bz), palette[rng.randi() % palette.size()], ang)
+
+# ---------------------------------------------------------------- city (urban landform)
+
+## Lay a street grid of blocky concrete buildings across the (flattened) map so an "urban"
+## theme reads as a real city — dense multi-storey blocks with gaps for streets/plazas.
+func _build_city(rng: RandomNumberGenerator) -> void:
+	var span := _size * 0.42
+	var block := 26.0   # lot + street pitch
+	var pal := [Color(0.50, 0.50, 0.53), Color(0.44, 0.45, 0.48), Color(0.56, 0.54, 0.5),
+		Color(0.40, 0.42, 0.46), Color(0.48, 0.47, 0.44)]
+	var gx := -span
+	while gx < span:
+		var gz := -span
+		while gz < span:
+			var cx := gx + block * 0.5 + rng.randf_range(-2.0, 2.0)
+			var cz := gz + block * 0.5 + rng.randf_range(-2.0, 2.0)
+			gz += block
+			if _near_site(cx, cz, 15.0) or rng.randf() < 0.18:
+				continue   # keep village plots clear + the odd empty lot / plaza
+			var gy := _sample_height(cx, cz)
+			if gy < _water + 1.0:
+				continue
+			var w := block * rng.randf_range(0.5, 0.72)
+			var d := block * rng.randf_range(0.5, 0.72)
+			var storeys := rng.randi_range(1, 4)
+			var col: Color = pal[rng.randi() % pal.size()]
+			var face := rng.randf() * TAU
+			_building(rng, Vector3(cx, gy - 0.3, cz), col, Vector2(cos(face), sin(face)),
+				w, d, 3.4 * storeys, "flat", rng.randf() < 0.12)
+		gx += block
+
+# ---------------------------------------------------------------- dungeon landform
+
+## Enclose the (fully-flattened) floor in a roofed stone labyrinth: perimeter walls, a
+## ceiling slab, a grid of room walls pierced by doorways, and scattered torches. Reads as
+## a dungeon, not open country. Marks the map "dark" so the environment can dim for it.
+func _build_dungeon(rng: RandomNumberGenerator) -> void:
+	set_meta("dark", true)
+	var span := _size * 0.42
+	var floor_y := _sample_height(0.0, 0.0)
+	var wall_h := 8.0
+	var t := 1.2
+	var stone := Color(0.32, 0.31, 0.34)
+	var span2 := span * 2.0
+	# Perimeter walls + a ceiling slab so you're boxed in.
+	_collider_box(Vector3(span2, wall_h, t), Vector3(0, floor_y + wall_h * 0.5, -span), stone)
+	_collider_box(Vector3(span2, wall_h, t), Vector3(0, floor_y + wall_h * 0.5, span), stone)
+	_collider_box(Vector3(t, wall_h, span2), Vector3(-span, floor_y + wall_h * 0.5, 0), stone)
+	_collider_box(Vector3(t, wall_h, span2), Vector3(span, floor_y + wall_h * 0.5, 0), stone)
+	_collider_box(Vector3(span2, t, span2), Vector3(0, floor_y + wall_h, 0), stone.darkened(0.35))
+	# Interior walls on a grid, each broken by a doorway gap so rooms interconnect.
+	var cell := 34.0
+	var lines := int((span2 - cell) / cell)
+	for a in range(1, lines + 1):
+		var gx := -span + a * cell
+		if gx > span - 4.0:
+			break
+		_dungeon_wall_line(rng, true, gx, span, floor_y, wall_h, t, stone)
+		var gz := -span + a * cell
+		if gz <= span - 4.0:
+			_dungeon_wall_line(rng, false, gz, span, floor_y, wall_h, t, stone)
+	# Torches: emissive posts with a warm point light, along the perimeter.
+	var torches := clampi(int(span2 / 18.0), 6, 40)
+	for i in torches:
+		var edge := i % 4
+		var f := rng.randf_range(-span + 6.0, span - 6.0)
+		var pos := Vector3(f, floor_y + 3.2, -span + 1.6)
+		if edge == 1: pos = Vector3(f, floor_y + 3.2, span - 1.6)
+		elif edge == 2: pos = Vector3(-span + 1.6, floor_y + 3.2, f)
+		elif edge == 3: pos = Vector3(span - 1.6, floor_y + 3.2, f)
+		_dungeon_torch(pos, floor_y)
+
+## One interior wall running the width/depth of the dungeon with a random doorway gap.
+func _dungeon_wall_line(rng: RandomNumberGenerator, vertical: bool, at: float, span: float,
+		floor_y: float, wall_h: float, t: float, col: Color) -> void:
+	var seg := 30.0
+	var gap := rng.randf_range(-span + seg, span - seg)   # doorway centre
+	var p := -span
+	while p < span:
+		var length := minf(seg, span - p)
+		var c := p + length * 0.5
+		p += seg
+		if absf(c - gap) < 6.0:
+			continue   # leave a doorway
+		if vertical:
+			_collider_box(Vector3(t, wall_h, length), Vector3(at, floor_y + wall_h * 0.5, c), col)
+		else:
+			_collider_box(Vector3(length, wall_h, t), Vector3(c, floor_y + wall_h * 0.5, at), col)
+
+## A wall torch: a small emissive block plus a warm omni light for the torch-lit look.
+func _dungeon_torch(pos: Vector3, _floor_y: float) -> void:
+	_visual_box(Vector3(0.3, 0.6, 0.3), pos, Color(1.0, 0.6, 0.25))
+	var light := OmniLight3D.new()
+	light.omni_range = 12.0
+	light.light_energy = 2.6
+	light.light_color = Color(1.0, 0.62, 0.32)
+	light.position = pos + Vector3(0, 0.6, 0)
+	region.add_child(light)
 
 ## A watchtower (with a climbable ladder) at roughly every other village — a vantage
 ## point and a clear use for the new ladder-climbing.
@@ -938,7 +1433,7 @@ func _peaked_roof(c: Vector3, w: float, d: float, top_y: float, col: Color) -> v
 ## Enclosable rock shelters at mountain bases (a heightmap can't carve true tunnels,
 ## so these are open-mouthed boulder rings with loot tucked inside).
 func _add_caves(rng: RandomNumberGenerator) -> void:
-	var want := clampi(int(_size / 360.0), 2, 5)
+	var want := clampi(int(_size / 360.0 * float(_landform.get("caves", 1.0))), 0, 12)
 	var span := _size * 0.42
 	var made := 0
 	var att := 0

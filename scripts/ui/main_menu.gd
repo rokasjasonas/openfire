@@ -205,8 +205,20 @@ func _setup_options() -> void:
 	%LlmModelEdit.text = Settings.llm_model
 	%LlmEndpointEdit.text_changed.connect(_on_llm_endpoint_changed)
 	%LlmModelEdit.text_changed.connect(_on_llm_model_changed)
+	# Debug mode toggle: enables the in-game [0] cheat menu (solo games only).
+	var dbg := CheckButton.new()
+	dbg.text = "Debug mode  ·  press [0] in a solo game"
+	dbg.button_pressed = Settings.debug_mode
+	dbg.toggled.connect(_on_debug_toggled)
+	var vbox: Node = %OptionsBackButton.get_parent()
+	vbox.add_child(dbg)
+	vbox.move_child(dbg, %OptionsBackButton.get_index())   # sit just above the Back button
 	%OptionsButton.pressed.connect(_show_options)
 	%OptionsBackButton.pressed.connect(_show_setup)
+
+func _on_debug_toggled(on: bool) -> void:
+	Settings.debug_mode = on
+	Settings.save()
 
 func _on_llm_embed_changed(idx: int) -> void:
 	var m: Dictionary = AI_MODELS[clampi(idx, 0, AI_MODELS.size() - 1)]

@@ -579,8 +579,34 @@ func _ready() -> void:
 		for n in get_tree().current_scene.get_children():
 			if n.get("kind") != null and String(n.get("kind")) == "food":
 				after_pk += 1
-		wildlife_ok = is_combatant and after_pk > before_pk
-		print("SMOKE: wildlife_ok=", wildlife_ok, " combatant=", is_combatant, " drops=", after_pk - before_pk)
+		# Line-of-sight: a predator can't bite through a wall. Place a wolf and a target a
+		# few metres apart, drop a solid wall (layer 1) between them, and confirm the LOS
+		# ray is blocked — then clear it and confirm the ray is open again.
+		var los_ok := true
+		var wolf: Node = load("res://scenes/animal.tscn").instantiate()
+		wolf.species = "wolf"
+		get_tree().current_scene.add_child(wolf)
+		wolf.global_position = Vector3(200, 50, 200)
+		me.global_position = Vector3(204, 50, 200)
+		await get_tree().process_frame
+		var clear_los: bool = wolf._has_line_of_sight(me)   # nothing between -> can reach
+		var wall := StaticBody3D.new()
+		wall.collision_layer = 1
+		var wcs := CollisionShape3D.new()
+		var wbox := BoxShape3D.new()
+		wbox.size = Vector3(0.4, 4.0, 4.0)
+		wcs.shape = wbox
+		wall.add_child(wcs)
+		get_tree().current_scene.add_child(wall)
+		wall.global_position = Vector3(202, 50, 200)   # midway, blocking the ray
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var blocked_los: bool = not wolf._has_line_of_sight(me)   # wall between -> blocked
+		los_ok = clear_los and blocked_los
+		wall.queue_free()
+		wolf.queue_free()
+		wildlife_ok = is_combatant and after_pk > before_pk and los_ok
+		print("SMOKE: wildlife_ok=", wildlife_ok, " combatant=", is_combatant, " drops=", after_pk - before_pk, " los_clear=", clear_los, " los_blocked=", blocked_los)
 
 	# Archetypes: grenadier + sniper profiles exist with distinct behaviours.
 	var botscript = load("res://scripts/ai/bot.gd")
@@ -1051,8 +1077,12 @@ func _ready() -> void:
 		var geom_ok: bool = storm.is_outside(Vector3(80, 0, 0)) and not storm.is_outside(Vector3(10, 0, 0))
 		var storm_dmg_ok := false
 		var sbots := get_tree().get_nodes_in_group("bot")
-		if not sbots.is_empty():
-			var sb = sbots[0]
+		var sb = null
+		for _b in sbots:
+			if not _b.get("dead") and not _b.get("fully_dead"):
+				sb = _b   # a LIVE bot: corpses from earlier tests no-op storm damage (flaky)
+				break
+		if sb != null:
 			sb.global_position = Vector3(300, 0.5, 0)  # well outside the 50 m ring
 			await get_tree().physics_frame
 			var hp0: float = sb.sync_health
@@ -1168,6 +1198,33 @@ func _ready() -> void:
 		inventory_ok = add_ok and overlap_ok and size_ok and cap_ok and rot_ok and use_ok and drop_ok
 		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " size=", size_ok, " cap=", cap_ok, " rot=", rot_ok, " use=", use_ok, " drop=", drop_ok)
 
+	# Debug helpers backing the solo [0] menu: stat setters clamp to their range, item
+	# spawn lands in the pack, and noclip toggles the player's world collision off/on.
+	var debug_ok := false
+	if me:
+		me.sync_health = 50.0
+		me.thirst = 50.0
+		me.hunger = 50.0
+		me.debug_add_health(25.0)       # -> 75
+		me.debug_add_thirst(-20.0)      # -> 30
+		me.debug_add_hunger(9999.0)     # clamps to MAX_NEED (100)
+		var stat_ok: bool = int(me.sync_health) == 75 and int(me.thirst) == 30 and int(me.hunger) == 100
+		me.inventory.clear()
+		me.backpack_w = 4
+		me.backpack_h = 4
+		var spawn_ok: bool = me.debug_spawn_item("scrap") and me.debug_spawn_item("rifle") \
+			and me.inventory.size() == 2 and not me.debug_spawn_item("not_a_real_item")
+		me.debug_set_noclip(true)
+		var nc_on: bool = bool(me.noclip) and me.collision_mask == 0
+		me.debug_set_noclip(false)
+		var nc_off: bool = not bool(me.noclip) and me.collision_mask == 7
+		me.inventory.clear()
+		me.sync_health = me.MAX_HEALTH
+		me.thirst = me.MAX_NEED
+		me.hunger = me.MAX_NEED
+		debug_ok = stat_ok and spawn_ok and nc_on and nc_off and Settings.get("debug_mode") != null
+		print("SMOKE: debug_ok=", debug_ok, " stat=", stat_ok, " spawn=", spawn_ok, " nc_on=", nc_on, " nc_off=", nc_off)
+
 	# Procedural Adventure terrain: seeded heightmap mesh + collision + biome navmesh,
 	# water plane, scattered props, flattened POI/village sites and spawns.
 	var terrain_ok := false
@@ -1209,6 +1266,101 @@ func _ready() -> void:
 	terr.queue_free()
 	Game.config["map_size"] = prev_ms
 	Game.config["seed"] = prev_sd
+
+	# Landforms: theme keyword -> landform mapping, table completeness, and that "plains"
+	# actually flattens the relief compared with the default "rolling" (so flat lands,
+	# cities, dungeons etc. build visibly different terrain, not just re-tinted grassland).
+	var landform_ok := false
+	var lt = load("res://scripts/world/terrain.gd").new()
+	Game.config.erase("landform")
+	var lf_expect := {
+		"wide flat grassland plains": "plains",
+		"frozen underground cave network": "caverns",
+		"neon megacity downtown streets": "urban",
+		"the deep dungeon crypt": "dungeon",
+		"towering alpine mountain peaks": "highlands",
+		"endless rolling sand dunes": "dunes",
+		"": "rolling",
+	}
+	var lf_sel_ok := true
+	for th in lf_expect:
+		if String(lt._theme_landform(th)) != String(lf_expect[th]):
+			lf_sel_ok = false
+			print("  landform mismatch: '", th, "' -> ", lt._theme_landform(th), " (want ", lf_expect[th], ")")
+	var lf_table_ok: bool = lt.LANDFORMS.size() >= 11 and lt.LANDFORMS.has("dungeon") \
+		and lt.LANDFORMS.has("urban") and lt.LANDFORMS.has("plains")
+	# Relief comparison via the pure height function (no mesh/navmesh bake needed).
+	lt._size = 640.0
+	lt._make_noise(777)
+	lt._water = 6.0
+	var lf_range := func(key: String) -> float:
+		lt._landform = lt.LANDFORMS[key]
+		var mn := 1.0e9
+		var mx := -1.0e9
+		for i in 80:
+			var x := -300.0 + i * 7.5
+			var h: float = lt._land_height(x, 40.0)
+			mn = minf(mn, h)
+			mx = maxf(mx, h)
+		return mx - mn
+	var r_roll: float = lf_range.call("rolling")
+	var r_plain: float = lf_range.call("plains")
+	var lf_relief_ok: bool = r_plain < r_roll * 0.7   # plains noticeably flatter than rolling
+	landform_ok = lf_sel_ok and lf_table_ok and lf_relief_ok
+	lt.free()
+	print("SMOKE: landform_ok=", landform_ok, " sel=", lf_sel_ok, " table=", lf_table_ok, " relief=", lf_relief_ok, " roll_range=", int(r_roll), " plain_range=", int(r_plain))
+
+	# Named prompt features: keyword extraction (size + "near" relation), canonicalisation,
+	# height shaping (a mountain raises the land, a lake carves below water), and "near"
+	# placement (a crash site lands beside its anchor mountain).
+	var features_ok := false
+	var ft = load("res://scripts/world/terrain.gd").new()
+	ft._size = 640.0
+	Game.config.erase("features")
+	var canon_ok: bool = ft._canon_feature("peak") == "mountain" and ft._canon_feature("wreck") == "crash_site" \
+		and ft._canon_feature("lagoon") == "lake" and ft._canon_feature("nonsense") == ""
+	var ex: Array = ft._extract_features_kw("car crash site near one big mountain")
+	var ex_mtn := false
+	var ex_crash := false
+	var ex_big := false
+	var ex_near := false
+	for f in ex:
+		if String(f.get("type", "")) == "mountain":
+			ex_mtn = true
+			if String(f.get("size", "")) == "big":
+				ex_big = true
+		if String(f.get("type", "")) == "crash_site":
+			ex_crash = true
+		if String(f.get("near", "")) != "":
+			ex_near = true
+	var extract_ok: bool = ex_mtn and ex_crash and ex_big and ex_near
+	# Height shaping (pure function).
+	ft._make_noise(5)
+	ft._water = 6.0
+	ft._features = [{"type": "mountain", "cat": "terrain", "x": 0.0, "z": 0.0, "r": 110.0, "size": "big", "shape": "round", "base": 30.0}]
+	var raised: float = ft._feature_height(0.0, 0.0, 30.0)
+	ft._features = [{"type": "lake", "cat": "terrain", "x": 0.0, "z": 0.0, "r": 50.0, "size": "", "shape": "heart", "base": 30.0}]
+	var carved: float = ft._feature_height(0.0, 0.0, 30.0)
+	var shape_ok: bool = raised > 120.0 and carved < ft._water
+	# "near" placement resolves the crash site beside the mountain.
+	Game.config["features"] = [{"type": "mountain", "size": "big", "id": "m"}, {"type": "crash_site", "near": "m"}]
+	ft._features = []
+	var frng := RandomNumberGenerator.new()
+	frng.seed = 5
+	var resolved: Array = ft._resolve_features(frng)
+	var mpos = null
+	var cpos = null
+	for f in resolved:
+		if String(f["type"]) == "mountain":
+			mpos = f
+		elif String(f["type"]) == "crash_site":
+			cpos = f
+	var near_ok: bool = mpos != null and cpos != null \
+		and Vector2(float(mpos["x"]) - float(cpos["x"]), float(mpos["z"]) - float(cpos["z"])).length() < float(mpos["r"]) + float(cpos["r"]) + 40.0
+	Game.config.erase("features")
+	ft.free()
+	features_ok = canon_ok and extract_ok and shape_ok and near_ok
+	print("SMOKE: features_ok=", features_ok, " canon=", canon_ok, " extract=", extract_ok, " shape=", shape_ok, " near=", near_ok)
 
 	# Adventure start: an empty loadout fires safely (unarmed) and equipping a weapon
 	# from the backpack fills a free slot (rather than replacing slot 0).
@@ -1258,7 +1410,7 @@ func _ready() -> void:
 	var prev_mode3 = Game.config["mode"]
 	Game.config["mode"] = Game.Mode.ADVENTURE
 	Game.adventure_setup(42)
-	var fa: String = String(Game.ADVENTURE_VILLAGE_FACTIONS[0])
+	var fa: String = String(Game.adventure_village_factions[0])
 	var raider_ok: bool = Game.adventure_hostile("raiders", fa) and Game.adventure_hostile(fa, "raiders") and Game.adventure_hostile("raiders", "player")
 	var self_ok: bool = not Game.adventure_hostile("player", "player") and not Game.adventure_hostile(fa, fa)
 	Game.adventure_stance[fa] = "neutral"
@@ -1266,8 +1418,8 @@ func _ready() -> void:
 	Game.adventure_provoke(fa)
 	var provoke_ok: bool = was_neutral and Game.adventure_hostile("player", fa)
 	var vv_ok := true
-	if Game.ADVENTURE_VILLAGE_FACTIONS.size() >= 2:
-		vv_ok = not Game.adventure_hostile(String(Game.ADVENTURE_VILLAGE_FACTIONS[0]), String(Game.ADVENTURE_VILLAGE_FACTIONS[1]))
+	if Game.adventure_village_factions.size() >= 2:
+		vv_ok = not Game.adventure_hostile(String(Game.adventure_village_factions[0]), String(Game.adventure_village_factions[1]))
 	var faction_spawn_ok := false
 	if world and me:
 		var fid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(6, 0, 0), "soldier", 5, "raiders")
@@ -1293,7 +1445,7 @@ func _ready() -> void:
 		Game.config["mode"] = Game.Mode.ADVENTURE
 		Game.adventure_setup(7)
 		NameGen.reseed(7)
-		var fac2: String = String(Game.ADVENTURE_VILLAGE_FACTIONS[0])
+		var fac2: String = String(Game.adventure_village_factions[0])
 		var nm: String = NameGen.npc_name(fac2)
 		var name_ok: bool = nm.contains(" ")
 		var nid2: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(2, 0, 0), "soldier", 7, fac2, {"name": "Test Elder", "role": "Elder"})
@@ -1559,6 +1711,31 @@ func _ready() -> void:
 	var llm_ok: bool = LLM.has_method("embedded_available") and LLM.model_path().ends_with(Settings.llm_model_file)
 	story_ok = fb_ok and parse_ok and pn_ok and names_ok and llm_ok
 	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names_parse=", pn_ok, " names=", names_ok, " llm=", llm_ok)
+
+	# Per-world themed faction names: seeded generator is deterministic + distinct across
+	# seeds; set_adventure_factions installs/sorts them and drops the reserved raiders key;
+	# the LLM-reply parser tolerates a JSON array and a plain bulleted list.
+	var faction_names_ok := false
+	var fn_a: Array = Game.generate_faction_names(12345, 3)
+	var fn_b: Array = Game.generate_faction_names(12345, 3)
+	var fn_c: Array = Game.generate_faction_names(999, 3)
+	var gen_ok: bool = fn_a.size() == 3 and fn_a == fn_b and fn_a != fn_c \
+		and fn_a[0] != fn_a[1] and fn_a[1] != fn_a[2]
+	Game.set_adventure_factions(["Dust Vultures", "raiders", "Dust Vultures", "  Neon Ronin  "])
+	var set_ok: bool = Game.adventure_village_factions.size() == 2 \
+		and not Game.adventure_village_factions.has("raiders") \
+		and Game.adventure_village_factions.has("Neon Ronin") and Game.adventure_village_factions.has("Dust Vultures")
+	Game.adventure_setup(7)
+	var stance_ok: bool = Game.adventure_stance.has("Neon Ronin") and String(Game.adventure_stance.get("raiders", "")) == "hostile"
+	var parse_ok2 := true
+	var w2 := get_tree().get_first_node_in_group("world")
+	if w2 != null and w2.has_method("_parse_faction_names"):
+		var pj: Array = w2._parse_faction_names('["Chrome Serpents", "Neon Ronin", "Blackwire Cartel"]')
+		var pl: Array = w2._parse_faction_names("- Frostwolf Clan\n- Skalds of Hrim\n- Icebound Host")
+		parse_ok2 = pj.size() == 3 and String(pj[0]) == "Chrome Serpents" and pl.size() == 3 and pl.has("Icebound Host")
+	Game.set_adventure_factions(Game.DEFAULT_VILLAGE_FACTIONS.duplicate())   # restore defaults
+	faction_names_ok = gen_ok and set_ok and stance_ok and parse_ok2
+	print("SMOKE: faction_names_ok=", faction_names_ok, " gen=", gen_ok, " set=", set_ok, " stance=", stance_ok, " parse=", parse_ok2)
 
 	# Equipment: equip armor (zone damage reduction), equip/unequip a weapon, and
 	# verify worn armor cuts that zone's incoming damage.
@@ -1956,7 +2133,7 @@ func _ready() -> void:
 	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
 
 	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
-	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and terrain_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
 	get_tree().quit()
 
 func _count_label3d() -> int:

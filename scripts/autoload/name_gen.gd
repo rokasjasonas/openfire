@@ -27,6 +27,14 @@ const POOLS := {
 		"first": ["Scar", "Vex", "Grim", "Razor", "Tusk", "Snake", "Bones", "Crank", "Mauler", "Skiv"],
 		"last": ["the Hound", "Two-Tooth", "the Cleaver", "Half-Ear", "the Mad", "Ironjaw", "the Quick", "Bloodnail"],
 	},
+	# Generic settler pool: used for any (themed) village faction with no built-in or
+	# LLM-provided pool, so procedural villager names aren't raider-styled.
+	"_settlers": {
+		"first": ["Mara", "Jonan", "Elin", "Cass", "Renn", "Tam", "Oda", "Bram", "Nessa", "Piet",
+			"Lira", "Garon", "Wynn", "Sela", "Doran", "Yara", "Hale", "Ves", "Corin", "Mira"],
+		"last": ["Marsh", "Field", "Kell", "Vance", "Brook", "Holt", "Rane", "Ashby", "Dunn",
+			"Mercer", "Vale", "Crane", "Wren", "Slade", "Orr", "Pike", "Frey", "Cobb"],
+	},
 }
 
 func reseed(s: int) -> void:
@@ -67,7 +75,9 @@ func npc_person(faction: String) -> Dictionary:
 	return {"name": npc_name(faction), "trait": ""}
 
 func npc_name(faction: String) -> String:
-	var pool: Dictionary = POOLS.get(faction, POOLS["raiders"])
+	# Known faction pool, else raider-styled for raiders, else the generic settler pool.
+	var fallback: Dictionary = POOLS["raiders"] if _key(faction) == "raiders" else POOLS["_settlers"]
+	var pool: Dictionary = POOLS.get(faction, fallback)
 	var firsts: Array = pool["first"]
 	var lasts: Array = pool["last"]
 	var f: String = String(firsts[_rng.randi() % firsts.size()])

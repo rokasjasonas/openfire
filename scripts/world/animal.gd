@@ -109,7 +109,7 @@ func _physics_process(delta: float) -> void:
 		var to: Vector3 = p.global_position - global_position
 		var vgap: float = absf(to.y)
 		to.y = 0
-		var reachable: bool = vgap < 1.6 and not bool(p.get("is_climbing"))
+		var reachable: bool = vgap < 1.6 and not bool(p.get("is_climbing")) and _has_line_of_sight(p)
 		if to.length() < 1.8 and reachable:
 			_attack_cd -= delta
 			if _attack_cd <= 0.0:
@@ -144,6 +144,20 @@ func _physics_process(delta: float) -> void:
 	if _body != null and Vector2(velocity.x, velocity.z).length() > 0.5:
 		_bob += delta * 12.0
 		_body.position.y = absf(sin(_bob)) * 0.08
+
+## True when nothing solid (world geometry, layer 1) sits between us and the target, so a
+## predator can't bite a player through a wall it's merely pressed against. The player body
+## (layer 2) and hitboxes (layer 16) aren't on the ray mask, so only walls can block it.
+func _has_line_of_sight(p: Node) -> bool:
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return true
+	var from := global_position + Vector3.UP * 0.7
+	var to := (p.global_position as Vector3) + Vector3.UP * 0.8
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = 1
+	q.exclude = [get_rid()]
+	return space.intersect_ray(q).is_empty()
 
 func _nearby_players() -> Array:
 	var out: Array = []

@@ -32,9 +32,13 @@ var _player_team: Dictionary = {}
 # or keyword fallback) is resolved and broadcast, so every peer builds the same world.
 var _adventure_map_path: String = ""
 var _climate_resolved: bool = false
+var _factions_resolved: bool = false
 var _terrain_built: bool = false
-const CLIMATE_SYS := "You label a game's setting with ONE climate word. Reply with exactly one of: temperate, frozen, desert, verdant, volcanic, isles, alpine."
+const CLIMATE_SYS := "You classify a game world from its theme. Reply with ONLY a compact JSON object (no prose, no markdown): {\"climate\": one of [temperate,frozen,desert,verdant,volcanic,isles,alpine], \"landform\": one of [rolling,plains,highlands,mesa,caverns,dunes,wetlands,archipelago,badlands,urban,dungeon], \"features\": array (possibly empty) of the SPECIFIC places named in the theme, each {\"type\": one of [mountain,volcano,crater,plateau,valley,lake,crash_site,ruins,monument,campsite,tower,graveyard,forest_grove,oasis,swamp_patch,rocky_field], \"size\": \"big\"|\"small\" (optional), \"shape\": for lakes \"heart\"|\"crescent\"|\"long\"|\"round\" (optional), \"count\": integer (optional), \"id\": short label (optional), \"near\": id of another feature (optional)}}. Example theme \"crash site near one big mountain\" -> {\"climate\":\"temperate\",\"landform\":\"highlands\",\"features\":[{\"type\":\"mountain\",\"size\":\"big\",\"id\":\"m\"},{\"type\":\"crash_site\",\"near\":\"m\"}]}."
+const FACTION_SYS := "You invent faction names for a game world. Reply with ONLY a JSON array of short faction names — no prose, no markdown."
+const ADVENTURE_FACTION_COUNT := 3
 const CLIMATE_KEYS := ["frozen", "desert", "verdant", "volcanic", "isles", "alpine", "temperate"]
+const LANDFORM_KEYS := ["rolling", "plains", "highlands", "mesa", "caverns", "dunes", "wetlands", "archipelago", "badlands", "urban", "dungeon"]
 
 func _ready() -> void:
 	add_to_group("world")
@@ -122,43 +126,83 @@ func _begin_adventure() -> void:
 		Story.phase_changed.connect(_on_story_phase)
 	_set_loading_text.rpc(_loading("Preparing the world\u2026"))
 	var theme := String(Game.config.get("theme", "")).strip_edges()
-	# A continued adventure must rebuild the SAME world: reuse its saved climate.
+	# A continued adventure must rebuild the SAME world: reuse its saved climate + landform.
 	if String(Game.config.get("climate", "")) != "":
-		_apply_climate.rpc(String(Game.config["climate"]))
+		_apply_climate.rpc(String(Game.config["climate"]), String(Game.config.get("landform", "")))
 		return
 	# Only classify when the model is already downloaded \u2014 otherwise terrain would wait
 	# on a big first-run download. First adventure uses keyword climate; later ones LLM.
 	if theme != "" and LLM.embedded_ready():
 		_set_loading_text.rpc(_loading("Reading the omens\u2026"))
 		LLM.chat_done.connect(_on_climate_done, CONNECT_ONE_SHOT)
-		if not LLM.chat(CLIMATE_SYS, "Setting / theme: \"%s\". Which one climate word fits it best?" % theme):
-			_apply_climate.rpc("")
+		if not LLM.chat(CLIMATE_SYS, "Theme: \"%s\". Classify it:" % theme):
+			_apply_climate.rpc("", "", "")
 		else:
-			get_tree().create_timer(8.0).timeout.connect(_climate_timeout)
+			get_tree().create_timer(10.0).timeout.connect(_climate_timeout)
 	else:
-		_apply_climate.rpc("")
+		_apply_climate.rpc("", "", "")
 
+## Parse the classifier reply: prefer a JSON object (climate + landform + features), but
+## degrade gracefully to substring word-matching so a malformed reply still yields a world.
 func _on_climate_done(text: String) -> void:
-	var t := text.strip_edges().to_lower()
-	var key := ""
-	for k in CLIMATE_KEYS:
-		if t.find(k) >= 0:
-			key = k
-			break
-	_apply_climate.rpc(key)
+	var low := text.to_lower()
+	var ckey := _match_first(low, CLIMATE_KEYS)
+	var lkey := _match_first(low, LANDFORM_KEYS)
+	var feats := "[]"
+	var obj = _classify_json(text)
+	if typeof(obj) == TYPE_DICTIONARY:
+		var c := _match_first(String(obj.get("climate", "")).to_lower(), CLIMATE_KEYS)
+		var l := _match_first(String(obj.get("landform", "")).to_lower(), LANDFORM_KEYS)
+		if c != "":
+			ckey = c
+		if l != "":
+			lkey = l
+		var fa = obj.get("features", [])
+		if typeof(fa) == TYPE_ARRAY:
+			feats = JSON.stringify(fa)
+	_apply_climate.rpc(ckey, lkey, feats)
+
+func _match_first(text: String, keys: Array) -> String:
+	for k in keys:
+		if text.find(k) >= 0:
+			return k
+	return ""
+
+## Extract a JSON object from a possibly-noisy LLM reply (code fences, prose, trailing
+## commas). Returns the parsed value or null.
+func _classify_json(text: String):
+	var s := text.strip_edges().replace("```json", "").replace("```", "")
+	var a := s.find("{")
+	var b := s.rfind("}")
+	if a < 0 or b <= a:
+		return null
+	s = s.substr(a, b - a + 1)
+	var parsed = JSON.parse_string(s)
+	if parsed == null:
+		var re := RegEx.new()
+		re.compile(",\\s*([}\\]])")
+		parsed = JSON.parse_string(re.sub(s, "$1", true))
+	return parsed
 
 func _climate_timeout() -> void:
 	if not _climate_resolved:
-		_apply_climate.rpc("")   # LLM too slow \u2014 fall back to keyword/temperate
+		_apply_climate.rpc("", "", "")   # LLM too slow \u2014 fall back to keyword
 
-## Lock in the climate on every peer, build the terrain, then (host) kick the story.
+## Lock in the climate + landform + named features on every peer, build the terrain, then
+## (host) kick the story. Empty strings mean "let the terrain keyword-match the theme".
 @rpc("authority", "call_local", "reliable")
-func _apply_climate(key: String) -> void:
+func _apply_climate(key: String, landform: String = "", features_json: String = "") -> void:
 	if _climate_resolved:
 		return
 	_climate_resolved = true
 	if key != "":
 		Game.config["climate"] = key
+	if landform != "":
+		Game.config["landform"] = landform
+	if features_json != "" and features_json != "[]":
+		var fa = JSON.parse_string(features_json)
+		if typeof(fa) == TYPE_ARRAY and not (fa as Array).is_empty():
+			Game.config["features"] = fa
 	_build_adventure_terrain()
 	if Net.is_host():
 		_start_story_generation()
@@ -203,8 +247,75 @@ func _ai_label() -> String:
 		return "AI model: %s (on-device)" % LLM.model_name()
 	return "AI model: local LLM server"
 
+## Step 1 of story gen: name this world's village factions to fit the theme (LLM when
+## available, else a seeded procedural set), so every world has its own clans instead of
+## the hardcoded trio. Then the themed names drive the story, villages and NPC names.
 func _kick_story() -> void:
-	var sfacs := (Game.ADVENTURE_VILLAGE_FACTIONS as Array).duplicate()
+	# A continued adventure reuses its saved clans so the same world comes back.
+	var saved: Array = Game.config.get("factions", [])
+	if not saved.is_empty():
+		_resolve_factions(saved)
+		return
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	if theme != "" and LLM.embedded_ready():
+		_set_loading_text.rpc(_loading("Naming the clans…"))
+		LLM.chat_done.connect(_on_factions_named, CONNECT_ONE_SHOT)
+		if not LLM.chat(FACTION_SYS, "World theme: \"%s\". Invent %d distinct faction/clan names that fit this theme's language, culture and tone. Reply with ONLY a JSON array of %d strings." % [theme, ADVENTURE_FACTION_COUNT, ADVENTURE_FACTION_COUNT]):
+			_resolve_factions(_seeded_faction_names())
+		else:
+			get_tree().create_timer(8.0).timeout.connect(_faction_name_timeout)
+	else:
+		_resolve_factions(_seeded_faction_names())
+
+func _seeded_faction_names() -> Array:
+	return Game.generate_faction_names(int(Game.config.get("seed", 0)), ADVENTURE_FACTION_COUNT)
+
+func _on_factions_named(text: String) -> void:
+	var names := _parse_faction_names(text)
+	if names.size() < ADVENTURE_FACTION_COUNT:
+		names = _seeded_faction_names()
+	_resolve_factions(names)
+
+func _faction_name_timeout() -> void:
+	if not _factions_resolved:
+		_resolve_factions(_seeded_faction_names())
+
+## Parse an LLM reply into a clean list of faction names, tolerating a JSON array, a
+## code-fenced block, or a plain newline/comma list (small models produce all three).
+func _parse_faction_names(text: String) -> Array:
+	var s := text.strip_edges().replace("```json", "").replace("```", "")
+	var out: Array = []
+	var a := s.find("[")
+	var b := s.rfind("]")
+	if a >= 0 and b > a:
+		var parsed = JSON.parse_string(s.substr(a, b - a + 1))
+		if typeof(parsed) == TYPE_ARRAY:
+			for e in parsed:
+				var nm := String(e).strip_edges()
+				if nm != "" and not out.has(nm):
+					out.append(nm)
+	if out.is_empty():
+		for line in s.replace(",", "\n").split("\n"):
+			var nm := String(line).strip_edges().trim_prefix("-").strip_edges().trim_prefix("\"").trim_suffix("\"").strip_edges()
+			if nm != "" and nm.length() < 40 and not out.has(nm):
+				out.append(nm)
+	return out
+
+## Lock the resolved faction names on every peer, then generate the story around them.
+func _resolve_factions(names: Array) -> void:
+	if _factions_resolved:
+		return
+	_factions_resolved = true
+	_apply_faction_names.rpc(names)
+	_generate_story_for(Game.adventure_village_factions)
+
+@rpc("authority", "call_local", "reliable")
+func _apply_faction_names(names: Array) -> void:
+	Game.set_adventure_factions(names)
+	Game.config["factions"] = Game.adventure_village_factions.duplicate()   # reuse on continue
+
+func _generate_story_for(village_factions: Array) -> void:
+	var sfacs: Array = village_factions.duplicate()
 	sfacs.append(Game.RAIDER_FACTION)
 	var hero := {}
 	if Characters.has_current():
@@ -578,7 +689,7 @@ func _start_survival() -> void:
 	var skill := float(Game.config["bot_skill"])
 	var faction_team := {Game.RAIDER_FACTION: 1}
 	var next_team := 2
-	var factions: Array = Game.ADVENTURE_VILLAGE_FACTIONS
+	var factions: Array = Game.adventure_village_factions
 	# Populate each village (POI) with defenders of its faction.
 	for i in pois.size():
 		var poi: Node3D = pois[i]
@@ -826,6 +937,7 @@ var _ambient: AudioStreamPlayer = null
 var _birds: AudioStreamPlayer = null
 var _weather: GPUParticles3D = null
 var _weather_made: bool = false
+var _dark_world: bool = false          # enclosed (dungeon) landform: no day/night, no weather
 
 func _tick_environment(delta: float) -> void:
 	_day01 = fmod(_day01 + delta / DAY_SECS, 1.0)
@@ -836,7 +948,11 @@ func _tick_environment(delta: float) -> void:
 		for m in map_holder.get_children():
 			_sun = m.get_node_or_null("Sun")
 			if _sun != null:
+				_dark_world = m.has_meta("dark")   # enclosed (dungeon) maps stay dim
 				break
+	# Enclosed landforms keep their dim, torch-lit look — no day/night sun, no weather.
+	if _dark_world:
+		return
 	if _sun != null:
 		_sun.rotation_degrees.x = -12.0 - daylight * 65.0   # low warm sun -> high noon
 		_sun.light_energy = 0.07 + daylight * 1.05          # moonlight floor at night

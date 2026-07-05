@@ -90,6 +90,39 @@ func _build_adventure_terrain() -> void:
 	_terrain_built = true
 	var map: Node = load(_adventure_map_path).instantiate()
 	map_holder.add_child(map)
+	_request_ground_texture()
+
+## Ask ComfyUI for a themed tiling ground texture ("rotten forest", "candy mountains", …)
+## and paint it across the whole terrain when it's ready. Cosmetic / local; silent no-op
+## without ComfyUI. Cached per theme so revisiting a world reuses it.
+func _request_ground_texture() -> void:
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	if theme == "":
+		return
+	var key := "ground_" + theme
+	var tex := ComfyUI.asset_texture(key)
+	if tex != null:
+		_apply_ground_texture(tex)
+		return
+	if not ComfyUI.asset_ready.is_connected(_on_ground_texture_ready):
+		ComfyUI.asset_ready.connect(_on_ground_texture_ready)
+	_ground_tex_key = key
+	ComfyUI.ensure_server()
+	ComfyUI.bake("seamless tileable top-down ground texture of %s, aerial overhead view, repeating pattern, natural detail" % theme, key, "image")
+
+var _ground_tex_key: String = ""
+
+func _on_ground_texture_ready(key: String, path: String) -> void:
+	if key != _ground_tex_key or not path.to_lower().ends_with(".png"):
+		return
+	var img := Image.new()
+	if img.load(path) == OK:
+		_apply_ground_texture(ImageTexture.create_from_image(img))
+
+func _apply_ground_texture(tex: Texture2D) -> void:
+	for m in map_holder.get_children():
+		if m.has_method("apply_ground_texture"):
+			m.apply_ground_texture(tex)
 
 # ---------------------------------------------------------------- start handshake
 

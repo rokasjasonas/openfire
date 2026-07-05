@@ -608,13 +608,17 @@ func _tint(c: Color) -> Color:
 
 ## Build an ArrayMesh from the current heightmap. Reused for the initial build and for
 ## rebuilds after the shovel digs holes into the terrain.
+const GROUND_UV_TILE := 14.0   # metres per repeat of the ground texture
+
 func _terrain_mesh_from_heights() -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var colors := PackedColorArray()
 	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
 	verts.resize(_n * _n)
 	colors.resize(_n * _n)
 	normals.resize(_n * _n)
+	uvs.resize(_n * _n)
 	var half := (_n - 1) * STEP * 0.5
 	for j in _n:
 		for i in _n:
@@ -630,6 +634,7 @@ func _terrain_mesh_from_heights() -> ArrayMesh:
 			var nrm := Vector3(hl - hr, 2.0 * STEP, hd - hu).normalized()
 			normals[idx] = nrm
 			colors[idx] = _biome_color(wx, wz, h, nrm.y)
+			uvs[idx] = Vector2(wx, wz) / GROUND_UV_TILE   # planar world UV for the ground texture
 
 	var indices := PackedInt32Array()
 	for j in _n - 1:
@@ -645,22 +650,35 @@ func _terrain_mesh_from_heights() -> ArrayMesh:
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = normals
 	arr[Mesh.ARRAY_COLOR] = colors
+	arr[Mesh.ARRAY_TEX_UV] = uvs
 	arr[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
+
+var _terrain_mat: StandardMaterial3D = null
 
 func _build_terrain_mesh() -> void:
 	var mi := MeshInstance3D.new()
 	mi.name = "TerrainMesh"
 	mi.mesh = _terrain_mesh_from_heights()
 	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
+	mat.vertex_color_use_as_albedo = true   # biome colours tint the (later) ground texture
 	mat.roughness = 1.0
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mi.material_override = mat
 	region.add_child(mi)   # under the NavigationRegion so the navmesh bakes from it
 	_terrain_mi = mi
+	_terrain_mat = mat
+
+## Apply a themed AI ground texture across the whole terrain (tiled, multiplied by the biome
+## vertex colours). Called when the ComfyUI texture for the world theme is ready.
+func apply_ground_texture(tex: Texture2D) -> void:
+	if _terrain_mat == null or tex == null:
+		return
+	# UVs run 0..world/tile, so the texture tiles (runtime ImageTextures repeat by default).
+	_terrain_mat.albedo_texture = tex
+	_terrain_mat.albedo_color = Color(1, 1, 1)
 
 func _build_collision() -> void:
 	var body := StaticBody3D.new()

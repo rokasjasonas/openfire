@@ -271,14 +271,18 @@ func _on_download_model() -> void:
 		_comfy_dl_bar.value = 0.0
 	ComfyUI.download_model()
 
-func _on_model_progress(frac: float, downloaded: int, total: int) -> void:
+func _on_model_progress(_frac: float, downloaded: int, total: int) -> void:
 	var mb := func(n: int) -> String: return "%.0f MB" % (float(n) / 1048576.0)
-	if total > 0:
+	# HuggingFace's LFS redirects make the HTTP Content-Length (`total`) unreliable — often a
+	# fraction of the real size. Only trust it when it's clearly the whole file; otherwise use
+	# the known model size. `downloaded` (actual bytes written) is always correct.
+	var real_total := total if (total > downloaded and total > 1073741824) else int(Settings.comfyui_model_size)
+	if real_total > 0:
+		var pct := clampf(float(downloaded) / float(real_total) * 100.0, 0.0, 99.0)
 		if _comfy_dl_bar != null:
-			_comfy_dl_bar.value = frac * 100.0
-		_comfy_status.text = "Downloading model…  %d%%   (%s / %s)" % [int(frac * 100.0), mb.call(downloaded), mb.call(total)]
+			_comfy_dl_bar.value = pct
+		_comfy_status.text = "Downloading model…  %d%%   (%s / %s)" % [int(pct), mb.call(downloaded), mb.call(real_total)]
 	else:
-		# Unknown length (no Content-Length): show bytes and a busy bar.
 		if _comfy_dl_bar != null:
 			_comfy_dl_bar.value = fmod(float(downloaded) / 1048576.0, 100.0)
 		_comfy_status.text = "Downloading model…  %s" % mb.call(downloaded)

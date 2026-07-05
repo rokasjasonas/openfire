@@ -400,11 +400,14 @@ func _submit_current() -> void:
 		last_error = "No workflow for kind '%s' — add user://comfyui/workflow_%s.json." % [kind, kind]
 		_fail_current()
 		return
-	var parsed = JSON.parse_string(graph)
-	if typeof(parsed) != TYPE_DICTIONARY:
-		_fail_current()
+	if typeof(JSON.parse_string(graph)) != TYPE_DICTIONARY:
+		_fail_current()   # sanity-check it parses, but DON'T re-stringify (see below)
 		return
-	var body := JSON.stringify({"prompt": parsed, "client_id": CLIENT_ID})
+	# Send the ORIGINAL graph string, not a re-stringified parse. Godot's JSON roundtrip
+	# turns every int into a float (e.g. a node slot ["5", 0] becomes ["5", 0.0]), and
+	# ComfyUI's connection validation requires integer slot indices — floats 400 with
+	# "tuple indices must be integers, not float". Concatenation keeps the int literals.
+	var body := '{"prompt": %s, "client_id": "%s"}' % [graph, CLIENT_ID]
 	_cur_prompt_id = ""
 	if _post.request(endpoint() + "/prompt", ["Content-Type: application/json"], HTTPClient.METHOD_POST, body) != OK:
 		_fail_current()

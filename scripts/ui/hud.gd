@@ -87,6 +87,7 @@ var _dbg_item: OptionButton = null
 var _dbg_item_ids: Array = []
 var _dbg_ai_prompt: LineEdit = null
 var _dbg_ai_status: Label = null
+var _dbg_ai_3d: CheckButton = null
 
 # Loading-screen 3D preview: a spinning random game model in the bottom-right; Space cycles.
 # Rendered at high res in an offscreen SubViewport and downscaled into a TextureRect
@@ -278,7 +279,8 @@ func _show_npc_portrait(info: Dictionary) -> void:
 		_npc_portrait.offset_right = -16.0
 		_npc_portrait.offset_bottom = 116.0
 		npc_dialog.add_child(_npc_portrait)
-	var key := "npc_%s_%s" % [String(info.get("faction", "")), String(info.get("name", ""))]
+	# "face_" prefix (vs the old "npc_") so earlier full-body portraits in the cache are bypassed.
+	var key := "face_%s_%s" % [String(info.get("faction", "")), String(info.get("name", ""))]
 	_npc_portrait_key = key
 	var tex := ComfyUI.asset_texture(key)
 	if tex != null:
@@ -290,7 +292,8 @@ func _show_npc_portrait(info: Dictionary) -> void:
 	if not ComfyUI.asset_ready.is_connected(_on_npc_portrait_ready):
 		ComfyUI.asset_ready.connect(_on_npc_portrait_ready)
 	var theme := String(Game.config.get("theme", "")).strip_edges()
-	var prompt := "character portrait, head and shoulders, a %s of the %s%s, video-game character art, plain background" % [
+	# Force a tight head-only headshot — SD reads "character/portrait" as full body otherwise.
+	var prompt := "extreme close-up headshot, only the face and head, front-facing face of a %s of the %s%s, centered face, plain background, no body, no torso" % [
 		String(info.get("role", "wanderer")), String(info.get("faction", "wilds")),
 		(", " + theme) if theme != "" else ""]
 	ComfyUI.ensure_server()
@@ -1062,14 +1065,17 @@ func _build_debug_panel() -> void:
 	_dbg_noclip.toggled.connect(func(on): if _player != null: _player.debug_set_noclip(on))
 	vb.add_child(_dbg_noclip)
 	vb.add_child(HSeparator.new())
-	# AI 3D model: type a prompt -> ComfyUI generates a GLB -> spawn it in front of you.
+	# AI generate: type a prompt -> ComfyUI -> spawn it in front of you (3D mesh or billboard).
 	var ailbl := Label.new()
-	ailbl.text = "AI 3D model (ComfyUI) — spawns in front"
+	ailbl.text = "AI generate (ComfyUI) — spawns in front"
 	vb.add_child(ailbl)
 	_dbg_ai_prompt = LineEdit.new()
-	_dbg_ai_prompt.placeholder_text = "describe a 3D object…"
+	_dbg_ai_prompt.placeholder_text = "describe an object…"
 	_dbg_ai_prompt.text_submitted.connect(func(_t): _on_debug_generate())
 	vb.add_child(_dbg_ai_prompt)
+	_dbg_ai_3d = CheckButton.new()
+	_dbg_ai_3d.text = "3D model (needs a 3D workflow)"
+	vb.add_child(_dbg_ai_3d)
 	var gen := Button.new()
 	gen.text = "Generate & spawn"
 	gen.pressed.connect(_on_debug_generate)
@@ -1123,9 +1129,9 @@ func _on_debug_spawn() -> void:
 	else:
 		add_event("⚙ Couldn't spawn %s (pack full?)" % id)
 
-## Ask ComfyUI to generate from the typed prompt; _on_debug_asset spawns the result in
-## front of the player. Uses a 3D (GLB) workflow if you've set one up, otherwise falls
-## back to an IMAGE (spawned as a billboard) so it works with a plain image model too.
+## Ask ComfyUI to generate from the typed prompt; _on_debug_asset spawns the result in front
+## of the player. The 3D toggle requests a GLB mesh (needs a 3D workflow at
+## user://comfyui/workflow_model.json); off requests an image spawned as a billboard.
 func _on_debug_generate() -> void:
 	if _player == null or _dbg_ai_prompt == null:
 		return
@@ -1135,9 +1141,12 @@ func _on_debug_generate() -> void:
 	if not ComfyUI.asset_ready.is_connected(_on_debug_asset):
 		ComfyUI.asset_ready.connect(_on_debug_asset)
 		ComfyUI.asset_failed.connect(_on_debug_asset_failed)
-	# Prefer a real 3D model only if a model workflow template exists; else image+billboard.
-	var kind := "model" if FileAccess.file_exists("user://comfyui/workflow_model.json") else "image"
-	var key := "dbg_" + prompt
+	var want_3d := _dbg_ai_3d != null and _dbg_ai_3d.button_pressed
+	if want_3d and not FileAccess.file_exists("user://comfyui/workflow_model.json"):
+		_dbg_ai_status.text = "No 3D workflow. Export a ComfyUI-3D-Pack graph to user://comfyui/workflow_model.json (see docs/comfyui.md)."
+		return
+	var kind := "model" if want_3d else "image"
+	var key := "dbg_%s_%s" % [kind, prompt]
 	_dbg_ai_status.text = "Generating %s '%s'… (watch ComfyUI; this can take a while)" % [kind, prompt]
 	ComfyUI.ensure_server()
 	ComfyUI.bake(prompt + ", single object, plain background", key, kind)

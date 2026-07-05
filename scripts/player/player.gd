@@ -1591,6 +1591,33 @@ func npc_request(action: String, target_pos: Vector3 = Vector3.INF) -> String:
 			return "Your pack is full — make room first."
 	return ""
 
+## Would the NPC currently do `action`? Returns a short accept-button label (what the player
+## agrees to) if so, else "". Drives the dialog's contextual accept button.
+func npc_can(action: String) -> String:
+	if _talking_npc == null or not is_instance_valid(_talking_npc):
+		return ""
+	var friendly := String(Game.adventure_stance.get(String(_talking_npc.get("faction")), "neutral")) == "friendly"
+	match action:
+		"heal":
+			return "Accept their help" if friendly and sync_health < MAX_HEALTH else ""
+		"give":
+			return "Take the supplies" if friendly else ""
+		"follow":
+			return "Have them join you" if friendly and not bool(_talking_npc.get("recruited")) else ""
+		"wait":
+			return "Have them hold position" if _has_followers() else ""
+		"regroup":
+			return "Call them back to you" if _has_followers() else ""
+		"goto":
+			return "Send them ahead" if _has_followers() else ""
+	return ""
+
+func _has_followers() -> bool:
+	for b in get_tree().get_nodes_in_group("bot"):
+		if bool(b.get("recruited")) and b.get("follow_target") == self:
+			return true
+	return false
+
 ## Apply a follower order to every bot recruited to this player. Returns how many obeyed.
 func _order_followers(order: String, pos: Vector3 = Vector3.INF) -> int:
 	var n := 0

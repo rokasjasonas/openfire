@@ -155,7 +155,6 @@ func _ready() -> void:
 	%TradeClose.pressed.connect(_close_trade)
 	%NpcAskBtn.pressed.connect(_on_npc_ask)
 	%NpcAsk.text_submitted.connect(func(_t): _on_npc_ask())
-	_build_npc_actions()
 	_refresh_team_score()
 	_on_lives(Game.coop_lives)
 	%ResumeButton.pressed.connect(_resume)
@@ -249,8 +248,61 @@ func _on_talk(info: Dictionary) -> void:
 	npc_body.text = body
 	npc_dialog.visible = true
 	npc_prompt.text = ""
+	_npc_pending_intent = ""
+	_npc_pending_action = ""
+	if _npc_accept_btn != null:
+		_npc_accept_btn.visible = false
 	_scroll_dialogue_top()
+	_show_npc_portrait(info)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+# ---------------------------------------------------------------- AI NPC portrait
+
+var _npc_portrait: TextureRect = null
+var _npc_portrait_key: String = ""
+
+## Show a ComfyUI-generated head-and-shoulders portrait of the NPC (cached per name+faction
+## so it's instant on re-talk). Silent no-op if ComfyUI isn't reachable.
+func _show_npc_portrait(info: Dictionary) -> void:
+	if _npc_portrait == null:
+		_npc_portrait = TextureRect.new()
+		_npc_portrait.name = "NpcPortrait"
+		_npc_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_npc_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_npc_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		_npc_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_npc_portrait.anchor_left = 1.0
+		_npc_portrait.anchor_right = 1.0
+		_npc_portrait.offset_left = -120.0
+		_npc_portrait.offset_top = 12.0
+		_npc_portrait.offset_right = -16.0
+		_npc_portrait.offset_bottom = 116.0
+		npc_dialog.add_child(_npc_portrait)
+	var key := "npc_%s_%s" % [String(info.get("faction", "")), String(info.get("name", ""))]
+	_npc_portrait_key = key
+	var tex := ComfyUI.asset_texture(key)
+	if tex != null:
+		_npc_portrait.texture = tex
+		_npc_portrait.visible = true
+		return
+	_npc_portrait.texture = null
+	_npc_portrait.visible = false
+	if not ComfyUI.asset_ready.is_connected(_on_npc_portrait_ready):
+		ComfyUI.asset_ready.connect(_on_npc_portrait_ready)
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	var prompt := "character portrait, head and shoulders, a %s of the %s%s, video-game character art, plain background" % [
+		String(info.get("role", "wanderer")), String(info.get("faction", "wilds")),
+		(", " + theme) if theme != "" else ""]
+	ComfyUI.ensure_server()
+	ComfyUI.bake(prompt, key, "image")
+
+func _on_npc_portrait_ready(key: String, path: String) -> void:
+	if key != _npc_portrait_key or _npc_portrait == null or not path.to_lower().ends_with(".png"):
+		return
+	var img := Image.new()
+	if img.load(path) == OK:
+		_npc_portrait.texture = ImageTexture.create_from_image(img)
+		_npc_portrait.visible = npc_dialog.visible
 
 func _on_accept_quest() -> void:
 	if _offer_quest_id >= 0:
@@ -266,38 +318,69 @@ func _on_hire() -> void:
 		Audio.play_ui("res://assets/audio/ui_click.ogg", -4.0)
 	_close_npc_dialog()
 
-## Negotiation buttons in the talk dialog (Follow / Wait / Regroup / Go there / Heal /
-## Give). The NPC's response is decided player-side by stance and shown in the dialogue.
-func _build_npc_actions() -> void:
-	var row := HBoxContainer.new()
-	row.name = "NpcActions"
-	row.add_theme_constant_override("separation", 6)
-	for a in [["follow", "Follow me"], ["wait", "Wait here"], ["regroup", "Regroup"],
-			["goto", "Go there"], ["heal", "Heal me"], ["give", "Ask for supplies"]]:
-		var b := Button.new()
-		b.text = String(a[1])
-		var act := String(a[0])
-		b.pressed.connect(func(): _on_npc_action(act))
-		row.add_child(b)
-	# Sit the actions just above the Hire button in the dialog.
-	var host: Node = %NpcHire.get_parent()
-	host.add_child(row)
-	host.move_child(row, %NpcHire.get_index())
+# ---------------------------------------------------------------- dynamic NPC actions
+# No always-on command buttons. Actions surface from the conversation: when what you say
+# to an NPC implies something they can do (heal/follow/wait/give/…), a single contextual
+# "accept" button appears; taking it runs the action.
 
-func _on_npc_action(act: String) -> void:
-	if _player == null or not is_instance_valid(_player):
+var _npc_accept_btn: Button = null
+var _npc_pending_action: String = ""
+var _npc_pending_intent: String = ""
+
+## Detect an actionable intent in the player's free-text line to an NPC.
+func _npc_intent(text: String) -> String:
+	var t := text.to_lower()
+	for pair in [
+		["heal", ["heal", "patch", "wound", "hurt", "medic", "bandage", "fix me"]],
+		["follow", ["follow", "join me", "come with", "fight with", "join us", "recruit"]],
+		["give", ["supplies", "give me", "spare", "share", "food", "water", "ammo", "some gear"]],
+		["wait", ["wait here", "stay here", "hold position", "hold up", "stay put"]],
+		["regroup", ["regroup", "come back", "on me", "with me now", "form up"]],
+		["goto", ["go there", "move out", "over there", "go to", "head there"]],
+	]:
+		for kw in pair[1]:
+			if t.find(String(kw)) >= 0:
+				return String(pair[0])
+	return ""
+
+## After the NPC replies, show/hide the contextual accept button based on the detected
+## intent and whether the NPC would actually do it (stance/state, decided player-side).
+func _update_npc_accept() -> void:
+	if _npc_accept_btn == null:
+		_npc_accept_btn = Button.new()
+		_npc_accept_btn.name = "NpcActionAccept"
+		_npc_accept_btn.visible = false
+		_npc_accept_btn.pressed.connect(_on_npc_accept_action)
+		var host: Node = %NpcHire.get_parent()
+		host.add_child(_npc_accept_btn)
+		host.move_child(_npc_accept_btn, %NpcHire.get_index())
+	var label := ""
+	if _npc_pending_intent != "" and _player != null and is_instance_valid(_player):
+		label = String(_player.npc_can(_npc_pending_intent))
+	if label != "":
+		_npc_pending_action = _npc_pending_intent
+		_npc_accept_btn.text = "✓ %s" % label
+		_npc_accept_btn.visible = true
+	else:
+		_npc_pending_action = ""
+		_npc_accept_btn.visible = false
+
+func _on_npc_accept_action() -> void:
+	if _player == null or not is_instance_valid(_player) or _npc_pending_action == "":
 		return
 	var pos := Vector3.INF
-	if act == "goto":
-		# Send followers ~12 m ahead of the way the player is facing.
+	if _npc_pending_action == "goto":
 		var fwd: Vector3 = -_player.global_transform.basis.z
 		fwd.y = 0.0
 		pos = _player.global_position + fwd.normalized() * 12.0
-	var msg := String(_player.npc_request(act, pos))
+	var msg := String(_player.npc_request(_npc_pending_action, pos))
 	if msg != "":
 		npc_body.text += "\n\n» " + msg
 		_scroll_dialogue_bottom()
-		Audio.play_ui("res://assets/audio/ui_click.ogg", -6.0)
+	Audio.play_ui("res://assets/audio/ui_click.ogg", -6.0)
+	_npc_pending_action = ""
+	_npc_pending_intent = ""
+	_npc_accept_btn.visible = false
 
 func _close_npc_dialog() -> void:
 	%NpcAsk.release_focus()
@@ -314,6 +397,7 @@ func _on_npc_ask() -> void:
 	if q == "" or _ask_pending:
 		return
 	%NpcAsk.text = ""
+	_npc_pending_intent = _npc_intent(q)   # what the player is asking for, if anything
 	var who := String(_npc_info.get("name", "Stranger"))
 	npc_body.text += "\n\nYou: %s" % q
 	_scroll_dialogue_bottom()
@@ -328,6 +412,7 @@ func _on_npc_ask() -> void:
 		LLM.chat_done.connect(_on_npc_answer, CONNECT_ONE_SHOT)
 	else:
 		npc_body.text += "\n%s: (just shrugs)" % who
+		_update_npc_accept()   # no LLM — still offer the action if the ask maps to one
 
 func _on_npc_answer(text: String) -> void:
 	_ask_pending = false
@@ -342,6 +427,7 @@ func _on_npc_answer(text: String) -> void:
 		npc_body.text = npc_body.text.substr(0, i)
 	npc_body.text += "\n%s: %s" % [who, reply]
 	_scroll_dialogue_bottom()
+	_update_npc_accept()   # offer an accept button if the ask maps to a doable action
 
 ## Keep the latest dialogue line in view (deferred a frame so the label has resized).
 func _scroll_dialogue_bottom() -> void:

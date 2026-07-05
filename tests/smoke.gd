@@ -1541,8 +1541,10 @@ func _ready() -> void:
 				nn = b
 		me._talking_npc = nn
 		me.sync_health = 50.0
+		# npc_can gates the dialog's contextual accept button: friendly + hurt -> heal offered.
+		var can_heal_ok: bool = me.npc_can("heal") != "" and me.npc_can("follow") != ""
 		var heal_msg: String = me.npc_request("heal")
-		var neg_heal: bool = me.sync_health > 50.0 and heal_msg != ""
+		var neg_heal: bool = me.sync_health > 50.0 and heal_msg != "" and can_heal_ok
 		me.inventory.clear()
 		me.backpack_w = 4
 		me.backpack_h = 4

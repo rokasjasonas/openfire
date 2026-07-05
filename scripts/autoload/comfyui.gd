@@ -352,38 +352,6 @@ func bake(prompt: String, key: String, kind: String = "image") -> void:
 	_queue.append({"prompt": prompt, "key": key, "kind": kind})
 	_pump()
 
-## Queue a whole library: an array of {prompt, key, kind?}. Emits bake_progress / bake_finished.
-func bake_library(specs: Array) -> void:
-	_bake_done = 0
-	_bake_total = specs.size()
-	for s in specs:
-		if typeof(s) == TYPE_DICTIONARY and s.has("prompt") and s.has("key"):
-			bake(String(s["prompt"]), String(s["key"]), String(s.get("kind", "image")))
-	if _bake_total == 0:
-		bake_finished.emit()
-
-## A starter set of themed prop prompts to bake, so a user can verify their ComfyUI setup
-## end-to-end and seed the cache. Keys are stable so worlds can later look assets up by key.
-func sample_library() -> Array:
-	var style := ", isometric low-poly video-game prop, centered, plain flat background, clean"
-	var out: Array = []
-	for e in [
-		["circus_bigtop", "a red and white striped circus big-top tent"],
-		["circus_wagon", "an ornate painted circus caravan wagon"],
-		["circus_cannon", "a human-cannonball circus cannon on wheels"],
-		["city_bench", "a green city park bench"],
-		["city_hydrant", "a red fire hydrant"],
-		["city_phonebooth", "a red telephone booth"],
-		["city_dumpster", "a rusty steel dumpster"],
-		["forest_log", "a mossy fallen tree log"],
-		["forest_mushroom", "a giant red toadstool mushroom"],
-		["forest_beehive", "a wooden beehive box"],
-		["industrial_container", "a rusty shipping container"],
-		["industrial_generator", "an industrial diesel generator"],
-	]:
-		out.append({"prompt": String(e[1]) + style, "key": String(e[0]), "kind": "image"})
-	return out
-
 func _pump() -> void:
 	if not _cur.is_empty() or _queue.is_empty() or not enabled():
 		return

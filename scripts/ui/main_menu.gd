@@ -246,16 +246,12 @@ func _build_comfyui_options(vbox: Node) -> void:
 	_comfy_dl_bar.custom_minimum_size = Vector2(420, 18)
 	_comfy_dl_bar.visible = false
 	vbox.add_child(_comfy_dl_bar)
-	var bake := Button.new()
-	bake.text = "Bake sample asset library"
-	bake.pressed.connect(_on_bake_library)
-	vbox.add_child(bake)
 	_comfy_status = Label.new()
 	_comfy_status.text = ""
 	_comfy_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_comfy_status.custom_minimum_size.x = 420
 	vbox.add_child(_comfy_status)
-	for n in [head, ep, dl, _comfy_dl_bar, bake, _comfy_status]:
+	for n in [head, ep, dl, _comfy_dl_bar, _comfy_status]:
 		vbox.move_child(n, %OptionsBackButton.get_index())
 
 func _on_download_model() -> void:
@@ -291,17 +287,6 @@ func _on_model_ready_status(_ok: bool, message: String) -> void:
 	if _comfy_dl_bar != null:
 		_comfy_dl_bar.visible = false
 	_comfy_status.text = message
-
-func _on_bake_library() -> void:
-	if not ComfyUI.bake_progress.is_connected(_on_bake_progress):
-		ComfyUI.bake_progress.connect(_on_bake_progress)
-		ComfyUI.bake_finished.connect(func(): _comfy_status.text = "Bake complete → user://generated/")
-	_comfy_status.text = "Baking… (watch ComfyUI)"
-	ComfyUI.ensure_server()
-	ComfyUI.bake_library(ComfyUI.sample_library())
-
-func _on_bake_progress(done: int, total: int) -> void:
-	_comfy_status.text = "Baking %d / %d…" % [done, total]
 
 func _on_llm_embed_changed(idx: int) -> void:
 	var m: Dictionary = AI_MODELS[clampi(idx, 0, AI_MODELS.size() - 1)]

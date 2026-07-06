@@ -41,6 +41,16 @@ var comfyui_bundle_url: String = "https://github.com/rokasjasonas/openfire/relea
 # LFS redirects make the HTTP Content-Length unreliable. ~4.27 GB for SD 1.5 emaonly.
 var comfyui_model_size: int = 4265146304
 
+# --- Stable Fast 3D weights (text→3D stage) --------------------------------------------------
+# The SF3D model is license-gated on HuggingFace, so the game can't pull it from HF directly.
+# The release workflow fetches it (with an HF token) and re-attaches it as a .zip release asset;
+# the game auto-downloads + extracts that on first run into the SF3D node's checkpoints folder.
+var comfyui_sf3d_url: String = "https://github.com/rokasjasonas/openfire/releases/latest/download/sf3d-model.zip"
+# Where the extracted weights land, relative to comfyui/ (the SF3D node reads them from here).
+var comfyui_sf3d_dir: String = "ComfyUI/custom_nodes/SF3D/checkpoints"
+# A file that exists once the weights are present, so we don't re-download.
+var comfyui_sf3d_marker: String = "model.safetensors"
+
 func _ready() -> void:
 	load_settings()
 	apply()
@@ -67,6 +77,9 @@ func load_settings() -> void:
 		comfyui_model_file = String(cfg.get_value("comfyui", "model_file", comfyui_model_file))
 		comfyui_model_size = int(cfg.get_value("comfyui", "model_size", comfyui_model_size))
 		comfyui_bundle_url = String(cfg.get_value("comfyui", "bundle_url", comfyui_bundle_url))
+		comfyui_sf3d_url = String(cfg.get_value("comfyui", "sf3d_url", comfyui_sf3d_url))
+		comfyui_sf3d_dir = String(cfg.get_value("comfyui", "sf3d_dir", comfyui_sf3d_dir))
+		comfyui_sf3d_marker = String(cfg.get_value("comfyui", "sf3d_marker", comfyui_sf3d_marker))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
@@ -89,6 +102,9 @@ func save() -> void:
 	cfg.set_value("comfyui", "model_file", comfyui_model_file)
 	cfg.set_value("comfyui", "model_size", comfyui_model_size)
 	cfg.set_value("comfyui", "bundle_url", comfyui_bundle_url)
+	cfg.set_value("comfyui", "sf3d_url", comfyui_sf3d_url)
+	cfg.set_value("comfyui", "sf3d_dir", comfyui_sf3d_dir)
+	cfg.set_value("comfyui", "sf3d_marker", comfyui_sf3d_marker)
 	cfg.save(PATH)
 
 ## Apply settings that affect global systems (audio bus). Per-player look/FOV are

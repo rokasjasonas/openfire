@@ -59,6 +59,8 @@ var _view: HTTPRequest      # GET /view?filename=... (download)
 var _info: HTTPRequest      # GET /object_info (available checkpoints)
 var _dl: HTTPRequest        # model download
 var _dl_bundle: HTTPRequest # ComfyUI bundle download (auto-install)
+var _dl_sf3d: HTTPRequest    # Stable Fast 3D weights download (text→3D)
+var _installing_sf3d: bool = false
 var _upload: HTTPRequest    # POST /upload/image for img2img base images
 var _upload_pending: Dictionary = {}   # {prompt, key} awaiting an upload to finish
 var _downloading: bool = false
@@ -81,6 +83,7 @@ func _ready() -> void:
 	_info = _mk_http(_on_object_info)
 	_dl = _mk_http(_on_model_downloaded)
 	_dl_bundle = _mk_http(_on_bundle_downloaded)
+	_dl_sf3d = _mk_http(_on_sf3d_downloaded)
 	_upload = _mk_http(_on_image_uploaded)
 	set_process(false)
 	_poll = Timer.new()
@@ -214,6 +217,10 @@ func _process(_delta: float) -> void:
 		var bd := _dl_bundle.get_downloaded_bytes()
 		var bt := _dl_bundle.get_body_size()
 		install_progress.emit("Downloading ComfyUI…", (float(bd) / float(bt)) if bt > 0 else 0.0)
+	elif _installing_sf3d:
+		var sd := _dl_sf3d.get_downloaded_bytes()
+		var st := _dl_sf3d.get_body_size()
+		install_progress.emit("Downloading 3D model…", (float(sd) / float(st)) if st > 0 else 0.0)
 
 func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
 	if not _downloading:
@@ -239,6 +246,8 @@ func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pac
 func _boot() -> void:
 	if is_installed():
 		ensure_server()
+		if not OS.has_feature("editor") and DisplayServer.get_name() != "headless":
+			ensure_sf3d_model()   # fetch text→3D weights on a real build if not present yet
 		return
 	# Auto-install only in a real windowed build — never during headless smoke or the editor
 	# (so tests and the editor don't pull a multi-GB bundle over the network).
@@ -291,8 +300,62 @@ func _on_bundle_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pa
 	if ok and is_installed():
 		install_done.emit(true, "ComfyUI installed. Starting it…")
 		ensure_server()
+		ensure_sf3d_model()   # pull the text→3D weights too (no-op if absent/already present)
 	else:
 		install_done.emit(false, "Extracted, but no launcher found in the bundle.")
+
+## Absolute folder the SF3D weights extract into (inside the bundled comfyui/).
+func sf3d_dir_abs() -> String:
+	return comfyui_base_dir().path_join(String(Settings.comfyui_sf3d_dir))
+
+## Are the Stable Fast 3D weights present? (marker file inside the SF3D checkpoints folder)
+func has_sf3d_model() -> bool:
+	var marker := String(Settings.comfyui_sf3d_marker).strip_edges()
+	if marker == "":
+		return DirAccess.dir_exists_absolute(sf3d_dir_abs())
+	return FileAccess.file_exists(sf3d_dir_abs().path_join(marker))
+
+## Download + extract the Stable Fast 3D weights zip (a release asset) into the SF3D node's
+## checkpoints folder, so text→3D works with zero manual setup. No-op if already present, no
+## URL configured, or a download is already in flight. Emits install_progress / install_done.
+func ensure_sf3d_model() -> void:
+	if _installing_sf3d or has_sf3d_model():
+		return
+	# Only meaningful once a 3D workflow is actually bundled.
+	if not has_workflow("model"):
+		return
+	var url := String(Settings.comfyui_sf3d_url).strip_edges()
+	if url == "":
+		return
+	_installing_sf3d = true
+	install_progress.emit("Downloading 3D model…", 0.0)
+	var zip := comfyui_base_dir().path_join("_sf3d.zip")
+	DirAccess.make_dir_recursive_absolute(comfyui_base_dir())
+	_dl_sf3d.download_file = zip
+	if _dl_sf3d.request(url) != OK:
+		_installing_sf3d = false
+		install_done.emit(false, "Couldn't start the 3D model download.")
+		return
+	set_process(true)
+
+func _on_sf3d_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
+	if not _installing_sf3d:
+		return
+	set_process(false)
+	var zip := comfyui_base_dir().path_join("_sf3d.zip")
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		_installing_sf3d = false
+		if FileAccess.file_exists(zip):
+			DirAccess.remove_absolute(zip)
+		install_done.emit(false, "3D model download failed (HTTP %d)." % code)
+		return
+	install_progress.emit("Extracting 3D model…", 1.0)
+	DirAccess.make_dir_recursive_absolute(sf3d_dir_abs())
+	var ok := _extract_zip(zip, sf3d_dir_abs())
+	if FileAccess.file_exists(zip):
+		DirAccess.remove_absolute(zip)
+	_installing_sf3d = false
+	install_done.emit(ok and has_sf3d_model(), "3D model ready." if ok else "3D model extracted, but weights weren't found.")
 
 ## Extract a .zip into `dest` (Godot's ZIPReader handles .zip; the ComfyUI portable's .7z
 ## is not supported, hence the .zip bundle requirement). Returns true on success.

@@ -22,6 +22,18 @@ signal model_progress(fraction: float, downloaded: int, total: int)
 signal model_ready(ok: bool, message: String)
 signal install_progress(stage: String, fraction: float)
 signal install_done(ok: bool, message: String)
+## Unified first-run setup status for the UI: a human-readable phase + progress
+## (fraction < 0 = indeterminate/spinner; message "" with fraction 1.0 = done/idle).
+signal setup_status(message: String, fraction: float)
+
+var setup_message: String = ""    # current phase text (last emitted); "" once ready/idle
+var setup_fraction: float = 1.0    # 0..1, or < 0 for indeterminate
+var server_ok: bool = false        # last health check result
+
+# Ungated TripoSR weights for the text→3D stage (downloaded by the game, with progress).
+const TRIPOSR_URL := "https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt"
+const TRIPOSR_FILE := "triposr.ckpt"
+const TRIPOSR_SIZE := 1677246742
 
 const CACHE_DIR := "user://generated/"
 const CLIENT_ID := "openfire"
@@ -182,71 +194,138 @@ func has_local_model() -> bool:
 	var p := local_model_path()
 	return p != "" and FileAccess.file_exists(p)
 
-## Download the configured checkpoint into the bundled checkpoints folder (next to the game
-## binary) so generation works without a manual model install. Emits model_progress /
-## model_ready. On success, points the checkpoint setting at it.
-func download_model() -> void:
-	if _downloading:
+## Emit a setup-status update (stored so the UI can query current state on show).
+func _status(message: String, fraction: float) -> void:
+	setup_message = message
+	setup_fraction = fraction
+	setup_status.emit(message, fraction)
+
+var _model_queue: Array = []      # pending [{url, dest, size, label}]
+var _cur_model: Dictionary = {}
+
+## Which models still need downloading into the bundled checkpoints folder: the SD checkpoint
+## (image stage) and, when a 3D workflow is bundled, the TripoSR weights (3D stage).
+func _pending_models() -> Array:
+	var out: Array = []
+	var sd_url := String(Settings.comfyui_model_url).strip_edges()
+	if sd_url != "" and not has_local_model():
+		out.append({"url": sd_url, "dest": local_model_path(), "size": int(Settings.comfyui_model_size), "label": "image model"})
+	if has_workflow("model"):
+		var tsr := checkpoints_dir().path_join(TRIPOSR_FILE)
+		if not FileAccess.file_exists(tsr):
+			out.append({"url": TRIPOSR_URL, "dest": tsr, "size": TRIPOSR_SIZE, "label": "3D model"})
+	return out
+
+## Download any missing models (SD + TripoSR) into the bundled checkpoints folder, automatically
+## and with progress, so generation works with no manual step. Emits model_progress + setup_status.
+func ensure_models() -> void:
+	if _downloading or not _model_queue.is_empty():
 		return
-	if has_local_model():
+	_model_queue = _pending_models()
+	if _model_queue.is_empty():
 		Settings.comfyui_checkpoint = String(Settings.comfyui_model_file)
 		Settings.save()
-		model_ready.emit(true, "Model already present.")
-		return
-	if String(Settings.comfyui_model_url).strip_edges() == "":
-		model_ready.emit(false, "No model URL configured.")
 		return
 	DirAccess.make_dir_recursive_absolute(checkpoints_dir())
-	write_model_paths_yaml()   # so ComfyUI can be pointed at the model we're about to fetch
-	_dl.download_file = local_model_path() + ".part"
-	if _dl.request(String(Settings.comfyui_model_url)) != OK:
-		model_ready.emit(false, "Couldn't start the download.")
+	write_model_paths_yaml()   # so ComfyUI is pointed at the models we're about to fetch
+	_next_model()
+
+## Public entry point kept for the main-menu "download model" button.
+func download_model() -> void:
+	ensure_models()
+
+func _next_model() -> void:
+	if _model_queue.is_empty():
+		_cur_model = {}
+		Settings.comfyui_checkpoint = String(Settings.comfyui_model_file)
+		Settings.save()
+		write_model_paths_yaml()
+		_status("", 1.0)
+		model_ready.emit(true, "Models ready.")
+		return
+	_cur_model = _model_queue[0]
+	_status("Downloading %s…" % _cur_model["label"], 0.0)
+	_dl.download_file = String(_cur_model["dest"]) + ".part"
+	if _dl.request(String(_cur_model["url"])) != OK:
+		_model_queue.pop_front()
+		_next_model()
 		return
 	_downloading = true
 	set_process(true)
 
 func _process(_delta: float) -> void:
-	if _downloading:
+	if _downloading and not _cur_model.is_empty():
 		var dl := _dl.get_downloaded_bytes()
-		var total := _dl.get_body_size()   # -1 / 0 when the server sends no Content-Length
-		model_progress.emit((float(dl) / float(total)) if total > 0 else 0.0, dl, total)
+		var total := int(_cur_model.get("size", 0))   # known size — HF's LFS redirects hide Content-Length
+		if total <= 0:
+			total = _dl.get_body_size()
+		var frac := (float(dl) / float(total)) if total > 0 else 0.0
+		model_progress.emit(frac, dl, total)
+		_status("Downloading %s… %d%%" % [String(_cur_model["label"]), int(frac * 100.0)], frac)
 	elif _installing:
 		var bd := _dl_bundle.get_downloaded_bytes()
 		var bt := _dl_bundle.get_body_size()
-		install_progress.emit("Downloading ComfyUI…", (float(bd) / float(bt)) if bt > 0 else 0.0)
+		var f := (float(bd) / float(bt)) if bt > 0 else 0.0
+		install_progress.emit("Downloading ComfyUI…", f)
+		_status("Downloading ComfyUI… %d%%" % int(f * 100.0), f)
 
 func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
 	if not _downloading:
 		return
 	_downloading = false
 	set_process(false)
-	var part := local_model_path() + ".part"
+	var dest := String(_cur_model.get("dest", ""))
+	var part := dest + ".part"
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
-		DirAccess.rename_absolute(part, local_model_path())
-		Settings.comfyui_checkpoint = String(Settings.comfyui_model_file)
-		Settings.save()
-		write_model_paths_yaml()
-		model_ready.emit(true, "Model downloaded. Point ComfyUI at %s (restart it if already running)." % model_paths_yaml())
-	else:
-		if FileAccess.file_exists(part):
-			DirAccess.remove_absolute(part)
-		model_ready.emit(false, "Download failed (HTTP %d / result %d)." % [code, result])
+		DirAccess.rename_absolute(part, dest)
+	elif FileAccess.file_exists(part):
+		DirAccess.remove_absolute(part)   # leave it missing; a later launch retries
+	_model_queue.pop_front()
+	_next_model()
 
 # ---------------------------------------------------------------- auto-install
 
 ## Startup: install (if a bundle is set and nothing's here yet) then launch, or just launch
 ## a present ComfyUI, or fall through to health-checking whatever's already running.
 func _boot() -> void:
+	var real_build := not OS.has_feature("editor") and DisplayServer.get_name() != "headless"
 	if is_installed():
 		ensure_server()
+		if real_build:
+			ensure_models()     # fetch any missing models (with progress) on a real build
+			_ready_watch()      # show "starting…" until ComfyUI answers (first run installs torch)
 		return
 	# Auto-install only in a real windowed build — never during headless smoke or the editor
 	# (so tests and the editor don't pull a multi-GB bundle over the network).
-	var real_build := not OS.has_feature("editor") and DisplayServer.get_name() != "headless"
 	if real_build and String(Settings.comfyui_bundle_url).strip_edges() != "":
 		ensure_installed()   # auto-download + extract + launch — "download game, play"
 	else:
 		ensure_server()
+
+## Poll ComfyUI's health every few seconds until it answers, surfacing a "first-run setup"
+## status meanwhile (the bundled launcher installs PyTorch on first run — minutes, and invisible
+## to us as a subprocess). Stops once healthy or when nothing is being installed.
+var _ready_timer: Timer = null
+
+func _ready_watch() -> void:
+	if server_ok:
+		return
+	if _ready_timer == null:
+		_ready_timer = Timer.new()
+		_ready_timer.wait_time = 5.0
+		add_child(_ready_timer)
+		_ready_timer.timeout.connect(_on_ready_tick)
+	_ready_timer.start()
+
+func _on_ready_tick() -> void:
+	if server_ok:
+		if _ready_timer != null:
+			_ready_timer.stop()
+		return
+	# Only nag about "starting" once the downloads we drive are done (else their % shows instead).
+	if not _downloading and not _installing and _model_queue.is_empty():
+		_status("Starting ComfyUI (first run installs PyTorch — a few minutes)…", -1.0)
+	_check_health()
 
 ## True once a ready-to-run ComfyUI exists next to the game (a launcher is present).
 func is_installed() -> bool:
@@ -290,7 +369,9 @@ func _on_bundle_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pa
 	_installing = false
 	if ok and is_installed():
 		install_done.emit(true, "ComfyUI installed. Starting it…")
+		ensure_models()     # pull SD + TripoSR weights (with progress)
 		ensure_server()
+		_ready_watch()
 	else:
 		install_done.emit(false, "Extracted, but no launcher found in the bundle.")
 
@@ -590,7 +671,14 @@ func _tick_poll() -> void:
 func _on_history(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 	# Also serves the /system_stats health check (no current job): treat 200 as "up".
 	if _cur.is_empty():
-		server_checked.emit(result == HTTPRequest.RESULT_SUCCESS and code == 200)
+		var up := result == HTTPRequest.RESULT_SUCCESS and code == 200
+		server_ok = up
+		if up:
+			if _ready_timer != null:
+				_ready_timer.stop()
+			if setup_fraction < 0.0 or setup_message != "":
+				_status("", 1.0)   # ready — clear any "starting/downloading" status
+		server_checked.emit(up)
 		return
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		return   # keep polling

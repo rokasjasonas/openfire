@@ -122,6 +122,7 @@ void fragment() {
 func _ready() -> void:
 	add_to_group("hud")
 	_setup_postfx()
+	_init_comfy_status()
 	scoreboard.visible = false
 	result_panel.visible = false
 	pause_panel.visible = false
@@ -698,6 +699,43 @@ func _update_coins() -> void:
 		_coins_label.text = "⛁ %d" % int(_player.coins)
 
 ## Small always-on FPS readout in the top-left.
+## Bottom-centre banner showing ComfyUI first-run setup progress (bundle download, model
+## downloads, "starting…"), so the several-minute silent first run is visible. Hidden when idle.
+var _comfy_status_label: Label = null
+
+func _init_comfy_status() -> void:
+	_comfy_status_label = Label.new()
+	_comfy_status_label.name = "ComfyStatus"
+	_comfy_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_comfy_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_comfy_status_label.anchor_left = 0.0
+	_comfy_status_label.anchor_right = 1.0
+	_comfy_status_label.anchor_top = 1.0
+	_comfy_status_label.anchor_bottom = 1.0
+	_comfy_status_label.offset_top = -52.0
+	_comfy_status_label.offset_bottom = -30.0
+	_comfy_status_label.modulate = Color(1, 1, 1, 0.85)
+	_comfy_status_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	_comfy_status_label.add_theme_constant_override("outline_size", 4)
+	_comfy_status_label.visible = false
+	add_child(_comfy_status_label)
+	ComfyUI.setup_status.connect(_on_comfy_setup)
+	if ComfyUI.setup_message != "":
+		_on_comfy_setup(ComfyUI.setup_message, ComfyUI.setup_fraction)
+
+func _on_comfy_setup(message: String, fraction: float) -> void:
+	if _comfy_status_label == null:
+		return
+	if message == "":
+		_comfy_status_label.visible = false
+		return
+	var bar := ""
+	if fraction >= 0.0:
+		var filled := int(round(fraction * 16.0))
+		bar = "  [%s%s]" % ["█".repeat(filled), "░".repeat(16 - filled)]
+	_comfy_status_label.text = "AI setup: %s%s" % [message, bar]
+	_comfy_status_label.visible = true
+
 func _update_fps() -> void:
 	if _fps_label == null:
 		_fps_label = Label.new()

@@ -253,6 +253,28 @@ func _build_comfyui_options(vbox: Node) -> void:
 	vbox.add_child(_comfy_status)
 	for n in [head, ep, dl, _comfy_dl_bar, _comfy_status]:
 		vbox.move_child(n, %OptionsBackButton.get_index())
+	# Reflect the automatic first-run setup (bundle download, model downloads, "starting…")
+	# without the user clicking anything.
+	if not ComfyUI.setup_status.is_connected(_on_comfy_setup_status):
+		ComfyUI.setup_status.connect(_on_comfy_setup_status)
+	if ComfyUI.setup_message != "":
+		_on_comfy_setup_status(ComfyUI.setup_message, ComfyUI.setup_fraction)
+
+func _on_comfy_setup_status(message: String, fraction: float) -> void:
+	if _comfy_status == null:
+		return
+	if message == "":
+		_comfy_status.text = "AI ready."
+		if _comfy_dl_bar != null:
+			_comfy_dl_bar.visible = false
+		return
+	_comfy_status.text = message
+	if _comfy_dl_bar != null:
+		if fraction >= 0.0:
+			_comfy_dl_bar.visible = true
+			_comfy_dl_bar.value = fraction * 100.0
+		else:
+			_comfy_dl_bar.visible = false
 
 func _on_download_model() -> void:
 	if not ComfyUI.model_ready.is_connected(_on_model_ready_status):

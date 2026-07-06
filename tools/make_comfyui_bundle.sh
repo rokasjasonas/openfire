@@ -72,14 +72,6 @@ if [ ! -d venv ]; then
 	# TripoSR's DINO weights AND satisfies ComfyUI; trimesh>=4.5 is numpy-2 safe.
 	./venv/bin/pip install "transformers==4.44.2" "trimesh>=4.5"
 fi
-# TripoSR weights (ungated) into checkpoints so TripoSRModelLoader finds "triposr.ckpt".
-CKPT="ComfyUI/models/checkpoints/triposr.ckpt"
-if [ ! -f "$CKPT" ]; then
-	echo "[comfyui] downloading TripoSR model (one time, ~1.6 GB)…"
-	mkdir -p "$(dirname "$CKPT")"
-	curl -fL -o "$CKPT" "https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt" \
-		|| echo "[comfyui] WARN: TripoSR model download failed — 3D won't work until it's at $CKPT"
-fi
 exec ./venv/bin/python ComfyUI/main.py --listen 127.0.0.1 --port 8188 "$@"
 SH
 chmod +x "$WORK/start.sh"
@@ -107,10 +99,6 @@ if not exist venv (
 	rem Override Flowty's broken pins (validated on ROCm): transformers 4.35 lacks ComfyUI's
 	rem Qwen2Tokenizer; trimesh 4.0.5 uses numpy-2-removed ndarray.ptp().
 	venv\Scripts\pip install "transformers==4.44.2" "trimesh>=4.5"
-)
-if not exist ComfyUI\models\checkpoints\triposr.ckpt (
-	echo [comfyui] downloading TripoSR model ^(one time, ~1.6 GB^)...
-	curl -fL -o ComfyUI\models\checkpoints\triposr.ckpt "https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt"
 )
 venv\Scripts\python ComfyUI\main.py --listen 127.0.0.1 --port 8188 %*
 BAT

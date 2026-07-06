@@ -144,7 +144,7 @@ jobs:
           # ~1.9 GiB numbered parts (model.safetensors.000, .001, …) the game rejoins, and write
           # a manifest listing every SF3D asset. config.yaml lands in the SF3D dir as-is.
           cp sf3d/config.yaml dist/config.yaml
-          ( cd sf3d && split -b 1900m -d -a 3 model.safetensors "$GITHUB_WORKSPACE/dist/model.safetensors." )
+          ( cd sf3d && split -b 1900M -d -a 3 model.safetensors "$GITHUB_WORKSPACE/dist/model.safetensors." )
           ( cd dist && ls config.yaml model.safetensors.* > sf3d-model.manifest )
           echo "SF3D assets:"; ( cd dist && ls -lh config.yaml model.safetensors.* sf3d-model.manifest )
 

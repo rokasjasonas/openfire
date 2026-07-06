@@ -59,16 +59,30 @@ portable or not — reads the model with no manual config. Endpoint stays `127.0
 5. Click **Bake sample asset library**. Watch ComfyUI process the queue; results land in
    `user://generated/*.png`.
 
-## Custom / 3D workflows
+## Workflows (incl. text → textured 3D)
 
-The default is a text→image graph. To use your own graph (including a **3D**
-ComfyUI-3D-Pack workflow that outputs GLB), drop a ComfyUI **API-format** JSON at:
+Workflows are ComfyUI **API-format** JSON with placeholders the bridge substitutes per asset:
+`%PROMPT%` `%NEG%` `%SEED%` `%WIDTH%` `%HEIGHT%` `%STEPS%` `%CKPT%`.
 
-- `user://comfyui/workflow_image.json`
-- `user://comfyui/workflow_model.json`  (for `kind = "model"`, GLB output)
+`ComfyUI.workflow_template_path(kind)` resolves a template in this order:
+1. `user://comfyui/workflow_<kind>.json` — a per-machine override (wins if present).
+2. `comfyui/workflow_<kind>.json` next to the binary — **shipped inside the bundle**.
+3. built-in graph (for `image` / `reskin` only).
 
-Use these placeholders; the bridge substitutes them per asset:
-`%PROMPT%` `%NEG%` `%SEED%` `%WIDTH%` `%HEIGHT%` `%STEPS%` `%CKPT%`
+### Text → 3D is bundled, zero setup
+
+`workflow_model.json` (source in `tools/comfyui/`, shipped in the bundle root) is a **two-stage**
+graph: the standard SD txt2img nodes turn the prompt into a single-object image, then a **Stable
+Fast 3D** node turns that image into a UV-textured GLB — so a plain text prompt yields a textured
+3D model with nothing for the player to install. The bundle build
+(`tools/make_comfyui_bundle.sh`) clones the SF3D node pack into `custom_nodes/` and installs its
+requirements on first run; the SF3D model weights (HF-gated) and any prebuilt compiled wheels are
+supplied by the GPU/release build via `SF3D_NODE_REPO` / `SF3D_MODEL_URL`.
+
+The debug panel's **3D model (textured)** toggle is on by default whenever the bundle provides
+`workflow_model.json`. To swap engines (e.g. Hunyuan3D for max quality) or fix node names for a
+different SF3D pack, edit `tools/comfyui/workflow_model.json` (see `tools/comfyui/README.md`) or
+drop an override in `user://comfyui/`.
 
 The bridge reads the produced file from `/history` (`images`, `gltf`, `3d`, or `meshes`
 outputs) and downloads it via `/view` into the cache. `.glb` files are loaded by the world

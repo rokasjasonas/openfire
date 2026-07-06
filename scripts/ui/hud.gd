@@ -1222,7 +1222,9 @@ func _mesh_from_obj(file_path: String) -> ArrayMesh:
 					vi = verts.size() + vi + 1   # negative = relative index
 				idx.append(vi - 1)
 			for t in range(1, idx.size() - 1):
-				for vi in [idx[0], idx[t], idx[t + 1]]:
+				# Reverse winding: OBJ/TripoSR use CCW-outward faces, but Godot treats clockwise
+				# as front-facing — without this the outside is culled and the model looks inside-out.
+				for vi in [idx[0], idx[t + 1], idx[t]]:
 					if vi < 0 or vi >= verts.size():
 						continue
 					if has_color:
@@ -1237,6 +1239,7 @@ func _mesh_from_obj(file_path: String) -> ArrayMesh:
 		var mat := StandardMaterial3D.new()
 		mat.vertex_color_use_as_albedo = true
 		mat.roughness = 0.9
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # generated meshes can have inconsistent winding
 		mesh.surface_set_material(0, mat)
 	return mesh
 

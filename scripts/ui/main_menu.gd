@@ -280,6 +280,8 @@ func _update_play_gate() -> void:
 		_ai_gate_label = Label.new()
 		_ai_gate_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_ai_gate_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_ai_gate_label.custom_minimum_size = Vector2(360, 0)   # else it collapses to a 1-char column
+		_ai_gate_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_ai_gate_label.modulate = Color(1, 0.85, 0.4)
 		var parent := %HostButton.get_parent()
 		parent.add_child(_ai_gate_label)
@@ -287,7 +289,7 @@ func _update_play_gate() -> void:
 	_ai_gate_label.visible = not ready
 	if not ready:
 		var msg := ComfyUI.setup_message if ComfyUI.setup_message != "" else "Preparing AI (downloading models)…"
-		_ai_gate_label.text = "⏳ %s\n(the game generates its world with AI — this must finish first)" % msg
+		_ai_gate_label.text = "⏳ %s" % msg
 
 func _on_ai_ready_changed(_ok: bool) -> void:
 	_update_play_gate()

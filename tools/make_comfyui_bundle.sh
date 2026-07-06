@@ -45,34 +45,39 @@ echo "[bundle] adding workflow templates…"
 cp "$ROOT/tools/comfyui/"workflow_*.json "$WORK/" 2>/dev/null || true
 
 # --- Linux/macOS launcher ---------------------------------------------------
+# Uses `uv` to fetch a pinned Python 3.12 (self-contained — the host may have no Python, or an
+# incompatible one like 3.14 which has no PyTorch wheels). Invoked via `bash start.sh` by the
+# game, so the missing exec bit (Godot's ZIP extractor drops it) doesn't matter.
 cat > "$WORK/start.sh" <<'SH'
 #!/usr/bin/env bash
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; cd "$HERE"
-if [ ! -d venv ]; then
-	echo "[comfyui] first run: creating venv + installing PyTorch/ComfyUI (large, one time)…"
-	python3 -m venv venv
-	./venv/bin/pip install --upgrade pip
-	# Install the PyTorch build that matches the GPU so it runs on ANY vendor: CUDA for NVIDIA,
-	# ROCm for AMD (Linux), else CPU/MPS (the default wheel is MPS-capable on macOS).
-	if command -v nvidia-smi >/dev/null 2>&1; then
-		./venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-	elif [ -e /dev/kfd ]; then
-		./venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.2
-	else
-		./venv/bin/pip install torch torchvision
-	fi
-	./venv/bin/pip install -r ComfyUI/requirements.txt
-	# text→3D node deps (TripoSR + rembg) — torch-only, no compiled CUDA kernels.
-	for req in ComfyUI/custom_nodes/*/requirements.txt; do
-		[ -f "$req" ] && ./venv/bin/pip install -r "$req" || true
-	done
-	# Override Flowty's broken pins (validated live on ROCm 2026-07-06): transformers 4.35 lacks
-	# ComfyUI's Qwen2Tokenizer; trimesh 4.0.5 calls numpy-2-removed ndarray.ptp(). 4.44.2 loads
-	# TripoSR's DINO weights AND satisfies ComfyUI; trimesh>=4.5 is numpy-2 safe.
-	./venv/bin/pip install "transformers==4.44.2" "trimesh>=4.5"
+if [ ! -x ./uv ]; then
+	echo "[comfyui] fetching uv…"
+	case "$(uname -s)" in
+		Darwin) UVF="uv-$(uname -m | sed 's/arm64/aarch64/')-apple-darwin.tar.gz" ;;
+		*)      UVF="uv-$(uname -m)-unknown-linux-gnu.tar.gz" ;;
+	esac
+	curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/$UVF" -o uv.tgz
+	tar xzf uv.tgz && mv uv-*/uv ./uv && rm -rf uv.tgz uv-*/
 fi
-exec ./venv/bin/python ComfyUI/main.py --listen 127.0.0.1 --port 8188 "$@"
+PY=venv/bin/python
+if [ ! -d venv ]; then
+	echo "[comfyui] first run: Python 3.12 env + PyTorch/ComfyUI (large, one time)…"
+	./uv venv --python 3.12 venv
+	# Vendor-matched PyTorch so it runs on ANY GPU: CUDA (NVIDIA), ROCm (AMD/Linux), else CPU/MPS.
+	if command -v nvidia-smi >/dev/null 2>&1; then IDX="https://download.pytorch.org/whl/cu124";
+	elif [ -e /dev/kfd ]; then IDX="https://download.pytorch.org/whl/rocm6.2";
+	else IDX=""; fi
+	if [ -n "$IDX" ]; then ./uv pip install --python "$PY" torch torchvision --index-url "$IDX";
+	else ./uv pip install --python "$PY" torch torchvision; fi
+	./uv pip install --python "$PY" -r ComfyUI/requirements.txt
+	for req in ComfyUI/custom_nodes/*/requirements.txt; do [ -f "$req" ] && ./uv pip install --python "$PY" -r "$req" || true; done
+	# Override Flowty's broken pins (validated live on ROCm): transformers 4.35 lacks ComfyUI's
+	# Qwen2Tokenizer; trimesh 4.0.5 calls numpy-2-removed ndarray.ptp().
+	./uv pip install --python "$PY" "transformers==4.44.2" "trimesh>=4.5"
+fi
+exec "$PY" ComfyUI/main.py --listen 127.0.0.1 --port 8188 "$@"
 SH
 chmod +x "$WORK/start.sh"
 
@@ -80,27 +85,27 @@ chmod +x "$WORK/start.sh"
 cat > "$WORK/start.bat" <<'BAT'
 @echo off
 cd /d "%~dp0"
-if not exist venv (
-	echo [comfyui] first run: creating venv + installing PyTorch/ComfyUI ^(large, one time^)...
-	py -3 -m venv venv || python -m venv venv
-	venv\Scripts\python -m pip install --upgrade pip
-	rem CUDA torch if an NVIDIA GPU is present, else CPU. (AMD on Windows needs torch-directml,
-	rem which users can install manually.)
-	where nvidia-smi >nul 2>nul && (
-		venv\Scripts\pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-	) || (
-		venv\Scripts\pip install torch torchvision
-	)
-	venv\Scripts\pip install -r ComfyUI\requirements.txt
-	rem text->3D node deps (TripoSR + rembg) — torch-only, no compiled kernels.
-	for /d %%d in (ComfyUI\custom_nodes\*) do (
-		if exist "%%d\requirements.txt" venv\Scripts\pip install -r "%%d\requirements.txt"
-	)
-	rem Override Flowty's broken pins (validated on ROCm): transformers 4.35 lacks ComfyUI's
-	rem Qwen2Tokenizer; trimesh 4.0.5 uses numpy-2-removed ndarray.ptp().
-	venv\Scripts\pip install "transformers==4.44.2" "trimesh>=4.5"
+if not exist uv.exe (
+	echo [comfyui] fetching uv...
+	curl -fsSL https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip -o uv.zip
+	powershell -Command "Expand-Archive -Force uv.zip ."
 )
-venv\Scripts\python ComfyUI\main.py --listen 127.0.0.1 --port 8188 %*
+set PY=venv\Scripts\python.exe
+if not exist venv (
+	echo [comfyui] first run: Python 3.12 env + PyTorch/ComfyUI ^(large, one time^)...
+	uv.exe venv --python 3.12 venv
+	where nvidia-smi >nul 2>nul && (
+		uv.exe pip install --python %PY% torch torchvision --index-url https://download.pytorch.org/whl/cu124
+	) || (
+		uv.exe pip install --python %PY% torch torchvision
+	)
+	uv.exe pip install --python %PY% -r ComfyUI\requirements.txt
+	for /d %%d in (ComfyUI\custom_nodes\*) do (
+		if exist "%%d\requirements.txt" uv.exe pip install --python %PY% -r "%%d\requirements.txt"
+	)
+	uv.exe pip install --python %PY% "transformers==4.44.2" "trimesh>=4.5"
+)
+%PY% ComfyUI\main.py --listen 127.0.0.1 --port 8188 %*
 BAT
 
 echo "[bundle] zipping…"

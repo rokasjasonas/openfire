@@ -420,7 +420,19 @@ func ensure_server() -> void:
 			write_model_paths_yaml()
 			args.append("--extra-model-paths-config")
 			args.append(model_paths_yaml())
-		if OS.create_process(exec, PackedStringArray(args)) > 0:
+		# Run the launcher through a shell so a missing exec bit doesn't matter — Godot's ZIP
+		# extractor doesn't preserve Unix permissions, so start.sh comes out non-executable.
+		var cmd := exec
+		var full: Array = []
+		if exec.to_lower().ends_with(".sh"):
+			cmd = "bash"
+			full.append(exec)
+		elif exec.to_lower().ends_with(".bat"):
+			cmd = "cmd"
+			full.append("/c")
+			full.append(exec)
+		full.append_array(args)
+		if OS.create_process(cmd, PackedStringArray(full)) > 0:
 			_launched = true
 	_check_health()
 

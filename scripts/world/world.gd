@@ -1122,6 +1122,18 @@ func _tick_music() -> void:
 	Music.set_combat(combat)
 
 func _tick_ambience() -> void:
+	# Stay silent while the world is still loading — no ambient wind or birdsong until the local
+	# player has actually spawned in (loading screen is up until then).
+	if _local_player() == null:
+		if _ambient != null and _ambient.playing:
+			_ambient.stream_paused = true
+		if _birds != null and _birds.playing:
+			_birds.stream_paused = true
+		return
+	if _ambient != null and _ambient.stream_paused:
+		_ambient.stream_paused = false
+	if _birds != null and _birds.stream_paused:
+		_birds.stream_paused = false
 	if _ambient == null:
 		_ambient = AudioStreamPlayer.new()
 		var st := load("res://assets/audio/ambient_wind.wav")

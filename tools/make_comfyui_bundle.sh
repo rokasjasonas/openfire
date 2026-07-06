@@ -69,8 +69,11 @@ if [ ! -d venv ]; then
 	if command -v nvidia-smi >/dev/null 2>&1; then IDX="https://download.pytorch.org/whl/cu124";
 	elif [ -e /dev/kfd ]; then IDX="https://download.pytorch.org/whl/rocm6.2";
 	else IDX=""; fi
-	if [ -n "$IDX" ]; then ./uv pip install --python "$PY" torch torchvision --index-url "$IDX";
-	else ./uv pip install --python "$PY" torch torchvision; fi
+	# Install torch + torchvision + torchaudio ALL from the vendor index — ComfyUI imports
+	# torchaudio, and if it comes from the default PyPI it's the CUDA build (libcudart) and
+	# crashes on AMD/CPU. Installing it here first stops the requirements step pulling CUDA.
+	if [ -n "$IDX" ]; then ./uv pip install --python "$PY" torch torchvision torchaudio --index-url "$IDX";
+	else ./uv pip install --python "$PY" torch torchvision torchaudio; fi
 	./uv pip install --python "$PY" -r ComfyUI/requirements.txt
 	for req in ComfyUI/custom_nodes/*/requirements.txt; do [ -f "$req" ] && ./uv pip install --python "$PY" -r "$req" || true; done
 	# Override Flowty's broken pins (validated live on ROCm): transformers 4.35 lacks ComfyUI's
@@ -95,9 +98,9 @@ if not exist venv (
 	echo [comfyui] first run: Python 3.12 env + PyTorch/ComfyUI ^(large, one time^)...
 	uv.exe venv --python 3.12 venv
 	where nvidia-smi >nul 2>nul && (
-		uv.exe pip install --python %PY% torch torchvision --index-url https://download.pytorch.org/whl/cu124
+		uv.exe pip install --python %PY% torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 	) || (
-		uv.exe pip install --python %PY% torch torchvision
+		uv.exe pip install --python %PY% torch torchvision torchaudio
 	)
 	uv.exe pip install --python %PY% -r ComfyUI\requirements.txt
 	for /d %%d in (ComfyUI\custom_nodes\*) do (

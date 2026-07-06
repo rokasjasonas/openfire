@@ -283,9 +283,12 @@ func _update_play_gate() -> void:
 		_ai_gate_label.custom_minimum_size = Vector2(360, 0)   # else it collapses to a 1-char column
 		_ai_gate_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_ai_gate_label.modulate = Color(1, 0.85, 0.4)
-		var parent := %HostButton.get_parent()
-		parent.add_child(_ai_gate_label)
-		parent.move_child(_ai_gate_label, %HostButton.get_index())
+		# Add to the VBox ABOVE the button row (HostButton's parent is the Buttons HBox — adding
+		# there would put the label on the same line as the buttons).
+		var row := %HostButton.get_parent()
+		var container := row.get_parent()
+		container.add_child(_ai_gate_label)
+		container.move_child(_ai_gate_label, row.get_index())
 	_ai_gate_label.visible = not ready
 	if not ready:
 		var msg := ComfyUI.setup_message if ComfyUI.setup_message != "" else "Preparing AI (downloading models)…"

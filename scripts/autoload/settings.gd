@@ -42,11 +42,12 @@ var comfyui_bundle_url: String = "https://github.com/rokasjasonas/openfire/relea
 var comfyui_model_size: int = 4265146304
 
 # --- Stable Fast 3D weights (text→3D stage) --------------------------------------------------
-# The SF3D model is license-gated on HuggingFace, so the game can't pull it from HF directly.
-# The release workflow fetches it (with an HF token) and re-attaches it as a .zip release asset;
-# the game auto-downloads + extracts that on first run into the SF3D node's checkpoints folder.
-var comfyui_sf3d_url: String = "https://github.com/rokasjasonas/openfire/releases/latest/download/sf3d-model.zip"
-# Where the extracted weights land, relative to comfyui/ (the SF3D node reads them from here).
+# The SF3D model is license-gated on HuggingFace AND ~4 GB (over GitHub's 2 GiB per-asset limit),
+# so the release workflow fetches it (with an HF token), splits it into parts, and attaches them
+# alongside a manifest listing every SF3D asset. This URL points at that manifest; the game
+# downloads each listed asset on first run and rejoins the parts into the SF3D checkpoints folder.
+var comfyui_sf3d_url: String = "https://github.com/rokasjasonas/openfire/releases/latest/download/sf3d-model.manifest"
+# Where the weights land, relative to comfyui/ (the SF3D node reads them from here).
 var comfyui_sf3d_dir: String = "ComfyUI/custom_nodes/SF3D/checkpoints"
 # A file that exists once the weights are present, so we don't re-download.
 var comfyui_sf3d_marker: String = "model.safetensors"

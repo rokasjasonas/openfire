@@ -315,47 +315,98 @@ func has_sf3d_model() -> bool:
 		return DirAccess.dir_exists_absolute(sf3d_dir_abs())
 	return FileAccess.file_exists(sf3d_dir_abs().path_join(marker))
 
-## Download + extract the Stable Fast 3D weights zip (a release asset) into the SF3D node's
-## checkpoints folder, so text→3D works with zero manual setup. No-op if already present, no
-## URL configured, or a download is already in flight. Emits install_progress / install_done.
+## Download the Stable Fast 3D weights into the SF3D node's checkpoints folder so text→3D works
+## with zero manual setup. The weights (~4 GB) exceed GitHub's 2 GiB per-asset limit, so the
+## release splits them into parts; we fetch a small manifest listing every asset, download each
+## in turn, then rejoin the `model.safetensors.*` parts. No-op if present / no URL / already
+## downloading. Emits install_progress / install_done.
+var _sf3d_stage: String = ""     # "manifest" | "file"
+var _sf3d_files: Array = []       # remaining asset filenames to fetch (front = current)
+var _sf3d_base: String = ""       # URL directory the manifest + assets live in
+
 func ensure_sf3d_model() -> void:
 	if _installing_sf3d or has_sf3d_model():
 		return
-	# Only meaningful once a 3D workflow is actually bundled.
-	if not has_workflow("model"):
+	if not has_workflow("model"):      # only meaningful once a 3D workflow is bundled
 		return
-	var url := String(Settings.comfyui_sf3d_url).strip_edges()
+	var url := String(Settings.comfyui_sf3d_url).strip_edges()   # the manifest URL
 	if url == "":
 		return
 	_installing_sf3d = true
+	_sf3d_stage = "manifest"
+	_sf3d_base = url.get_base_dir()
 	install_progress.emit("Downloading 3D model…", 0.0)
-	var zip := comfyui_base_dir().path_join("_sf3d.zip")
-	DirAccess.make_dir_recursive_absolute(comfyui_base_dir())
-	_dl_sf3d.download_file = zip
+	DirAccess.make_dir_recursive_absolute(sf3d_dir_abs())
+	_dl_sf3d.download_file = comfyui_base_dir().path_join("_sf3d.manifest")
 	if _dl_sf3d.request(url) != OK:
-		_installing_sf3d = false
-		install_done.emit(false, "Couldn't start the 3D model download.")
-		return
+		return _sf3d_abort("Couldn't start the 3D model download.")
 	set_process(true)
 
 func _on_sf3d_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
 	if not _installing_sf3d:
 		return
-	set_process(false)
-	var zip := comfyui_base_dir().path_join("_sf3d.zip")
-	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-		_installing_sf3d = false
-		if FileAccess.file_exists(zip):
-			DirAccess.remove_absolute(zip)
-		install_done.emit(false, "3D model download failed (HTTP %d)." % code)
-		return
-	install_progress.emit("Extracting 3D model…", 1.0)
-	DirAccess.make_dir_recursive_absolute(sf3d_dir_abs())
-	var ok := _extract_zip(zip, sf3d_dir_abs())
-	if FileAccess.file_exists(zip):
-		DirAccess.remove_absolute(zip)
+	var ok := result == HTTPRequest.RESULT_SUCCESS and code == 200
+	if _sf3d_stage == "manifest":
+		if not ok:
+			return _sf3d_abort("3D model manifest download failed (HTTP %d)." % code)
+		var mpath := comfyui_base_dir().path_join("_sf3d.manifest")
+		var text := FileAccess.get_file_as_string(mpath)
+		if FileAccess.file_exists(mpath):
+			DirAccess.remove_absolute(mpath)
+		_sf3d_files.clear()
+		for line in text.split("\n", false):
+			var n := line.strip_edges()
+			if n != "":
+				_sf3d_files.append(n)
+		if _sf3d_files.is_empty():
+			return _sf3d_abort("3D model manifest was empty.")
+		_sf3d_next_file()
+	else:   # a downloaded asset file
+		if not ok:
+			return _sf3d_abort("3D model part download failed (HTTP %d)." % code)
+		_sf3d_files.pop_front()
+		if _sf3d_files.is_empty():
+			_sf3d_finish()
+		else:
+			_sf3d_next_file()
+
+func _sf3d_next_file() -> void:
+	_sf3d_stage = "file"
+	var name := String(_sf3d_files[0])
+	_dl_sf3d.download_file = sf3d_dir_abs().path_join(name)
+	if _dl_sf3d.request(_sf3d_base + "/" + name) != OK:
+		_sf3d_abort("Couldn't fetch 3D model file '%s'." % name)
+
+## All assets fetched: concatenate the split model.safetensors.NNN parts (streamed in chunks so
+## we never hold a whole part in memory), delete the parts, and we're done.
+func _sf3d_finish() -> void:
+	var dir := sf3d_dir_abs()
+	var parts: Array = []
+	for f in DirAccess.get_files_at(dir):
+		if f.begins_with("model.safetensors."):
+			parts.append(f)
+	parts.sort()
+	if not parts.is_empty():
+		var out := FileAccess.open(dir.path_join("model.safetensors"), FileAccess.WRITE)
+		if out != null:
+			for p in parts:
+				var src := FileAccess.open(dir.path_join(p), FileAccess.READ)
+				if src != null:
+					while not src.eof_reached():
+						out.store_buffer(src.get_buffer(64 * 1024 * 1024))
+					src.close()
+			out.close()
+		for p in parts:
+			DirAccess.remove_absolute(dir.path_join(p))
 	_installing_sf3d = false
-	install_done.emit(ok and has_sf3d_model(), "3D model ready." if ok else "3D model extracted, but weights weren't found.")
+	set_process(false)
+	install_done.emit(has_sf3d_model(), "3D model ready." if has_sf3d_model() else "3D model assembled but incomplete.")
+
+func _sf3d_abort(msg: String) -> void:
+	_installing_sf3d = false
+	_sf3d_files.clear()
+	set_process(false)
+	install_done.emit(false, msg)
 
 ## Extract a .zip into `dest` (Godot's ZIPReader handles .zip; the ComfyUI portable's .7z
 ## is not supported, hence the .zip bundle requirement). Returns true on success.

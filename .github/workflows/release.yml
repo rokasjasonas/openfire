@@ -140,9 +140,13 @@ jobs:
               -o "sf3d/$f" "https://huggingface.co/$REPO/resolve/main/$f" || {
                 echo "::warning::Could not fetch $f from $REPO — SF3D asset will be incomplete."; }
           done
-          # Flat zip so files extract straight into comfyui_sf3d_dir (marker: model.safetensors).
-          ( cd sf3d && zip -q -r "$GITHUB_WORKSPACE/dist/sf3d-model.zip" . )
-          ls -lh dist/sf3d-model.zip
+          # GitHub release assets must be < 2 GiB, but model.safetensors is ~4 GB. Split it into
+          # ~1.9 GiB numbered parts (model.safetensors.000, .001, …) the game rejoins, and write
+          # a manifest listing every SF3D asset. config.yaml lands in the SF3D dir as-is.
+          cp sf3d/config.yaml dist/config.yaml
+          ( cd sf3d && split -b 1900m -d -a 3 model.safetensors "$GITHUB_WORKSPACE/dist/model.safetensors." )
+          ( cd dist && ls config.yaml model.safetensors.* > sf3d-model.manifest )
+          echo "SF3D assets:"; ( cd dist && ls -lh config.yaml model.safetensors.* sf3d-model.manifest )
 
       - name: Commit version bump & tag
         run: |

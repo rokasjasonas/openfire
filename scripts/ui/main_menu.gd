@@ -170,6 +170,13 @@ func _ready() -> void:
 	_on_mode_changed(mode_option.selected)
 	_show_setup()
 
+	# Gate play on the AI download: the game generates world assets via ComfyUI, so don't let
+	# anyone start until the bundle + models are downloaded and ComfyUI is answering.
+	if not ComfyUI.server_checked.is_connected(_on_ai_ready_changed):
+		ComfyUI.server_checked.connect(_on_ai_ready_changed)
+		ComfyUI.setup_status.connect(_on_ai_ready_changed_s)
+	_update_play_gate()
+
 func _setup_options() -> void:
 	%SensSlider.value = Settings.mouse_sensitivity
 	%VolSlider.value = Settings.master_volume
@@ -259,6 +266,34 @@ func _build_comfyui_options(vbox: Node) -> void:
 		ComfyUI.setup_status.connect(_on_comfy_setup_status)
 	if ComfyUI.setup_message != "":
 		_on_comfy_setup_status(ComfyUI.setup_message, ComfyUI.setup_fraction)
+
+var _ai_gate_label: Label = null
+
+## Disable Host/Join/Solo until the AI stack is downloaded and ComfyUI is answering, with a
+## status line above the buttons explaining the wait.
+func _update_play_gate() -> void:
+	var ready := ComfyUI.is_ready()
+	for b in [%HostButton, %JoinButton, %SoloButton]:
+		if b != null:
+			b.disabled = not ready
+	if _ai_gate_label == null:
+		_ai_gate_label = Label.new()
+		_ai_gate_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_ai_gate_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_ai_gate_label.modulate = Color(1, 0.85, 0.4)
+		var parent := %HostButton.get_parent()
+		parent.add_child(_ai_gate_label)
+		parent.move_child(_ai_gate_label, %HostButton.get_index())
+	_ai_gate_label.visible = not ready
+	if not ready:
+		var msg := ComfyUI.setup_message if ComfyUI.setup_message != "" else "Preparing AI (downloading models)…"
+		_ai_gate_label.text = "⏳ %s\n(the game generates its world with AI — this must finish first)" % msg
+
+func _on_ai_ready_changed(_ok: bool) -> void:
+	_update_play_gate()
+
+func _on_ai_ready_changed_s(_message: String, _fraction: float) -> void:
+	_update_play_gate()
 
 func _on_comfy_setup_status(message: String, fraction: float) -> void:
 	if _comfy_status == null:

@@ -331,6 +331,14 @@ func _on_ready_tick() -> void:
 func is_installed() -> bool:
 	return _bundled_launcher() != ""
 
+## True when the AI stack is ready to generate: ComfyUI answering AND all models present. The
+## menu gates play on this so nobody starts before the download finishes. In the editor/headless
+## (no bundled setup) returns true so dev and tests are never gated.
+func is_ready() -> bool:
+	if OS.has_feature("editor") or DisplayServer.get_name() == "headless":
+		return true
+	return server_ok and _pending_models().is_empty()
+
 ## "Download game, play": if no ComfyUI is bundled and a bundle URL is configured, download
 ## the ComfyUI .zip and extract it into comfyui/ so the game can launch it — all automatic.
 ## Emits install_progress / install_done. No-op when already installed or no URL is set.

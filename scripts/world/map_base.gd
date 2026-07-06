@@ -194,8 +194,8 @@ func add_box(size: Vector3, pos: Vector3, color: String = "Dark", idx: int = 13)
 func add_floor(sx: float, sz: float, color: String = "Dark", idx: int = 13) -> void:
 	add_box(Vector3(sx, 1.0, sz), Vector3(0, -0.5, 0), color, idx)
 
-func add_wall(size: Vector3, pos: Vector3, color: String = "Orange", idx: int = 13) -> void:
-	add_box(size, pos, color, idx)
+func add_wall(size: Vector3, pos: Vector3, color: String = "Orange", idx: int = 13) -> MeshInstance3D:
+	return add_box(size, pos, color, idx)
 
 func add_cover(pos: Vector3, color: String = "Green", idx: int = 13) -> void:
 	add_box(Vector3(2, 1.4, 2), pos + Vector3(0, 0.7, 0), color, idx)

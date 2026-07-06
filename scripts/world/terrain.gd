@@ -827,10 +827,30 @@ func _add_perimeter() -> void:
 	var h := MOUNTAIN_AMP + 80.0
 	var t := 4.0
 	var half := _size * 0.5
-	add_wall(Vector3(_size, h, t), Vector3(0, h * 0.5 - 40.0, -half), "Dark", 13)
-	add_wall(Vector3(_size, h, t), Vector3(0, h * 0.5 - 40.0, half), "Dark", 13)
-	add_wall(Vector3(t, h, _size), Vector3(-half, h * 0.5 - 40.0, 0), "Dark", 13)
-	add_wall(Vector3(t, h, _size), Vector3(half, h * 0.5 - 40.0, 0), "Dark", 13)
+	_boundary_walls = [
+		add_wall(Vector3(_size, h, t), Vector3(0, h * 0.5 - 40.0, -half), "Dark", 13),
+		add_wall(Vector3(_size, h, t), Vector3(0, h * 0.5 - 40.0, half), "Dark", 13),
+		add_wall(Vector3(t, h, _size), Vector3(-half, h * 0.5 - 40.0, 0), "Dark", 13),
+		add_wall(Vector3(t, h, _size), Vector3(half, h * 0.5 - 40.0, 0), "Dark", 13),
+	]
+
+var _boundary_walls: Array = []
+
+## Skin the four perimeter walls with a themed texture (triplanar so it tiles cleanly on the
+## tall slabs regardless of face). Each wall gets its own material so we don't disturb the
+## shared "Dark" material used elsewhere.
+func apply_boundary_texture(tex: Texture2D) -> void:
+	if tex == null:
+		return
+	for mi in _boundary_walls:
+		if mi == null:
+			continue
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.uv1_triplanar = true
+		mat.uv1_scale = Vector3(0.05, 0.05, 0.05)   # ~20 world-units per tile
+		mat.roughness = 1.0
+		mi.material_override = mat
 
 ## Bilinearly interpolate the surface height (matching the rendered mesh) so props and
 ## buildings sit flush — nearest-vertex sampling left them floating/sunk on slopes.

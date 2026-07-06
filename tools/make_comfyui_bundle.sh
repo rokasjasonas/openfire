@@ -67,6 +67,10 @@ if [ ! -d venv ]; then
 	for req in ComfyUI/custom_nodes/*/requirements.txt; do
 		[ -f "$req" ] && ./venv/bin/pip install -r "$req" || true
 	done
+	# Override Flowty's broken pins (validated live on ROCm 2026-07-06): transformers 4.35 lacks
+	# ComfyUI's Qwen2Tokenizer; trimesh 4.0.5 calls numpy-2-removed ndarray.ptp(). 4.44.2 loads
+	# TripoSR's DINO weights AND satisfies ComfyUI; trimesh>=4.5 is numpy-2 safe.
+	./venv/bin/pip install "transformers==4.44.2" "trimesh>=4.5"
 fi
 # TripoSR weights (ungated) into checkpoints so TripoSRModelLoader finds "triposr.ckpt".
 CKPT="ComfyUI/models/checkpoints/triposr.ckpt"
@@ -100,6 +104,9 @@ if not exist venv (
 	for /d %%d in (ComfyUI\custom_nodes\*) do (
 		if exist "%%d\requirements.txt" venv\Scripts\pip install -r "%%d\requirements.txt"
 	)
+	rem Override Flowty's broken pins (validated on ROCm): transformers 4.35 lacks ComfyUI's
+	rem Qwen2Tokenizer; trimesh 4.0.5 uses numpy-2-removed ndarray.ptp().
+	venv\Scripts\pip install "transformers==4.44.2" "trimesh>=4.5"
 )
 if not exist ComfyUI\models\checkpoints\triposr.ckpt (
 	echo [comfyui] downloading TripoSR model ^(one time, ~1.6 GB^)...

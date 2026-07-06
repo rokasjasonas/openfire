@@ -980,6 +980,14 @@ func _prop_box(prop: Node3D, size: Vector3, local_pos: Vector3, col: Color, soli
 
 ## After all props are scattered, bake their visuals into one MultiMesh and hand each
 ## prop a reference so it can hide/show its instances when felled/regrown.
+var _prop_mat: StandardMaterial3D = null
+
+## Tint every batched prop (trees/rocks/trash/scrap/wrecks…) toward a theme colour by
+## modulating the MultiMesh material — the cheap way to recolour "everything else" to match.
+func apply_theme_tint(color: Color) -> void:
+	if _prop_mat != null:
+		_prop_mat.albedo_color = color
+
 func _finalize_props() -> void:
 	if _prop_xf.is_empty():
 		return
@@ -992,6 +1000,7 @@ func _finalize_props() -> void:
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 1.0
 	bm.material = mat
+	_prop_mat = mat
 	mm.mesh = bm
 	mm.instance_count = _prop_xf.size()
 	for i in _prop_xf.size():

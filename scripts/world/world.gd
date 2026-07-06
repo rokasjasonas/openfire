@@ -123,6 +123,9 @@ func _on_theme_texture_ready(key: String, path: String) -> void:
 	var tex := ImageTexture.create_from_image(img)
 	if key.begins_with("tex_ground_"):
 		_apply_theme_texture("apply_ground_texture", tex)
+		# Recolour everything else (trees/rocks/props) toward the ground's dominant hue so the
+		# whole world reads as one theme, not AI surfaces floating over stock-grey props.
+		_apply_theme_tint(_dominant_color(img).lerp(Color(1, 1, 1), 0.35))
 	elif key.begins_with("tex_water_"):
 		_apply_theme_texture("apply_water_texture", tex)
 	elif key.begins_with("tex_sky_"):
@@ -132,6 +135,21 @@ func _apply_theme_texture(method: String, tex: Texture2D) -> void:
 	for m in map_holder.get_children():
 		if m.has_method(method):
 			m.call(method, tex)
+
+func _apply_theme_tint(color: Color) -> void:
+	for m in map_holder.get_children():
+		if m.has_method("apply_theme_tint"):
+			m.apply_theme_tint(color)
+
+## Average colour of an image, sampled on a small copy so we don't scan every pixel.
+func _dominant_color(img: Image) -> Color:
+	var small: Image = img.duplicate()
+	small.resize(8, 8, Image.INTERPOLATE_BILINEAR)
+	var acc := Color(0, 0, 0)
+	for y in 8:
+		for x in 8:
+			acc += small.get_pixel(x, y)
+	return acc / 64.0
 
 # ---------------------------------------------------------------- start handshake
 

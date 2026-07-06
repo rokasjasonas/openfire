@@ -5,20 +5,29 @@ to the bundled ComfyUI. The game auto-discovers them via `ComfyUI.workflow_templ
 (`scripts/autoload/comfyui.gd`) — no user setup. Placeholders `%PROMPT% %NEG% %SEED% %WIDTH%
 %HEIGHT% %STEPS% %CKPT%` are substituted before each POST to `/prompt`.
 
-## workflow_model.json — text → textured 3D (two-stage)
+## workflow_model.json — text → 3D (any GPU)
 
-Nodes `3–8` are the standard SD txt2img graph (identical to the game's built-in image
-workflow): the player's text prompt becomes a single-object image. Nodes `20–22` are the
-image→3D stage: **Stable Fast 3D** turns that image into a UV-textured mesh, saved as a GLB
-the game loads via `GLTFDocument` and spawns.
+Two stages, chosen so it runs on **any GPU with enough VRAM, zero setup** (see the
+`openfire-text-to-3d` design note):
 
-⚠️ **The `20–22` node `class_type`s must match the Stable Fast 3D ComfyUI node pack that the
-bundle installs** (see `tools/make_comfyui_bundle.sh`). Node class names differ between packs
-(ComfyUI-3D-Pack vs. standalone SF3D nodes) and versions. The correct way to (re)generate this
-file is to build the graph once in the ComfyUI web UI against the *installed* SF3D nodes, then
-export it via **Save (API Format)** and re-apply the placeholders. The names here
-(`StableFast3DLoader` / `StableFast3DPreview` / `SaveGLB`) are the expected shape and are
-pinned/validated when the bundle is built on a GPU machine.
+1. **SD txt2img** (nodes `3–8`) turns the prompt into a single, centered, plain-background
+   object image.
+2. **Image → 3D** (nodes `12–15`): an Inspyrenet rembg node (`InspyrenetRembg`) makes the
+   foreground mask, then **TripoSR** (`[Comfy3D] Load TripoSR Model` + `[Comfy3D] TripoSR`)
+   reconstructs a vertex-coloured mesh, saved as GLB by `[Comfy3D] Save 3D Mesh` to a **fixed
+   filename** (`openfire3d.glb`) the game fetches from ComfyUI's output dir.
 
-To override on your own machine, drop a corrected `workflow_model.json` in the game's
-`comfyui/` folder (next to the binary) or in `user://comfyui/` — the user path wins.
+**Why not SF3D?** Stable Fast 3D's texture baker is CUDA/NVIDIA-only (`import slangtorch` +
+`raise ValueError("must be on cuda")`), so it can't run on AMD/Intel. TripoSR's mesh extraction
+is PyMCubes (CPU, prebuilt wheels) and its transformer runs on any torch device — truly
+cross-vendor. Texture is TripoSR's baked vertex colours (optionally enhanced by projecting the
+SD image in-engine in Godot).
+
+**Node names:** ComfyUI-3D-Pack builds each API `class_type` as `"[Comfy3D] " +
+ClassName.replace("_", " ")`. The graph here matches 3D-Pack's own
+`example_workflows/TripoSR_to_Mesh.json`. TripoSR's model (`stabilityai/TripoSR`, ungated) is
+auto-downloaded by its node on first run — nothing to bundle or configure.
+
+The bundle build (`tools/make_comfyui_bundle.sh`) clones ComfyUI-3D-Pack + the rembg node into
+`custom_nodes/` and installs their requirements on first launch. To override on your machine,
+drop a `workflow_model.json` in the game's `comfyui/` folder or in `user://comfyui/`.

@@ -69,20 +69,23 @@ Workflows are ComfyUI **API-format** JSON with placeholders the bridge substitut
 2. `comfyui/workflow_<kind>.json` next to the binary — **shipped inside the bundle**.
 3. built-in graph (for `image` / `reskin` only).
 
-### Text → 3D is bundled, zero setup
+### Text → 3D is bundled, any GPU, zero setup
 
 `workflow_model.json` (source in `tools/comfyui/`, shipped in the bundle root) is a **two-stage**
-graph: the standard SD txt2img nodes turn the prompt into a single-object image, then a **Stable
-Fast 3D** node turns that image into a UV-textured GLB — so a plain text prompt yields a textured
-3D model with nothing for the player to install. The bundle build
-(`tools/make_comfyui_bundle.sh`) clones the SF3D node pack into `custom_nodes/` and installs its
-requirements on first run; the SF3D model weights (HF-gated) and any prebuilt compiled wheels are
-supplied by the GPU/release build via `SF3D_NODE_REPO` / `SF3D_MODEL_URL`.
+graph: SD txt2img turns the prompt into a single-object image, then **TripoSR** (via
+ComfyUI-3D-Pack) reconstructs a vertex-coloured GLB — so a plain text prompt yields a 3D model
+with nothing for the player to install. The bundle build (`tools/make_comfyui_bundle.sh`) clones
+ComfyUI-3D-Pack + an Inspyrenet rembg node into `custom_nodes/` and installs their requirements
+on first run. TripoSR's model is **ungated** and auto-downloaded by its node — no bundling, token,
+or setup.
+
+TripoSR was chosen because it runs on **any GPU** (PyMCubes mesh extraction is CPU/portable; the
+transformer runs on any torch device). **Stable Fast 3D was rejected**: its texture baker is
+CUDA/NVIDIA-only (`slangtorch` + a `must be on cuda` assert), so it can't meet "works on any GPU."
 
 The debug panel's **3D model (textured)** toggle is on by default whenever the bundle provides
-`workflow_model.json`. To swap engines (e.g. Hunyuan3D for max quality) or fix node names for a
-different SF3D pack, edit `tools/comfyui/workflow_model.json` (see `tools/comfyui/README.md`) or
-drop an override in `user://comfyui/`.
+`workflow_model.json`. To swap engines or fix node names, edit `tools/comfyui/workflow_model.json`
+(see `tools/comfyui/README.md`) or drop an override in `user://comfyui/`.
 
 The bridge reads the produced file from `/history` (`images`, `gltf`, `3d`, or `meshes`
 outputs) and downloads it via `/view` into the cache. `.glb` files are loaded by the world

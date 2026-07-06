@@ -5,7 +5,8 @@
   "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "%PROMPT%, single centered object, plain solid background, full object in frame, studio lighting", "clip": ["4", 1]}},
   "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "%NEG%, multiple objects, cropped, cut off", "clip": ["4", 1]}},
   "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
-  "20": {"class_type": "StableFast3DLoader", "inputs": {"model_name": "stable_fast_3d"}},
-  "21": {"class_type": "StableFast3DPreview", "inputs": {"reference_image": ["8", 0], "sf3d_model": ["20", 0], "foreground_ratio": 0.85, "texture_resolution": 1024, "remesh_option": "none"}},
-  "22": {"class_type": "SaveGLB", "inputs": {"mesh": ["21", 0], "filename_prefix": "openfire"}}
+  "12": {"class_type": "InspyrenetRembg", "inputs": {"image": ["8", 0], "torchscript_jit": "default"}},
+  "13": {"class_type": "[Comfy3D] Load TripoSR Model", "inputs": {"model_name": "model.ckpt", "chunk_size": 8192}},
+  "14": {"class_type": "[Comfy3D] TripoSR", "inputs": {"tsr_model": ["13", 0], "reference_image": ["12", 0], "reference_mask": ["12", 1], "geometry_extract_resolution": 256, "marching_cude_threshold": 25.0}},
+  "15": {"class_type": "[Comfy3D] Save 3D Mesh", "inputs": {"mesh": ["14", 0], "save_path": "openfire3d.glb"}}
 }

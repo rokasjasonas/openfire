@@ -119,35 +119,6 @@ jobs:
           cp build/comfyui-bundle.zip dist/comfyui-bundle.zip
           ls -lh dist/comfyui-bundle.zip
 
-      - name: Fetch Stable Fast 3D weights (text→3D asset)
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          set -euo pipefail
-          # SF3D weights are license-gated on HuggingFace. With an HF_TOKEN secret (from an
-          # account that accepted the SF3D license), fetch them and attach as sf3d-model.zip so
-          # the game auto-downloads them on first run (Settings.comfyui_sf3d_url). Without the
-          # secret we skip — the release still ships; 3D just lacks weights until it's set.
-          if [ -z "${HF_TOKEN:-}" ]; then
-            echo "::warning::No HF_TOKEN secret — skipping SF3D weights. Text→3D will install the node but lack the model until HF_TOKEN is set."
-            exit 0
-          fi
-          REPO="stabilityai/stable-fast-3d"
-          mkdir -p sf3d
-          for f in model.safetensors config.yaml; do
-            echo "fetching $f…"
-            curl -fL -H "Authorization: Bearer $HF_TOKEN" \
-              -o "sf3d/$f" "https://huggingface.co/$REPO/resolve/main/$f" || {
-                echo "::warning::Could not fetch $f from $REPO — SF3D asset will be incomplete."; }
-          done
-          # GitHub release assets must be < 2 GiB, but model.safetensors is ~4 GB. Split it into
-          # ~1.9 GiB numbered parts (model.safetensors.000, .001, …) the game rejoins, and write
-          # a manifest listing every SF3D asset. config.yaml lands in the SF3D dir as-is.
-          cp sf3d/config.yaml dist/config.yaml
-          ( cd sf3d && split -b 1900M -d -a 3 model.safetensors "$GITHUB_WORKSPACE/dist/model.safetensors." )
-          ( cd dist && ls config.yaml model.safetensors.* > sf3d-model.manifest )
-          echo "SF3D assets:"; ( cd dist && ls -lh config.yaml model.safetensors.* sf3d-model.manifest )
-
       - name: Commit version bump & tag
         run: |
           set -euo pipefail

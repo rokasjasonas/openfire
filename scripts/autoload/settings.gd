@@ -41,16 +41,10 @@ var comfyui_bundle_url: String = "https://github.com/rokasjasonas/openfire/relea
 # LFS redirects make the HTTP Content-Length unreliable. ~4.27 GB for SD 1.5 emaonly.
 var comfyui_model_size: int = 4265146304
 
-# --- Stable Fast 3D weights (text→3D stage) --------------------------------------------------
-# The SF3D model is license-gated on HuggingFace AND ~4 GB (over GitHub's 2 GiB per-asset limit),
-# so the release workflow fetches it (with an HF token), splits it into parts, and attaches them
-# alongside a manifest listing every SF3D asset. This URL points at that manifest; the game
-# downloads each listed asset on first run and rejoins the parts into the SF3D checkpoints folder.
-var comfyui_sf3d_url: String = "https://github.com/rokasjasonas/openfire/releases/latest/download/sf3d-model.manifest"
-# Where the weights land, relative to comfyui/ (the SF3D node reads them from here).
-var comfyui_sf3d_dir: String = "ComfyUI/custom_nodes/SF3D/checkpoints"
-# A file that exists once the weights are present, so we don't re-download.
-var comfyui_sf3d_marker: String = "model.safetensors"
+# --- text→3D ---------------------------------------------------------------------------------
+# The 3D stage uses TripoSR (ComfyUI-3D-Pack), whose weights are UNGATED and auto-downloaded by
+# the node itself on first generation — no game-side download, token, or split needed. See
+# tools/comfyui/workflow_model.json and the openfire-text-to-3d design note.
 
 func _ready() -> void:
 	load_settings()
@@ -78,9 +72,6 @@ func load_settings() -> void:
 		comfyui_model_file = String(cfg.get_value("comfyui", "model_file", comfyui_model_file))
 		comfyui_model_size = int(cfg.get_value("comfyui", "model_size", comfyui_model_size))
 		comfyui_bundle_url = String(cfg.get_value("comfyui", "bundle_url", comfyui_bundle_url))
-		comfyui_sf3d_url = String(cfg.get_value("comfyui", "sf3d_url", comfyui_sf3d_url))
-		comfyui_sf3d_dir = String(cfg.get_value("comfyui", "sf3d_dir", comfyui_sf3d_dir))
-		comfyui_sf3d_marker = String(cfg.get_value("comfyui", "sf3d_marker", comfyui_sf3d_marker))
 
 func save() -> void:
 	var cfg := ConfigFile.new()
@@ -103,9 +94,6 @@ func save() -> void:
 	cfg.set_value("comfyui", "model_file", comfyui_model_file)
 	cfg.set_value("comfyui", "model_size", comfyui_model_size)
 	cfg.set_value("comfyui", "bundle_url", comfyui_bundle_url)
-	cfg.set_value("comfyui", "sf3d_url", comfyui_sf3d_url)
-	cfg.set_value("comfyui", "sf3d_dir", comfyui_sf3d_dir)
-	cfg.set_value("comfyui", "sf3d_marker", comfyui_sf3d_marker)
 	cfg.save(PATH)
 
 ## Apply settings that affect global systems (audio bus). Per-player look/FOV are

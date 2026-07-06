@@ -21,23 +21,23 @@ echo "[bundle] cloning ComfyUI…"
 git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$WORK/ComfyUI"
 rm -rf "$WORK/ComfyUI/.git"
 
-# --- Stable Fast 3D node (text→image→textured-3D stage) ---------------------
-# The game's workflow_model.json drives an SF3D image→3D node. Ship the node pack so text→3D
-# works with zero user setup. Override the repo with SF3D_NODE_REPO if a leaner fork is used.
-SF3D_NODE_REPO="${SF3D_NODE_REPO:-https://github.com/MrForExample/ComfyUI-3D-Pack.git}"
-echo "[bundle] cloning Stable Fast 3D node pack ($SF3D_NODE_REPO)…"
+# --- text→3D custom nodes (any-GPU) -----------------------------------------
+# The game's workflow_model.json drives TripoSR (in ComfyUI-3D-Pack) for cross-vendor geometry
+# plus an Inspyrenet rembg node for the foreground mask. Ship both so text→3D works with zero
+# user setup. TripoSR's model is UNGATED and auto-downloaded by its node on first generation, so
+# no model is bundled here. (SF3D was dropped: its texture baker is CUDA/NVIDIA-only via slangtorch.)
 mkdir -p "$WORK/ComfyUI/custom_nodes"
-if git clone --depth 1 "$SF3D_NODE_REPO" "$WORK/ComfyUI/custom_nodes/SF3D" 2>/dev/null; then
-	rm -rf "$WORK/ComfyUI/custom_nodes/SF3D/.git"
-else
-	echo "[bundle] WARN: could not clone SF3D node pack — 3D will be unavailable until it's added." >&2
-fi
-
-# The SF3D model weights (stabilityai/stable-fast-3d) are license-gated on HuggingFace, so they
-# can't be pulled anonymously at first run. Mirror them on the release (like the SD checkpoint)
-# and let the first-run launcher fetch from $SF3D_MODEL_URL into models/. If unset, 3D still
-# installs but the model must be dropped in manually.
-SF3D_MODEL_URL="${SF3D_MODEL_URL:-}"
+COMFY3D_REPO="${COMFY3D_REPO:-https://github.com/MrForExample/ComfyUI-3D-Pack.git}"
+REMBG_REPO="${REMBG_REPO:-https://github.com/john-mnz/ComfyUI-Inspyrenet-Rembg.git}"
+for entry in "Comfy3D|$COMFY3D_REPO" "InspyrenetRembg|$REMBG_REPO"; do
+	name="${entry%%|*}"; repo="${entry#*|}"
+	echo "[bundle] cloning $name ($repo)…"
+	if git clone --depth 1 "$repo" "$WORK/ComfyUI/custom_nodes/$name" 2>/dev/null; then
+		rm -rf "$WORK/ComfyUI/custom_nodes/$name/.git"
+	else
+		echo "[bundle] WARN: could not clone $name — text→3D may be unavailable until it's added." >&2
+	fi
+done
 
 # Bundled workflow templates (copied to the bundle root; the game auto-discovers them).
 echo "[bundle] adding workflow templates…"

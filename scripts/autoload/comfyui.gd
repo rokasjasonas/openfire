@@ -53,14 +53,16 @@ const IMG2IMG_WORKFLOW := """{
   "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "openfire", "images": ["8", 0]}}
 }"""
 
+# Fixed filename the 3D workflow's Save node writes (must match workflow_model.json save_path),
+# so the game can fetch it from ComfyUI's output dir without it appearing in /history outputs.
+const MODEL_OUTPUT_FILE := "openfire3d.glb"
+
 var _post: HTTPRequest      # POST /prompt
 var _hist: HTTPRequest      # GET /history/<id> (polling)
 var _view: HTTPRequest      # GET /view?filename=... (download)
 var _info: HTTPRequest      # GET /object_info (available checkpoints)
 var _dl: HTTPRequest        # model download
 var _dl_bundle: HTTPRequest # ComfyUI bundle download (auto-install)
-var _dl_sf3d: HTTPRequest    # Stable Fast 3D weights download (text→3D)
-var _installing_sf3d: bool = false
 var _upload: HTTPRequest    # POST /upload/image for img2img base images
 var _upload_pending: Dictionary = {}   # {prompt, key} awaiting an upload to finish
 var _downloading: bool = false
@@ -83,7 +85,6 @@ func _ready() -> void:
 	_info = _mk_http(_on_object_info)
 	_dl = _mk_http(_on_model_downloaded)
 	_dl_bundle = _mk_http(_on_bundle_downloaded)
-	_dl_sf3d = _mk_http(_on_sf3d_downloaded)
 	_upload = _mk_http(_on_image_uploaded)
 	set_process(false)
 	_poll = Timer.new()
@@ -217,10 +218,6 @@ func _process(_delta: float) -> void:
 		var bd := _dl_bundle.get_downloaded_bytes()
 		var bt := _dl_bundle.get_body_size()
 		install_progress.emit("Downloading ComfyUI…", (float(bd) / float(bt)) if bt > 0 else 0.0)
-	elif _installing_sf3d:
-		var sd := _dl_sf3d.get_downloaded_bytes()
-		var st := _dl_sf3d.get_body_size()
-		install_progress.emit("Downloading 3D model…", (float(sd) / float(st)) if st > 0 else 0.0)
 
 func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
 	if not _downloading:
@@ -246,8 +243,6 @@ func _on_model_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pac
 func _boot() -> void:
 	if is_installed():
 		ensure_server()
-		if not OS.has_feature("editor") and DisplayServer.get_name() != "headless":
-			ensure_sf3d_model()   # fetch text→3D weights on a real build if not present yet
 		return
 	# Auto-install only in a real windowed build — never during headless smoke or the editor
 	# (so tests and the editor don't pull a multi-GB bundle over the network).
@@ -300,113 +295,8 @@ func _on_bundle_downloaded(result: int, code: int, _h: PackedStringArray, _b: Pa
 	if ok and is_installed():
 		install_done.emit(true, "ComfyUI installed. Starting it…")
 		ensure_server()
-		ensure_sf3d_model()   # pull the text→3D weights too (no-op if absent/already present)
 	else:
 		install_done.emit(false, "Extracted, but no launcher found in the bundle.")
-
-## Absolute folder the SF3D weights extract into (inside the bundled comfyui/).
-func sf3d_dir_abs() -> String:
-	return comfyui_base_dir().path_join(String(Settings.comfyui_sf3d_dir))
-
-## Are the Stable Fast 3D weights present? (marker file inside the SF3D checkpoints folder)
-func has_sf3d_model() -> bool:
-	var marker := String(Settings.comfyui_sf3d_marker).strip_edges()
-	if marker == "":
-		return DirAccess.dir_exists_absolute(sf3d_dir_abs())
-	return FileAccess.file_exists(sf3d_dir_abs().path_join(marker))
-
-## Download the Stable Fast 3D weights into the SF3D node's checkpoints folder so text→3D works
-## with zero manual setup. The weights (~4 GB) exceed GitHub's 2 GiB per-asset limit, so the
-## release splits them into parts; we fetch a small manifest listing every asset, download each
-## in turn, then rejoin the `model.safetensors.*` parts. No-op if present / no URL / already
-## downloading. Emits install_progress / install_done.
-var _sf3d_stage: String = ""     # "manifest" | "file"
-var _sf3d_files: Array = []       # remaining asset filenames to fetch (front = current)
-var _sf3d_base: String = ""       # URL directory the manifest + assets live in
-
-func ensure_sf3d_model() -> void:
-	if _installing_sf3d or has_sf3d_model():
-		return
-	if not has_workflow("model"):      # only meaningful once a 3D workflow is bundled
-		return
-	var url := String(Settings.comfyui_sf3d_url).strip_edges()   # the manifest URL
-	if url == "":
-		return
-	_installing_sf3d = true
-	_sf3d_stage = "manifest"
-	_sf3d_base = url.get_base_dir()
-	install_progress.emit("Downloading 3D model…", 0.0)
-	DirAccess.make_dir_recursive_absolute(sf3d_dir_abs())
-	_dl_sf3d.download_file = comfyui_base_dir().path_join("_sf3d.manifest")
-	if _dl_sf3d.request(url) != OK:
-		return _sf3d_abort("Couldn't start the 3D model download.")
-	set_process(true)
-
-func _on_sf3d_downloaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
-	if not _installing_sf3d:
-		return
-	var ok := result == HTTPRequest.RESULT_SUCCESS and code == 200
-	if _sf3d_stage == "manifest":
-		if not ok:
-			return _sf3d_abort("3D model manifest download failed (HTTP %d)." % code)
-		var mpath := comfyui_base_dir().path_join("_sf3d.manifest")
-		var text := FileAccess.get_file_as_string(mpath)
-		if FileAccess.file_exists(mpath):
-			DirAccess.remove_absolute(mpath)
-		_sf3d_files.clear()
-		for line in text.split("\n", false):
-			var n := line.strip_edges()
-			if n != "":
-				_sf3d_files.append(n)
-		if _sf3d_files.is_empty():
-			return _sf3d_abort("3D model manifest was empty.")
-		_sf3d_next_file()
-	else:   # a downloaded asset file
-		if not ok:
-			return _sf3d_abort("3D model part download failed (HTTP %d)." % code)
-		_sf3d_files.pop_front()
-		if _sf3d_files.is_empty():
-			_sf3d_finish()
-		else:
-			_sf3d_next_file()
-
-func _sf3d_next_file() -> void:
-	_sf3d_stage = "file"
-	var name := String(_sf3d_files[0])
-	_dl_sf3d.download_file = sf3d_dir_abs().path_join(name)
-	if _dl_sf3d.request(_sf3d_base + "/" + name) != OK:
-		_sf3d_abort("Couldn't fetch 3D model file '%s'." % name)
-
-## All assets fetched: concatenate the split model.safetensors.NNN parts (streamed in chunks so
-## we never hold a whole part in memory), delete the parts, and we're done.
-func _sf3d_finish() -> void:
-	var dir := sf3d_dir_abs()
-	var parts: Array = []
-	for f in DirAccess.get_files_at(dir):
-		if f.begins_with("model.safetensors."):
-			parts.append(f)
-	parts.sort()
-	if not parts.is_empty():
-		var out := FileAccess.open(dir.path_join("model.safetensors"), FileAccess.WRITE)
-		if out != null:
-			for p in parts:
-				var src := FileAccess.open(dir.path_join(p), FileAccess.READ)
-				if src != null:
-					while not src.eof_reached():
-						out.store_buffer(src.get_buffer(64 * 1024 * 1024))
-					src.close()
-			out.close()
-		for p in parts:
-			DirAccess.remove_absolute(dir.path_join(p))
-	_installing_sf3d = false
-	set_process(false)
-	install_done.emit(has_sf3d_model(), "3D model ready." if has_sf3d_model() else "3D model assembled but incomplete.")
-
-func _sf3d_abort(msg: String) -> void:
-	_installing_sf3d = false
-	_sf3d_files.clear()
-	set_process(false)
-	install_done.emit(false, msg)
 
 ## Extract a .zip into `dest` (Godot's ZIPReader handles .zip; the ComfyUI portable's .7z
 ## is not supported, hence the .zip bundle requirement). Returns true on success.
@@ -718,6 +608,18 @@ func _on_history(result: int, code: int, _h: PackedStringArray, body: PackedByte
 			_poll.stop()
 			_fail_current()
 			return
+	# 3D jobs end with [Comfy3D] Save 3D Mesh, which writes a fixed GLB to the output dir but does
+	# NOT surface it in /history outputs. So once the job appears in history (finished) without an
+	# error, fetch that known filename directly instead of scanning outputs.
+	if String(_cur.get("kind", "")) == "model":
+		if typeof(hist) != TYPE_DICTIONARY or not hist.has(_cur_prompt_id):
+			return   # not finished yet — keep polling
+		_poll.stop()
+		_cur["ext"] = "glb"
+		_view.download_file = cache_path(String(_cur["key"]), "glb")
+		if _view.request("%s/view?filename=%s&type=output" % [endpoint(), MODEL_OUTPUT_FILE.uri_encode()]) != OK:
+			_fail_current()
+		return
 	var ref := _extract_output_ref(hist, _cur_prompt_id)
 	if ref.is_empty():
 		return   # not finished yet — keep polling

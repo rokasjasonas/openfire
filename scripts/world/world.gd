@@ -139,10 +139,17 @@ func _apply_theme_texture(method: String, tex: Texture2D) -> void:
 		if m.has_method(method):
 			m.call(method, tex)
 
+var _theme_tint: Color = Color(1, 1, 1)   # identity until a ground texture reveals the palette
+
 func _apply_theme_tint(color: Color) -> void:
+	_theme_tint = color
 	for m in map_holder.get_children():
 		if m.has_method("apply_theme_tint"):
 			m.apply_theme_tint(color)
+	# Wildlife lives outside map_holder — tint whatever is already roaming.
+	for a in get_tree().get_nodes_in_group("animal"):
+		if a.has_method("apply_theme_tint"):
+			a.apply_theme_tint(color)
 
 ## Average colour of an image, sampled on a small copy so we don't scan every pixel.
 func _dominant_color(img: Image) -> Color:
@@ -526,6 +533,10 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			a.name = "A%d" % absi(int(data["id"]))
 			a.species = String(data.get("species", "deer"))
 			a.position = data["pos"]
+			# If the palette is already known, tint this animal once it's built (deferred so
+			# _ready/_build_body has run). Identity colour means no theme yet — leave it alone.
+			if _theme_tint != Color(1, 1, 1):
+				a.call_deferred("apply_theme_tint", _theme_tint)
 			return a   # authority stays with the host, which drives the AI
 		_:
 			var b := BOT_SCENE.instantiate()

@@ -55,12 +55,21 @@ func _process(delta: float) -> void:
 		global_position = global_position.lerp(sync_pos, t)
 	rotation.y = lerp_angle(rotation.y, sync_yaw, t)
 
+var _body_mat: StandardMaterial3D = null
+
+## Blend this animal's hide toward the world's theme colour so wildlife matches the palette
+## (a candy world gets candy-tinted deer). Keeps some of the species tint so they stay readable.
+func apply_theme_tint(color: Color) -> void:
+	if _body_mat != null:
+		_body_mat.albedo_color = _tint.lerp(color, 0.45)
+
 func _build_body(size: float) -> void:
 	_body = Node3D.new()
 	add_child(_body)
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = _tint
 	mat.roughness = 0.95
+	_body_mat = mat
 	# Torso.
 	_add_box(_body, Vector3(0.5, 0.55, 1.1) * size, Vector3(0, 0.7, 0) * size, mat)
 	# Neck + head.

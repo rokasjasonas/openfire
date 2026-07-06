@@ -1,0 +1,11 @@
+{
+  "3": {"class_type": "KSampler", "inputs": {"seed": %SEED%, "steps": %STEPS%, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+  "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "%CKPT%"}},
+  "5": {"class_type": "EmptyLatentImage", "inputs": {"width": %WIDTH%, "height": %HEIGHT%, "batch_size": 1}},
+  "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "%PROMPT%, single centered object, plain solid background, full object in frame, studio lighting", "clip": ["4", 1]}},
+  "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "%NEG%, multiple objects, cropped, cut off", "clip": ["4", 1]}},
+  "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+  "20": {"class_type": "StableFast3DLoader", "inputs": {"model_name": "stable_fast_3d"}},
+  "21": {"class_type": "StableFast3DPreview", "inputs": {"reference_image": ["8", 0], "sf3d_model": ["20", 0], "foreground_ratio": 0.85, "texture_resolution": 1024, "remesh_option": "none"}},
+  "22": {"class_type": "SaveGLB", "inputs": {"mesh": ["21", 0], "filename_prefix": "openfire"}}
+}

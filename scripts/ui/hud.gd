@@ -259,26 +259,13 @@ func _on_talk(info: Dictionary) -> void:
 
 # ---------------------------------------------------------------- AI NPC portrait
 
-var _npc_portrait: TextureRect = null
+@onready var _npc_portrait: TextureRect = %NpcPortrait
 var _npc_portrait_key: String = ""
 
 ## Show a ComfyUI-generated head-and-shoulders portrait of the NPC (cached per name+faction
-## so it's instant on re-talk). Silent no-op if ComfyUI isn't reachable.
+## so it's instant on re-talk). The portrait sits in a header row beside the name so it never
+## overlaps the dialog text. Silent no-op if ComfyUI isn't reachable.
 func _show_npc_portrait(info: Dictionary) -> void:
-	if _npc_portrait == null:
-		_npc_portrait = TextureRect.new()
-		_npc_portrait.name = "NpcPortrait"
-		_npc_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		_npc_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		_npc_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		_npc_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_npc_portrait.anchor_left = 1.0
-		_npc_portrait.anchor_right = 1.0
-		_npc_portrait.offset_left = -120.0
-		_npc_portrait.offset_top = 12.0
-		_npc_portrait.offset_right = -16.0
-		_npc_portrait.offset_bottom = 116.0
-		npc_dialog.add_child(_npc_portrait)
 	# "face_" prefix (vs the old "npc_") so earlier full-body portraits in the cache are bypassed.
 	var key := "face_%s_%s" % [String(info.get("faction", "")), String(info.get("name", ""))]
 	_npc_portrait_key = key
@@ -1074,7 +1061,10 @@ func _build_debug_panel() -> void:
 	_dbg_ai_prompt.text_submitted.connect(func(_t): _on_debug_generate())
 	vb.add_child(_dbg_ai_prompt)
 	_dbg_ai_3d = CheckButton.new()
-	_dbg_ai_3d.text = "3D model (needs a 3D workflow)"
+	var has_3d: bool = ComfyUI.has_workflow("model")
+	_dbg_ai_3d.text = "3D model (textured)" if has_3d else "3D model (unavailable — no bundle)"
+	_dbg_ai_3d.button_pressed = has_3d   # default to 3D when the bundle provides it
+	_dbg_ai_3d.disabled = not has_3d
 	vb.add_child(_dbg_ai_3d)
 	var gen := Button.new()
 	gen.text = "Generate & spawn"
@@ -1142,8 +1132,8 @@ func _on_debug_generate() -> void:
 		ComfyUI.asset_ready.connect(_on_debug_asset)
 		ComfyUI.asset_failed.connect(_on_debug_asset_failed)
 	var want_3d := _dbg_ai_3d != null and _dbg_ai_3d.button_pressed
-	if want_3d and not FileAccess.file_exists("user://comfyui/workflow_model.json"):
-		_dbg_ai_status.text = "No 3D workflow. Export a ComfyUI-3D-Pack graph to user://comfyui/workflow_model.json (see docs/comfyui.md)."
+	if want_3d and not ComfyUI.has_workflow("model"):
+		_dbg_ai_status.text = "3D isn't bundled in this build. Reinstall the ComfyUI bundle, or drop a workflow_model.json in the comfyui folder."
 		return
 	var kind := "model" if want_3d else "image"
 	var key := "dbg_%s_%s" % [kind, prompt]

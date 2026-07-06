@@ -454,20 +454,38 @@ func _submit_current() -> void:
 func _stable_seed(key: String) -> int:
 	return abs(key.hash()) % 2147483647
 
-## Build the ComfyUI API-format workflow string for `kind`, substituting placeholders.
-## Uses a user template at user://comfyui/workflow_<kind>.json when present, else the
-## built-in image graph (returns "" if a non-image kind has no template configured).
-func _build_workflow(prompt: String, seed_val: int, kind: String) -> String:
-	var tpl := ""
+## Path to the workflow template for `kind`, or "" if none. Search order: a user override at
+## user://comfyui/workflow_<kind>.json, then the one shipped inside the ComfyUI bundle
+## (comfyui/workflow_<kind>.json). The bundled one means text→3D works with zero user setup.
+func workflow_template_path(kind: String) -> String:
 	var user_tpl := "user://comfyui/workflow_%s.json" % kind
 	if FileAccess.file_exists(user_tpl):
-		tpl = FileAccess.get_file_as_string(user_tpl)
+		return user_tpl
+	var bundled := comfyui_base_dir().path_join("workflow_%s.json" % kind)
+	if FileAccess.file_exists(bundled):
+		return bundled
+	return ""
+
+## Is a workflow available for `kind`? (Built-in kinds always are.)
+func has_workflow(kind: String) -> bool:
+	if kind == "image" or kind == "reskin":
+		return true
+	return workflow_template_path(kind) != ""
+
+## Build the ComfyUI API-format workflow string for `kind`, substituting placeholders.
+## Uses a user/bundled template at workflow_<kind>.json when present, else the built-in image
+## graph (returns "" if a non-image kind has no template — e.g. 3D without the bundle).
+func _build_workflow(prompt: String, seed_val: int, kind: String) -> String:
+	var tpl := ""
+	var tpl_path := workflow_template_path(kind)
+	if tpl_path != "":
+		tpl = FileAccess.get_file_as_string(tpl_path)
 	elif kind == "image":
 		tpl = DEFAULT_IMAGE_WORKFLOW
 	elif kind == "reskin":
 		tpl = IMG2IMG_WORKFLOW
 	else:
-		return ""   # 3D/other kinds require a user-provided workflow template
+		return ""   # 3D/other kinds require a workflow template (bundled or user-provided)
 	return _apply_placeholders(tpl, prompt, seed_val)
 
 func _apply_placeholders(tpl: String, prompt: String, seed_val: int) -> String:

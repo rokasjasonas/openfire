@@ -456,12 +456,27 @@ offset_right = 522.0
 offset_bottom = 324.0
 theme_override_constants/separation = 10
 
-[node name="NpcName" type="Label" parent="NpcDialog/VBox"]
+[node name="Header" type="HBoxContainer" parent="NpcDialog/VBox"]
+theme_override_constants/separation = 12
+
+[node name="NpcPortrait" type="TextureRect" parent="NpcDialog/VBox/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(88, 88)
+visible = false
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="HeaderText" type="VBoxContainer" parent="NpcDialog/VBox/Header"]
+size_flags_horizontal = 3
+size_flags_vertical = 4
+
+[node name="NpcName" type="Label" parent="NpcDialog/VBox/Header/HeaderText"]
 unique_name_in_owner = true
 horizontal_alignment = 1
 text = "Name"
 
-[node name="NpcRole" type="Label" parent="NpcDialog/VBox"]
+[node name="NpcRole" type="Label" parent="NpcDialog/VBox/Header/HeaderText"]
 unique_name_in_owner = true
 modulate = Color(1, 1, 1, 0.7)
 horizontal_alignment = 1

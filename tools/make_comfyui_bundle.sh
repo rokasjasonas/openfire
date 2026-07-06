@@ -21,6 +21,28 @@ echo "[bundle] cloning ComfyUI…"
 git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$WORK/ComfyUI"
 rm -rf "$WORK/ComfyUI/.git"
 
+# --- Stable Fast 3D node (text→image→textured-3D stage) ---------------------
+# The game's workflow_model.json drives an SF3D image→3D node. Ship the node pack so text→3D
+# works with zero user setup. Override the repo with SF3D_NODE_REPO if a leaner fork is used.
+SF3D_NODE_REPO="${SF3D_NODE_REPO:-https://github.com/MrForExample/ComfyUI-3D-Pack.git}"
+echo "[bundle] cloning Stable Fast 3D node pack ($SF3D_NODE_REPO)…"
+mkdir -p "$WORK/ComfyUI/custom_nodes"
+if git clone --depth 1 "$SF3D_NODE_REPO" "$WORK/ComfyUI/custom_nodes/SF3D" 2>/dev/null; then
+	rm -rf "$WORK/ComfyUI/custom_nodes/SF3D/.git"
+else
+	echo "[bundle] WARN: could not clone SF3D node pack — 3D will be unavailable until it's added." >&2
+fi
+
+# The SF3D model weights (stabilityai/stable-fast-3d) are license-gated on HuggingFace, so they
+# can't be pulled anonymously at first run. Mirror them on the release (like the SD checkpoint)
+# and let the first-run launcher fetch from $SF3D_MODEL_URL into models/. If unset, 3D still
+# installs but the model must be dropped in manually.
+SF3D_MODEL_URL="${SF3D_MODEL_URL:-}"
+
+# Bundled workflow templates (copied to the bundle root; the game auto-discovers them).
+echo "[bundle] adding workflow templates…"
+cp "$ROOT/tools/comfyui/"workflow_*.json "$WORK/" 2>/dev/null || true
+
 # --- Linux/macOS launcher ---------------------------------------------------
 cat > "$WORK/start.sh" <<'SH'
 #!/usr/bin/env bash
@@ -33,6 +55,11 @@ if [ ! -d venv ]; then
 	# CPU torch by default; swap for the CUDA/ROCm build from pytorch.org for GPU speed.
 	./venv/bin/pip install torch torchvision
 	./venv/bin/pip install -r ComfyUI/requirements.txt
+	# Stable Fast 3D node deps (for text→textured-3D). Best-effort: some SF3D packs need
+	# compiled extensions that require a toolchain — a GPU build should ship prebuilt wheels.
+	for req in ComfyUI/custom_nodes/*/requirements.txt; do
+		[ -f "$req" ] && ./venv/bin/pip install -r "$req" || true
+	done
 fi
 exec ./venv/bin/python ComfyUI/main.py --listen 127.0.0.1 --port 8188 "$@"
 SH
@@ -49,11 +76,15 @@ if not exist venv (
 	rem CPU torch by default; swap for the CUDA build from pytorch.org for GPU speed.
 	venv\Scripts\pip install torch torchvision
 	venv\Scripts\pip install -r ComfyUI\requirements.txt
+	rem Stable Fast 3D node deps (text->textured-3D). Some SF3D packs need prebuilt wheels.
+	for /d %%d in (ComfyUI\custom_nodes\*) do (
+		if exist "%%d\requirements.txt" venv\Scripts\pip install -r "%%d\requirements.txt"
+	)
 )
 venv\Scripts\python ComfyUI\main.py --listen 127.0.0.1 --port 8188 %*
 BAT
 
 echo "[bundle] zipping…"
 rm -f "$OUT"
-( cd "$WORK" && zip -q -r "$OUT" ComfyUI start.sh start.bat )
+( cd "$WORK" && zip -q -r "$OUT" . -x '*/.git/*' )
 echo "[bundle] wrote $OUT ($(du -h "$OUT" | cut -f1))"

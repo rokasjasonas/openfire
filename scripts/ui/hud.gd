@@ -1146,6 +1146,62 @@ func _on_debug_asset_failed(key: String) -> void:
 		var why := String(ComfyUI.last_error)
 		_dbg_ai_status.text = why if why != "" else "Generation failed (no detail). Is ComfyUI running at the endpoint?"
 
+## Minimal runtime OBJ loader for TripoSR output: parses `v x y z [r g b]` (optional per-vertex
+## colour, as trimesh exports) and triangulated faces into a vertex-coloured ArrayMesh. Godot has
+## no runtime .obj importer, and TripoSR's mesh is small, so a tiny parser is enough.
+func _mesh_from_obj(file_path: String) -> ArrayMesh:
+	var f := FileAccess.open(file_path, FileAccess.READ)
+	if f == null:
+		return null
+	var verts: PackedVector3Array = []
+	var cols: PackedColorArray = []
+	var has_color := false
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	while not f.eof_reached():
+		var parts := f.get_line().strip_edges().split(" ", false)
+		if parts.size() == 0:
+			continue
+		if parts[0] == "v" and parts.size() >= 4:
+			verts.append(Vector3(parts[1].to_float(), parts[2].to_float(), parts[3].to_float()))
+			if parts.size() >= 7:
+				has_color = true
+				var r := parts[4].to_float()
+				var g := parts[5].to_float()
+				var b := parts[6].to_float()
+				if r > 1.0 or g > 1.0 or b > 1.0:   # some exporters write 0-255
+					r /= 255.0; g /= 255.0; b /= 255.0
+				cols.append(Color(r, g, b))
+			else:
+				cols.append(Color(1, 1, 1))
+		elif parts[0] == "f" and parts.size() >= 4:
+			# Face indices (1-based, possibly "v/vt/vn"); fan-triangulate polygons.
+			var idx: PackedInt32Array = []
+			for i in range(1, parts.size()):
+				var tok := parts[i].split("/")[0]
+				var vi := tok.to_int()
+				if vi < 0:
+					vi = verts.size() + vi + 1   # negative = relative index
+				idx.append(vi - 1)
+			for t in range(1, idx.size() - 1):
+				for vi in [idx[0], idx[t], idx[t + 1]]:
+					if vi < 0 or vi >= verts.size():
+						continue
+					if has_color:
+						st.set_color(cols[vi])
+					st.add_vertex(verts[vi])
+	f.close()
+	if verts.is_empty():
+		return null
+	st.generate_normals()
+	var mesh := st.commit()
+	if has_color and mesh.get_surface_count() > 0:
+		var mat := StandardMaterial3D.new()
+		mat.vertex_color_use_as_albedo = true
+		mat.roughness = 0.9
+		mesh.surface_set_material(0, mat)
+	return mesh
+
 ## In front of the player, ground-snapped, for spawning a generated asset.
 func _debug_spawn_pos() -> Vector3:
 	var fwd: Vector3 = -_player.global_transform.basis.z
@@ -1164,7 +1220,8 @@ func _on_debug_asset(key: String, path: String) -> void:
 	if not key.begins_with("dbg_") or _player == null:
 		return
 	var pos := _debug_spawn_pos()
-	if path.to_lower().ends_with(".glb"):
+	var lower := path.to_lower()
+	if lower.ends_with(".glb"):
 		var doc := GLTFDocument.new()
 		var state := GLTFState.new()
 		if doc.append_from_file(path, state) != OK:
@@ -1176,6 +1233,17 @@ func _on_debug_asset(key: String, path: String) -> void:
 			return
 		node.position = pos
 		get_tree().current_scene.add_child(node)
+		_dbg_ai_status.text = "Spawned model '%s'." % key.trim_prefix("dbg_")
+	elif lower.ends_with(".obj"):
+		# TripoSR (text→3D) exports a vertex-coloured OBJ; parse it into a mesh and spawn it.
+		var mesh := _mesh_from_obj(path)
+		if mesh == null:
+			_dbg_ai_status.text = "Couldn't parse the generated 3D mesh."
+			return
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.position = pos + Vector3.UP * 0.5
+		get_tree().current_scene.add_child(mi)
 		_dbg_ai_status.text = "Spawned model '%s'." % key.trim_prefix("dbg_")
 	else:
 		# Image asset -> a billboard sprite standing in front of you.

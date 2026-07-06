@@ -6,7 +6,7 @@
   "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "%NEG%, multiple objects, cropped, cut off", "clip": ["4", 1]}},
   "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
   "12": {"class_type": "InspyrenetRembg", "inputs": {"image": ["8", 0], "torchscript_jit": "default"}},
-  "13": {"class_type": "[Comfy3D] Load TripoSR Model", "inputs": {"model_name": "model.ckpt", "chunk_size": 8192}},
-  "14": {"class_type": "[Comfy3D] TripoSR", "inputs": {"tsr_model": ["13", 0], "reference_image": ["12", 0], "reference_mask": ["12", 1], "geometry_extract_resolution": 256, "marching_cude_threshold": 25.0}},
-  "15": {"class_type": "[Comfy3D] Save 3D Mesh", "inputs": {"mesh": ["14", 0], "save_path": "openfire3d.glb"}}
+  "13": {"class_type": "TripoSRModelLoader", "inputs": {"model": "triposr.ckpt", "chunk_size": 8192}},
+  "14": {"class_type": "TripoSRSampler", "inputs": {"model": ["13", 0], "reference_image": ["12", 0], "reference_mask": ["12", 1], "geometry_resolution": 256, "threshold": 25.0}},
+  "15": {"class_type": "TripoSRViewer", "inputs": {"mesh": ["14", 0]}}
 }

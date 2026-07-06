@@ -53,10 +53,6 @@ const IMG2IMG_WORKFLOW := """{
   "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "openfire", "images": ["8", 0]}}
 }"""
 
-# Fixed filename the 3D workflow's Save node writes (must match workflow_model.json save_path),
-# so the game can fetch it from ComfyUI's output dir without it appearing in /history outputs.
-const MODEL_OUTPUT_FILE := "openfire3d.glb"
-
 var _post: HTTPRequest      # POST /prompt
 var _hist: HTTPRequest      # GET /history/<id> (polling)
 var _view: HTTPRequest      # GET /view?filename=... (download)
@@ -608,18 +604,6 @@ func _on_history(result: int, code: int, _h: PackedStringArray, body: PackedByte
 			_poll.stop()
 			_fail_current()
 			return
-	# 3D jobs end with [Comfy3D] Save 3D Mesh, which writes a fixed GLB to the output dir but does
-	# NOT surface it in /history outputs. So once the job appears in history (finished) without an
-	# error, fetch that known filename directly instead of scanning outputs.
-	if String(_cur.get("kind", "")) == "model":
-		if typeof(hist) != TYPE_DICTIONARY or not hist.has(_cur_prompt_id):
-			return   # not finished yet — keep polling
-		_poll.stop()
-		_cur["ext"] = "glb"
-		_view.download_file = cache_path(String(_cur["key"]), "glb")
-		if _view.request("%s/view?filename=%s&type=output" % [endpoint(), MODEL_OUTPUT_FILE.uri_encode()]) != OK:
-			_fail_current()
-		return
 	var ref := _extract_output_ref(hist, _cur_prompt_id)
 	if ref.is_empty():
 		return   # not finished yet — keep polling
@@ -627,7 +611,12 @@ func _on_history(result: int, code: int, _h: PackedStringArray, body: PackedByte
 	# Fetch the produced file via /view.
 	var q := "%s/view?filename=%s&subfolder=%s&type=%s" % [endpoint(),
 		String(ref["filename"]).uri_encode(), String(ref.get("subfolder", "")).uri_encode(), String(ref.get("type", "output")).uri_encode()]
-	var ext := "glb" if String(ref["filename"]).to_lower().ends_with(".glb") else "png"
+	var lower := String(ref["filename"]).to_lower()
+	var ext := "png"
+	if lower.ends_with(".glb"):
+		ext = "glb"
+	elif lower.ends_with(".obj"):
+		ext = "obj"
 	_cur["ext"] = ext
 	_view.download_file = cache_path(String(_cur["key"]), ext)
 	if _view.request(q) != OK:
@@ -645,7 +634,7 @@ func _extract_output_ref(hist, prompt_id: String) -> Dictionary:
 		var node = outs[node_id]
 		if typeof(node) != TYPE_DICTIONARY:
 			continue
-		for field in ["images", "gltf", "3d", "meshes"]:
+		for field in ["images", "gltf", "3d", "meshes", "mesh"]:
 			var arr = node.get(field, [])
 			if typeof(arr) == TYPE_ARRAY and not arr.is_empty() and typeof(arr[0]) == TYPE_DICTIONARY and arr[0].has("filename"):
 				return arr[0]

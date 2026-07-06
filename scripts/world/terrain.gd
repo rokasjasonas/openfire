@@ -768,6 +768,7 @@ func _collider_box(size: Vector3, pos: Vector3, col: Color) -> void:
 	m.albedo_color = col
 	m.roughness = 1.0
 	mi.material_override = m
+	_building_mats.append(m)   # so a themed facade texture can be applied later
 	mi.position = pos
 	region.add_child(mi)
 	var sb := StaticBody3D.new()
@@ -779,6 +780,21 @@ func _collider_box(size: Vector3, pos: Vector3, col: Color) -> void:
 	cs.shape = sh
 	sb.add_child(cs)
 	mi.add_child(sb)
+
+var _building_mats: Array = []
+
+## Skin every built structure (houses, dungeon walls) with a themed facade texture. Triplanar
+## so it tiles across varied box sizes; the palette albedo_color stays as a multiply tint so
+## each building keeps its colour variation under the shared texture.
+func apply_building_texture(tex: Texture2D) -> void:
+	if tex == null:
+		return
+	for m in _building_mats:
+		if m == null:
+			continue
+		m.albedo_texture = tex
+		m.uv1_triplanar = true
+		m.uv1_scale = Vector3(0.15, 0.15, 0.15)   # ~7 world-units per tile
 
 ## Visual-only box (no collider -> NOT parsed into the navmesh, so it's free for the
 ## bake). For foliage canopies and decorative rock chips.

@@ -107,6 +107,7 @@ func _request_ground_texture() -> void:
 		["tex_water_", "apply_water_texture", "seamless tileable water surface of %s, top-down, ripples and reflections, repeating pattern"],
 		["tex_sky_", "apply_sky_texture", "panoramic sky of %s, wide horizon, clouds, atmospheric, matte painting"],
 		["tex_boundary_", "apply_boundary_texture", "seamless tileable rocky cliff wall texture of %s, vertical stone face, weathered, repeating pattern"],
+		["tex_building_", "apply_building_texture", "seamless tileable building facade wall texture of %s, architectural surface, repeating pattern, weathered detail"],
 	]:
 		var key := String(spec[0]) + theme
 		var cached := ComfyUI.asset_texture(key)
@@ -133,6 +134,8 @@ func _on_theme_texture_ready(key: String, path: String) -> void:
 		_apply_theme_texture("apply_sky_texture", tex)
 	elif key.begins_with("tex_boundary_"):
 		_apply_theme_texture("apply_boundary_texture", tex)
+	elif key.begins_with("tex_building_"):
+		_apply_theme_texture("apply_building_texture", tex)
 
 func _apply_theme_texture(method: String, tex: Texture2D) -> void:
 	for m in map_holder.get_children():

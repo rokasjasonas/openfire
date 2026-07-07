@@ -1176,6 +1176,8 @@ func _on_debug_generate() -> void:
 	var kind := "model" if want_3d else "image"
 	var key := "dbg_%s_%s" % [kind, prompt]
 	_dbg_ai_status.text = "Generating %s '%s'… (watch ComfyUI; this can take a while)" % [kind, prompt]
+	if want_3d:
+		_request_object_size(prompt)   # ask the LLM how big this thing is, in parallel with the bake
 	ComfyUI.ensure_server()
 	ComfyUI.bake(prompt + ", single object, plain background", key, kind)
 
@@ -1183,6 +1185,41 @@ func _on_debug_asset_failed(key: String) -> void:
 	if key.begins_with("dbg_") and _dbg_ai_status != null:
 		var why := String(ComfyUI.last_error)
 		_dbg_ai_status.text = why if why != "" else "Generation failed (no detail). Is ComfyUI running at the endpoint?"
+
+## Ask the embedded LLM for a generated object's real-world height (metres) so a "cat" spawns
+## small and a "car" big, instead of everything being ~1 unit. Async: the answer is cached in
+## _gen_sizes[prompt] and applied when the mesh spawns (the bake takes far longer than this query).
+const _SIZE_SYS := "You estimate real-world object sizes. Reply with ONLY a single number: the typical height in metres of the object named. Examples: cat -> 0.3, barrel -> 0.9, car -> 1.5, tree -> 6, house -> 5. No words, no units."
+var _gen_sizes: Dictionary = {}
+var _pending_size_prompt: String = ""
+
+func _request_object_size(prompt: String) -> void:
+	if not LLM.embedded_ready():
+		return
+	_pending_size_prompt = prompt
+	if not LLM.chat_done.is_connected(_on_size_estimate):
+		LLM.chat_done.connect(_on_size_estimate, CONNECT_ONE_SHOT)
+	if not LLM.chat(_SIZE_SYS, "Object: %s" % prompt):
+		if LLM.chat_done.is_connected(_on_size_estimate):
+			LLM.chat_done.disconnect(_on_size_estimate)
+
+func _on_size_estimate(text: String) -> void:
+	var h := _first_number(text)
+	if h > 0.0 and _pending_size_prompt != "":
+		_gen_sizes[_pending_size_prompt] = clampf(h, 0.05, 40.0)
+
+## First (possibly decimal) number in a string, or 0.0 — the 1.5B model may wrap it in words.
+func _first_number(s: String) -> float:
+	var num := ""
+	for i in s.length():
+		var c := s[i]
+		if c >= "0" and c <= "9":
+			num += c
+		elif c == "." and num.length() > 0 and not num.contains("."):
+			num += c
+		elif num.length() > 0:
+			break
+	return num.to_float() if num.length() > 0 else 0.0
 
 ## Minimal runtime OBJ loader for TripoSR output: parses `v x y z [r g b]` (optional per-vertex
 ## colour, as trimesh exports) and triangulated faces into a vertex-coloured ArrayMesh. Godot has
@@ -1283,9 +1320,18 @@ func _on_debug_asset(key: String, path: String) -> void:
 			return
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
-		mi.position = pos + Vector3.UP * 0.5
+		# Scale to the LLM-estimated real-world height (native TripoSR mesh is ~1 unit tall), and
+		# seat the base on the ground.
+		var box := mesh.get_aabb()
+		var prompt := key.trim_prefix("dbg_model_")
+		var target_h: float = _gen_sizes.get(prompt, 0.0)
+		var s := 1.0
+		if target_h > 0.0 and box.size.y > 0.001:
+			s = target_h / box.size.y
+		mi.scale = Vector3(s, s, s)
+		mi.position = Vector3(pos.x, pos.y - box.position.y * s, pos.z)
 		get_tree().current_scene.add_child(mi)
-		_dbg_ai_status.text = "Spawned model '%s'." % key.trim_prefix("dbg_")
+		_dbg_ai_status.text = "Spawned '%s'%s." % [prompt, (" — %.1f m tall" % target_h) if target_h > 0.0 else ""]
 	else:
 		# Image asset -> a billboard sprite standing in front of you.
 		var tex := ComfyUI.asset_texture(key)

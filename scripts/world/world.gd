@@ -552,11 +552,9 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			b.persona = String(data.get("persona", ""))
 			if Net.is_host():
 				b.died.connect(_on_bot_died)
-			# Apply the faction's AI skin if it's already generated (deferred: body_model is built
-			# in the bot's _ready, which runs after the spawner adds it to the tree).
-			var bfac := String(data.get("faction", ""))
-			if _faction_skins.has(bfac):
-				b.call_deferred("apply_skin", _faction_skins[bfac])
+			# Themed NPC skins: request/apply for this bot's textures once its model is built
+			# (deferred — body_model is created in the bot's _ready, after the spawner adds it).
+			call_deferred("_request_bot_skin", b)
 			return b
 
 ## Host-only: spawn a destructible objective target (replicated). Returns the node.
@@ -854,7 +852,7 @@ func _start_survival() -> void:
 			break
 	_spawn_wildlife()
 	set_process(true)
-	_request_faction_skins()   # AI-reskin NPC outfits per faction (cosmetic, async)
+	_request_npc_skins()   # AI-reskin NPC outfits to the world theme (cosmetic, async)
 	# Quests reference the villages/NPCs we just spawned, so build them last.
 	_quest_manager = QUEST_MANAGER.new()
 	_quest_manager.name = "QuestManager"
@@ -864,47 +862,57 @@ func _start_survival() -> void:
 	if not Game.continue_data.is_empty():
 		call_deferred("_apply_continue")
 
-## Per faction, img2img-reskin a base character texture with the world theme and apply it to
-## that faction's NPCs when ready — so factions look visually distinct. Cosmetic / local;
-## silent no-op without ComfyUI; cached per faction+theme.
-const _SKIN_BASE := "res://assets/models/characters/Textures/texture-a.png"
+## AI-reskin the NPC character textures to the world theme so every NPC (villagers AND raiders)
+## looks like it belongs. Each archetype uses its own texture atlas (texture-p/m/c/…), so we
+## reskin exactly the textures the spawned models use, keyed by resource path — img2img keeps
+## each atlas's UV layout (face on the head, clothing on body/legs). Cosmetic / local / async;
+## silent no-op without ComfyUI; cached per texture+theme.
+var _npc_reskins: Dictionary = {}     # original texture res-path -> reskinned Texture2D
+var _reskin_orig: Dictionary = {}     # asset key -> original texture res-path (routes the result)
 
-func _request_faction_skins() -> void:
+func _request_npc_skins() -> void:
 	var theme := String(Game.config.get("theme", "")).strip_edges()
 	if theme == "":
 		return
-	if not ComfyUI.asset_ready.is_connected(_on_faction_skin_ready):
-		ComfyUI.asset_ready.connect(_on_faction_skin_ready)
+	if not ComfyUI.asset_ready.is_connected(_on_npc_skin_ready):
+		ComfyUI.asset_ready.connect(_on_npc_skin_ready)
 	ComfyUI.ensure_server()
-	for fac in Game.adventure_village_factions:
-		var key := "skin_%s_%s" % [String(fac), theme]
+	for b in get_tree().get_nodes_in_group("bot"):
+		_request_bot_skin(b)
+
+## Ask ComfyUI to reskin every texture this bot's model uses (once per texture+theme), and apply
+## any already-generated ones. Called on spawn too, so raiders/respawns get themed.
+func _request_bot_skin(b: Node) -> void:
+	var theme := String(Game.config.get("theme", "")).strip_edges()
+	if theme == "" or b == null or not b.has_method("model_texture_paths"):
+		return
+	if not _npc_reskins.is_empty() and b.has_method("apply_skin"):
+		b.apply_skin(_npc_reskins)
+	for p in b.model_texture_paths():
+		if _npc_reskins.has(p):
+			continue
+		var key := "npcskin_%s_%s" % [String(p).get_file().get_basename(), theme]
+		if _reskin_orig.has(key):
+			continue   # already requested / in flight
+		_reskin_orig[key] = p
 		var cached := ComfyUI.asset_texture(key)
 		if cached != null:
-			_apply_faction_skin(String(fac), cached)
+			_npc_reskins[p] = cached
+			if b.has_method("apply_skin"):
+				b.apply_skin(_npc_reskins)
 		else:
-			ComfyUI.reskin(_SKIN_BASE, "game character skin texture atlas, %s faction survivor, %s theme, recolour the outfit — weathered survival clothing, leather and fabric; keep the same layout with the face on the head area and clothing on the body and legs, realistic muted colours" % [String(fac), theme], key)
+			ComfyUI.reskin(p, "game character skin texture atlas, %s themed survivor — recolour the clothing and gear, keep the same layout (face on the head area, clothing on the body and legs), weathered, realistic" % theme, key)
 
-func _on_faction_skin_ready(key: String, path: String) -> void:
-	if not key.begins_with("skin_") or not path.to_lower().ends_with(".png"):
+func _on_npc_skin_ready(key: String, path: String) -> void:
+	if not key.begins_with("npcskin_") or not _reskin_orig.has(key) or not path.to_lower().ends_with(".png"):
 		return
 	var img := Image.new()
 	if img.load(path) != OK:
 		return
-	var tex := ImageTexture.create_from_image(img)
-	# key is "skin_<faction>_<theme>" — the faction is between the prefix and the theme suffix.
-	for fac in Game.adventure_village_factions:
-		if key == "skin_%s_%s" % [String(fac), String(Game.config.get("theme", ""))]:
-			_apply_faction_skin(String(fac), tex)
-			return
-
-var _faction_skins: Dictionary = {}   # faction -> reskinned Texture2D, so bots spawned/respawned
-                                       # after the (slow) generation still get their skin
-
-func _apply_faction_skin(fac: String, tex: Texture2D) -> void:
-	_faction_skins[fac] = tex
+	_npc_reskins[String(_reskin_orig[key])] = ImageTexture.create_from_image(img)
 	for b in get_tree().get_nodes_in_group("bot"):
-		if String(b.get("faction")) == fac and b.has_method("apply_skin"):
-			b.apply_skin(tex)
+		if b.has_method("apply_skin"):
+			b.apply_skin(_npc_reskins)
 
 const ANIMAL_SCENE := preload("res://scenes/animal.tscn")
 

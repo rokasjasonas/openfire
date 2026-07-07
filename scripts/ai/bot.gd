@@ -256,10 +256,12 @@ func _model_meshes(n: Node) -> Array:
 		out.append_array(_model_meshes(c))
 	return out
 
-## Apply an AI-reskinned texture to the character model. img2img keeps the source texture's
-## UV layout, so overriding the albedo texture re-themes the NPC without smearing.
-func apply_skin(tex: Texture2D) -> void:
-	if tex == null or body_model == null:
+## Re-theme the character: swap each surface's albedo texture for its AI-reskinned version,
+## matched by the ORIGINAL texture's resource path (`reskins` = {orig_path: Texture2D}). Each
+## archetype uses its own texture (texture-p/m/c/…), so we must reskin the right one — img2img
+## keeps the source UV layout, so the face stays a face and legs stay legs.
+func apply_skin(reskins: Dictionary) -> void:
+	if body_model == null or reskins.is_empty():
 		return
 	for m in _model_meshes(body_model):
 		var mi := m as MeshInstance3D
@@ -267,9 +269,32 @@ func apply_skin(tex: Texture2D) -> void:
 			continue
 		for s in mi.mesh.get_surface_count():
 			var mat = mi.get_active_material(s)
-			var dup: StandardMaterial3D = mat.duplicate() if mat is StandardMaterial3D else StandardMaterial3D.new()
-			dup.albedo_texture = tex
-			mi.set_surface_override_material(s, dup)
+			if not (mat is StandardMaterial3D):
+				continue
+			var orig: Texture2D = mat.albedo_texture
+			var op := orig.resource_path if orig != null else ""
+			if reskins.has(op):
+				var dup: StandardMaterial3D = mat.duplicate()
+				dup.albedo_texture = reskins[op]
+				mi.set_surface_override_material(s, dup)
+
+## Distinct albedo-texture resource paths this character's model uses (so the world can reskin
+## exactly those and preserve each one's UV layout).
+func model_texture_paths() -> Array:
+	var paths: Array = []
+	if body_model == null:
+		return paths
+	for m in _model_meshes(body_model):
+		var mi := m as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for s in mi.mesh.get_surface_count():
+			var mat = mi.get_active_material(s)
+			if mat is StandardMaterial3D and mat.albedo_texture != null:
+				var p: String = mat.albedo_texture.resource_path
+				if p != "" and not paths.has(p):
+					paths.append(p)
+	return paths
 
 func _process(delta: float) -> void:
 	# Remote copy: smoothly interpolate toward the replicated transform + animate.

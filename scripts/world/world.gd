@@ -877,7 +877,7 @@ func _request_faction_skins() -> void:
 		if cached != null:
 			_apply_faction_skin(String(fac), cached)
 		else:
-			ComfyUI.reskin(_SKIN_BASE, "character outfit texture, the %s faction, %s, worn survival clothing and gear" % [String(fac), theme], key)
+			ComfyUI.reskin(_SKIN_BASE, "game character skin texture atlas, %s faction survivor, %s theme, recolour the outfit — weathered survival clothing, leather and fabric; keep the same layout with the face on the head area and clothing on the body and legs, realistic muted colours" % [String(fac), theme], key)
 
 func _on_faction_skin_ready(key: String, path: String) -> void:
 	if not key.begins_with("skin_") or not path.to_lower().ends_with(".png"):

@@ -45,7 +45,8 @@ func _ready() -> void:
 	spawner.spawn_function = Callable(self, "_spawn_combatant")
 	_load_map()
 	Game.match_active = true
-	Music.start()   # adaptive score: calm bed now, combat layer fades in near enemies
+	# Music starts in _tick_music once the local player has spawned — not here, or the calm bed
+	# would play over the whole loading screen.
 
 	if Net.is_host():
 		Game.reset_scores()
@@ -1106,6 +1107,7 @@ func _tick_music() -> void:
 	if me == null or not Game.match_active:
 		Music.set_combat(false)
 		return
+	Music.start()   # idempotent — begins the score only once we're actually in-game, not loading
 	var combat := false
 	for b in get_tree().get_nodes_in_group("bot"):
 		if b.get("dead"):

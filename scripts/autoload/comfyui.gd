@@ -58,7 +58,7 @@ const IMG2IMG_WORKFLOW := """{
   "10": {"class_type": "LoadImage", "inputs": {"image": "%IMAGE%"}},
   "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "%CKPT%"}},
   "11": {"class_type": "VAEEncode", "inputs": {"pixels": ["10", 0], "vae": ["4", 2]}},
-  "3": {"class_type": "KSampler", "inputs": {"seed": %SEED%, "steps": %STEPS%, "cfg": 6.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 0.40, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["11", 0]}},
+  "3": {"class_type": "KSampler", "inputs": {"seed": %SEED%, "steps": %STEPS%, "cfg": 6.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 0.55, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["11", 0]}},
   "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "%PROMPT%", "clip": ["4", 1]}},
   "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "%NEG%", "clip": ["4", 1]}},
   "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},

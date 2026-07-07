@@ -552,6 +552,11 @@ func _spawn_combatant(data: Dictionary) -> Node:
 			b.persona = String(data.get("persona", ""))
 			if Net.is_host():
 				b.died.connect(_on_bot_died)
+			# Apply the faction's AI skin if it's already generated (deferred: body_model is built
+			# in the bot's _ready, which runs after the spawner adds it to the tree).
+			var bfac := String(data.get("faction", ""))
+			if _faction_skins.has(bfac):
+				b.call_deferred("apply_skin", _faction_skins[bfac])
 			return b
 
 ## Host-only: spawn a destructible objective target (replicated). Returns the node.
@@ -892,7 +897,11 @@ func _on_faction_skin_ready(key: String, path: String) -> void:
 			_apply_faction_skin(String(fac), tex)
 			return
 
+var _faction_skins: Dictionary = {}   # faction -> reskinned Texture2D, so bots spawned/respawned
+                                       # after the (slow) generation still get their skin
+
 func _apply_faction_skin(fac: String, tex: Texture2D) -> void:
+	_faction_skins[fac] = tex
 	for b in get_tree().get_nodes_in_group("bot"):
 		if String(b.get("faction")) == fac and b.has_method("apply_skin"):
 			b.apply_skin(tex)

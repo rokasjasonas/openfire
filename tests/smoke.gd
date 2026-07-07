@@ -66,9 +66,10 @@ func _ready() -> void:
 		var wm = me.weapons
 		var wid = wm.loadout[wm.current_index] if not wm.loadout.is_empty() else ""
 		var before: int = wm.ammo.get(wid, {}).get("mag", -1)
-		# Firing runs in _process; pump a few frames + a short window so it ticks.
+		# Firing runs in _process; hold the trigger over a generous window so it ticks even under
+		# CI load (0.6s was too short there and flaked — green locally, red on a loaded runner).
 		wm.set_trigger(true)
-		await get_tree().create_timer(0.6).timeout
+		await get_tree().create_timer(2.0).timeout
 		wm.set_trigger(false)
 		var after: int = wm.ammo.get(wid, {}).get("mag", -1)
 		fired_ok = before > 0 and after < before

@@ -184,11 +184,13 @@ func _try_begin() -> void:
 			return
 	if Game.is_adventure() and not _story_done:
 		return  # hold gameplay until the story has been generated
+	if Game.is_adventure() and not _skins_done:
+		return  # hold until NPC skins are themed (bounded by _skins_timeout + _hard_begin)
 	_begin()
 
-## Grace-timer entry: don't start Adventure until its story is ready.
+## Grace-timer entry: don't start Adventure until its story is ready and NPCs are themed.
 func _grace_begin() -> void:
-	if Game.is_adventure() and not _story_done:
+	if Game.is_adventure() and (not _story_done or not _skins_done):
 		return
 	_begin()
 
@@ -870,15 +872,77 @@ func _start_survival() -> void:
 var _npc_reskins: Dictionary = {}     # original texture res-path -> reskinned Texture2D
 var _reskin_orig: Dictionary = {}     # asset key -> original texture res-path (routes the result)
 
+var _skins_done: bool = false     # gate: adventure holds the loading screen until NPC skins land
+var _skins_pending: int = 0
+
+## Reskin every texture the NPC archetypes use — up front, before the world starts — so NPCs are
+## already themed when the player spawns in (no pop-in). Holds the loading screen until they're
+## ready (bounded by a timeout + the 70s hard-begin safety). Silent no-op / instant when ComfyUI
+## is unavailable.
 func _request_npc_skins() -> void:
 	var theme := String(Game.config.get("theme", "")).strip_edges()
-	if theme == "":
+	if theme == "" or not ComfyUI.enabled() or DisplayServer.get_name() == "headless":
+		_skins_done = true   # never gate the loading screen in headless/smoke
 		return
 	if not ComfyUI.asset_ready.is_connected(_on_npc_skin_ready):
 		ComfyUI.asset_ready.connect(_on_npc_skin_ready)
+		ComfyUI.asset_failed.connect(_on_npc_skin_failed)
 	ComfyUI.ensure_server()
+	for p in _npc_texture_set():
+		if _npc_reskins.has(p):
+			continue
+		var key := "npcskin_%s_%s" % [String(p).get_file().get_basename(), theme]
+		if _reskin_orig.has(key):
+			continue
+		_reskin_orig[key] = p
+		var cached := ComfyUI.asset_texture(key)
+		if cached != null:
+			_npc_reskins[p] = cached
+		else:
+			_skins_pending += 1
+			ComfyUI.reskin(p, "game character skin texture atlas, %s themed survivor — recolour the clothing and gear, keep the same layout (face on the head area, clothing on the body and legs), weathered, realistic" % theme, key)
 	for b in get_tree().get_nodes_in_group("bot"):
-		_request_bot_skin(b)
+		if b.has_method("apply_skin"):
+			b.apply_skin(_npc_reskins)
+	if _skins_pending == 0:
+		_skins_done = true
+	else:
+		_set_loading_text.rpc(_loading("Outfitting the locals…  0/%d" % _skins_pending))
+		get_tree().create_timer(60.0).timeout.connect(_skins_timeout)
+
+## Distinct albedo textures used by the NPC character archetypes (load each distinct model once).
+func _npc_texture_set() -> Array:
+	var out: Array = []
+	var seen := {}
+	for etype in BOT_SCRIPT.PROFILES:
+		var model := String((BOT_SCRIPT.PROFILES[etype] as Dictionary).get("model", ""))
+		if model == "" or seen.has(model):
+			continue
+		seen[model] = true
+		var scn = load(model)
+		if scn == null:
+			continue
+		var inst = scn.instantiate()
+		_collect_albedo_textures(inst, out)
+		inst.free()
+	return out
+
+func _collect_albedo_textures(n: Node, out: Array) -> void:
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		var mi := n as MeshInstance3D
+		for s in mi.mesh.get_surface_count():
+			var mat = mi.get_active_material(s)
+			if mat is StandardMaterial3D and mat.albedo_texture != null:
+				var p: String = mat.albedo_texture.resource_path
+				if p != "" and not out.has(p):
+					out.append(p)
+	for c in n.get_children():
+		_collect_albedo_textures(c, out)
+
+func _skins_timeout() -> void:
+	if not _skins_done:
+		_skins_done = true
+		_try_begin()
 
 ## Ask ComfyUI to reskin every texture this bot's model uses (once per texture+theme), and apply
 ## any already-generated ones. Called on spawn too, so raiders/respawns get themed.
@@ -907,12 +971,27 @@ func _on_npc_skin_ready(key: String, path: String) -> void:
 	if not key.begins_with("npcskin_") or not _reskin_orig.has(key) or not path.to_lower().ends_with(".png"):
 		return
 	var img := Image.new()
-	if img.load(path) != OK:
-		return
-	_npc_reskins[String(_reskin_orig[key])] = ImageTexture.create_from_image(img)
-	for b in get_tree().get_nodes_in_group("bot"):
-		if b.has_method("apply_skin"):
-			b.apply_skin(_npc_reskins)
+	if img.load(path) == OK:
+		_npc_reskins[String(_reskin_orig[key])] = ImageTexture.create_from_image(img)
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.has_method("apply_skin"):
+				b.apply_skin(_npc_reskins)
+	_skin_progressed()
+
+func _on_npc_skin_failed(key: String) -> void:
+	if key.begins_with("npcskin_") and _reskin_orig.has(key):
+		_skin_progressed()   # don't let a failed skin hold the loading screen forever
+
+## One reskin finished (or failed): update the loading count and open the gate once all are in.
+func _skin_progressed() -> void:
+	if _skins_pending > 0:
+		_skins_pending -= 1
+	if not _begun and not _skins_done:
+		var total := _reskin_orig.size()
+		_set_loading_text.rpc(_loading("Outfitting the locals…  %d/%d" % [total - _skins_pending, total]))
+	if _skins_pending <= 0 and not _skins_done:
+		_skins_done = true
+		_try_begin()
 
 const ANIMAL_SCENE := preload("res://scenes/animal.tscn")
 
